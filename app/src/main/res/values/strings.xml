@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JARVIS</string>
+    <string name="accessibility_service_description">JARVIS uses accessibility to read what is on your screen and to type/tap inside other apps when you ask it to. This only runs when you explicitly enable it in Android Settings. It is OFF by default.</string>
+</resources>

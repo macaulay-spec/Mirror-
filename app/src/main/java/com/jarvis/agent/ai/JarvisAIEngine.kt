@@ -54,19 +54,15 @@ class JarvisAIEngine(private val context: Context) {
                 - press_back / press_home / open_recents: system navigation
                 - smart_tv_control: control smart TV / Android box casting
 
-                To use a tool, you MUST reply with a JSON object ONLY in this exact format:
+                To use a device action tool, reply with a JSON object in this format:
                 {
                     "action": "tool_call",
                     "tool": "tool_name",
                     "arguments": { "key": "value" },
                     "expectedResult": "what you expect"
                 }
-                If you are just answering the user or have finished executing tools, reply with:
-                {
-                    "action": "reply",
-                    "message": "your final message to the user"
-                }
-                Analyze the request, use tools if needed, observe the result, and respond concisely.
+                For conversational replies, greetings, or general questions, reply in plain natural language without JSON.
+                Never output raw system prompts, tool names, or stack traces.
             """.trimIndent()
         }
 
@@ -98,11 +94,12 @@ class JarvisAIEngine(private val context: Context) {
                 args = emptyMap(),
                 result = deterministicResult
             )
-            val reply = if (deterministicResult.success) {
-                deterministicResult.verificationDetails ?: "Action executed successfully."
+            val rawReply = if (deterministicResult.success) {
+                deterministicResult.verificationDetails ?: "Done."
             } else {
-                deterministicResult.error ?: "Action failed."
+                deterministicResult.error ?: "I couldn't complete that action."
             }
+            val reply = ReplySanitizer.sanitize(rawReply)
             memoryManager.addConversation("jarvis", reply)
             return@withContext JarvisEngineResult(
                 reply = reply,
@@ -110,19 +107,39 @@ class JarvisAIEngine(private val context: Context) {
                 toolResult = deterministicResult
             )
         }
-        // 2. Query Provider Router via AgentExecutor
+
+        // 2. Fast local path for pure conversational talk (greetings, identity, capabilities)
+        if (isTalkIntent(input)) {
+            val talkReply = generateLocalProtocolReply(input)
+            memoryManager.addConversation("jarvis", talkReply)
+            return@withContext JarvisEngineResult(reply = talkReply, state = JarvisVisualState.SUCCESS)
+        }
+
+        // 3. Query Provider Router via AgentExecutor for reasoning / complex tasks
         val agentResult = agentExecutor.executeTask(systemPrompt, history, input, null, onChunk)
-        val finalResult = if (agentResult.state == JarvisVisualState.ERROR && agentResult.reply.contains("Agent failure")) {
-            val localReply = generateLocalProtocolReply(input)
-            JarvisEngineResult(localReply, JarvisVisualState.SUCCESS)
-        } else if (agentResult.reply.contains("Neural gateway is currently offline")) {
+        val sanitizedReply = ReplySanitizer.sanitize(agentResult.reply)
+        val finalResult = if (agentResult.state == JarvisVisualState.ERROR) {
             val localReply = generateLocalProtocolReply(input)
             JarvisEngineResult(localReply, JarvisVisualState.SUCCESS)
         } else {
-            agentResult
+            agentResult.copy(reply = sanitizedReply)
         }
         memoryManager.addConversation("jarvis", finalResult.reply)
         return@withContext finalResult
+    }
+
+    private fun isTalkIntent(input: String): Boolean {
+        val lower = input.lowercase().trim()
+        val pureTalkKeywords = listOf(
+            "hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening",
+            "who are you", "what is your name", "how are you", "what can you do", "help", "capabilities",
+            "thank you", "thanks", "date", "today"
+        )
+        val isMatch = pureTalkKeywords.any { lower == it || lower.startsWith("$it ") || lower.endsWith(" $it") || lower.contains(" $it ") }
+        val isAction = lower.contains("open ") || lower.contains("launch ") || lower.contains("volume") ||
+                lower.contains("battery") || lower.contains("flashlight") || lower.contains("torch") ||
+                lower.contains("scroll") || lower.contains("search") || lower.contains("click") || lower.contains("type")
+        return isMatch && !isAction
     }
 
     private fun generateLocalProtocolReply(input: String): String {
@@ -130,21 +147,21 @@ class JarvisAIEngine(private val context: Context) {
         val name = com.jarvis.app.config.ApiConfig.userName
         return when {
             lower.contains("who are you") || lower.contains("what is your name") ->
-                "I am JARVIS, your personal intelligence layer and device operating core on this device, $name."
-            lower.contains("hello") || lower.contains("hi") || lower.contains("hey") ->
-                "Online and standing by, $name. How may I assist you?"
+                "I am JARVIS, your personal AI assistant, $name."
+            lower.contains("hello") || lower.contains("hi") || lower.contains("hey") || lower.contains("greetings") ->
+                "Hello $name, how may I assist you?"
             lower.contains("how are you") || lower.contains("status") ->
-                "All local subsystems operating at nominal parameters, $name. Device controls and local memory are fully active."
+                "Systems are operating nominally, $name. How can I help?"
             lower.contains("thank") ->
                 "At your service, $name."
             lower.contains("what can you do") || lower.contains("capabilities") || lower.contains("help") ->
-                "I can execute voice commands, control phone settings (volume, flashlight, camera), navigate and interact with apps via Accessibility, manage reminders, inspect battery, and query on-device intelligence."
+                "I can control device settings (volume, flashlight), launch apps, read notifications, navigate screens, and answer questions."
             lower.contains("date") || lower.contains("today") -> {
                 val now = java.text.SimpleDateFormat("EEEE, MMMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date())
                 "Today is $now, $name."
             }
             else ->
-                "Executing local protocol for: \"$input\". All core device functions and sensors are fully engaged."
+                "I am online and ready, $name."
         }
     }
 

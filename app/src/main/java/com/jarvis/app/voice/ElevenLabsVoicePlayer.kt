@@ -86,6 +86,7 @@ object ElevenLabsVoicePlayer {
                         start()
                         setOnCompletionListener {
                             try {
+                                com.jarvis.app.voice.VoiceBus.setEngineState(com.jarvis.core.model.JarvisVisualState.IDLE)
                                 it.release()
                                 tempFile.delete()
                             } catch (_: Exception) {}

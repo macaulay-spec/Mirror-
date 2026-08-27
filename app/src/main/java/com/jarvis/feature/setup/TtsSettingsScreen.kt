@@ -139,6 +139,10 @@ fun TtsSettingsScreen(
                     OutlinedButton(
                         onClick = {
                             ApiConfig.saveVoicePreferences(context, engineType, voiceId)
+                            try {
+                                val speech = com.jarvis.app.voice.SpeechOutput(context)
+                                speech.speak("Voice output test. JARVIS audio profile updated.")
+                            } catch (_: Exception) {}
                             android.widget.Toast.makeText(context, "Testing voice output...", android.widget.Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth(),

@@ -39,8 +39,17 @@ object ToolRegistry {
 
     fun getTool(id: String): ToolDefinition? = tools[id]
 
+    private val aliases = mapOf(
+        "battery_info" to "device_battery",
+        "open_app" to "app_launch",
+        "read_notifications" to "get_recent_notifications",
+        "reply_notification" to "reply_to_notification",
+        "memory_save" to "memory_remember"
+    )
+
     suspend fun execute(context: Context, request: ToolExecutionRequest): ToolExecutionResult {
-        val tool = tools[request.toolId] ?: return ToolExecutionResult(
+        val targetId = aliases[request.toolId] ?: request.toolId
+        val tool = tools[targetId] ?: return ToolExecutionResult(
             toolId = request.toolId,
             success = false,
             data = null,

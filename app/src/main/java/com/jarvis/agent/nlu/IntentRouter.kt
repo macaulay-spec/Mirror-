@@ -228,7 +228,7 @@ object IntentRouter {
 
     // ------------------------------------------------------------------ calls
 
-    private fun parseCall(context: Context, raw: String, lower: String): ParsedIntent? {
+    private suspend fun parseCall(context: Context, raw: String, lower: String): ParsedIntent? {
         val verb = listOf("call up", "phone", "ring", "dial", "call")
             .firstOrNull { lower.startsWith("$it ") || lower == it }
             ?: return null
@@ -256,7 +256,7 @@ object IntentRouter {
 
     // ------------------------------------------------------------------- sms
 
-    private fun parseSms(context: Context, raw: String, lower: String): ParsedIntent? {
+    private suspend fun parseSms(context: Context, raw: String, lower: String): ParsedIntent? {
         val verb = listOf("send a message to", "send message to", "send sms to", "text", "message", "sms", "tell")
             .firstOrNull { lower.startsWith("$it ") }
             ?: return null

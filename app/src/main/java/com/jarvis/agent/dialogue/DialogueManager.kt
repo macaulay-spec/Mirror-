@@ -320,12 +320,13 @@ class DialogueManager(private val context: Context) {
     private fun rememberOutcome(intentId: String, args: Map<String, Any?>, result: ToolExecutionResult) {
         if (!result.success) return
         when (intentId) {
-            IntentRouter.INTENT_CALL, IntentRouter.INTENT_SMS, IntentRouter.INTENT_REPLY ->
+            IntentRouter.INTENT_CALL, IntentRouter.INTENT_SMS, IntentRouter.INTENT_REPLY -> {
                 entities.notePerson(
                     args["contact"]?.toString() ?: return,
                     args["number"]?.toString()
                 )
-            IntentRouter.INTENT_SMS -> entities.noteMessage(args["message"]?.toString() ?: return)
+                entities.noteMessage(args["message"]?.toString())
+            }
             IntentRouter.INTENT_OPEN_APP -> entities.noteApp(args["app"]?.toString() ?: return)
         }
     }

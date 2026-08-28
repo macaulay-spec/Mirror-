@@ -56,10 +56,7 @@ class WakeWordForegroundService : Service(), RecognitionListener {
                 if (state == com.jarvis.core.model.JarvisVisualState.IDLE && running) {
                     startListening()
                 } else {
-                    try {
-                        recognizer?.stopListening()
-                    } catch (_: Exception) {}
-                    _isListening = false
+                    stopEngine()
                 }
             }
         }
@@ -76,25 +73,37 @@ class WakeWordForegroundService : Service(), RecognitionListener {
 
     private var _isListening = false
 
+    /**
+     * Swap this one line for `VoskWakeWordEngine(this)` after following docs/VOSK_SETUP.md
+     * to get a fully offline wake word with no account and no key.
+     */
+    private val engine: WakeWordEngine = SystemSpeechRecognizerEngine(this)
+
     private fun startListening() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) return
+        if (_isListening) return
         try {
-            if (recognizer == null || !_isListening) {
-                recognizer?.destroy()
-                recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-                    setRecognitionListener(this@WakeWordForegroundService)
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                    }
-                    startListening(intent)
-                    _isListening = true
-                }
-            }
+            engine.start(
+                onPartial = { text ->
+                    VoiceBus.onPartial(text)
+                    if (text.contains(WAKE_WORDS, ignoreCase = true)) tryWake()
+                },
+                onDetected = { tryWake() },
+                onError = { restartSoon() }
+            )
+            _isListening = true
+        } catch (_: Exception) {
+            _isListening = false
+        }
+    }
+
+    private fun stopEngine() {
+        try {
+            engine.stop()
         } catch (_: Exception) { }
+        _isListening = false
     }
 
     override fun onResults(results: android.os.Bundle?) {
@@ -145,11 +154,8 @@ class WakeWordForegroundService : Service(), RecognitionListener {
         
         VoiceBus.onWakeWord()
         VoiceBus.clearTranscript()
-        // Stop our own background recognizer so the foreground engine can take the mic
-        try {
-            recognizer?.stopListening()
-        } catch (_: Exception) {}
-        _isListening = false
+        // Stop our own background listener so the foreground engine can take the mic
+        stopEngine()
     }
 
     private fun restartSoon() {
@@ -191,7 +197,12 @@ class WakeWordForegroundService : Service(), RecognitionListener {
 
     override fun onDestroy() {
         running = false
-        recognizer?.destroy()
+        try {
+            engine.release()
+        } catch (_: Exception) { }
+        try {
+            recognizer?.destroy()
+        } catch (_: Exception) { }
         recognizer = null
         super.onDestroy()
     }

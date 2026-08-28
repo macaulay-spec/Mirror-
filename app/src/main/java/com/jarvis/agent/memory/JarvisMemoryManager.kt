@@ -45,7 +45,7 @@ class JarvisMemoryManager(context: Context) {
     fun getSessionContext(): SessionContext = sessionContext
     fun getActionHistory(): List<String> = actionHistory.toList()
 
-    suspend fun recordToolExecution(toolId: String, args: Map<String, Any>, result: ToolExecutionResult) {
+    suspend fun recordToolExecution(toolId: String, args: Map<String, Any?>, result: ToolExecutionResult) {
         val details = if (result.success) result.verificationDetails ?: "Success" else result.error ?: "Failure"
         updateSessionContext(
             app = null,

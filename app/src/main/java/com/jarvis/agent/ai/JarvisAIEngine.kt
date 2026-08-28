@@ -58,7 +58,9 @@ class JarvisAIEngine(private val context: Context) {
                 - press_back / press_home / open_recents: system navigation
                 - smart_tv_control: control smart TV / Android box casting
 
-                To use a device action tool, reply with a JSON object in this format:
+                The available actions are supplied to you as callable functions — call them
+                directly, with the correct argument names, instead of describing them.
+                Only if functions are unavailable, reply with a JSON object in this format:
                 {
                     "action": "tool_call",
                     "tool": "tool_name",

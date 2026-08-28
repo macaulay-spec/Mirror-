@@ -60,6 +60,61 @@ class GeminiAIProvider : AIProvider {
         return res.map { AIResponse(content = it) }
     }
 
+    override suspend fun generateWithTools(
+        apiKey: String,
+        model: String,
+        systemInstruction: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        tools: org.json.JSONArray
+    ): Result<AIResponse> {
+        val raw = geminiService.generateWithTools(
+            systemInstruction = systemInstruction,
+            history = history,
+            userMessage = userMessage,
+            tools = tools,
+            model = model,
+            apiKey = apiKey
+        )
+        if (raw.isFailure) {
+            return Result.failure(raw.exceptionOrNull() ?: Exception("Gemini tool call failed."))
+        }
+        val body = raw.getOrNull() ?: ""
+        return try {
+            val json = org.json.JSONObject(body)
+            val parts = json.optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+
+            val calls = mutableListOf<Map<String, Any>>()
+            val text = StringBuilder()
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val part = parts.optJSONObject(i) ?: continue
+                    val chunk = part.optString("text")
+                    if (chunk.isNotBlank()) text.append(chunk)
+
+                    val fn = part.optJSONObject("functionCall")
+                    if (fn != null) {
+                        val args = mutableMapOf<String, Any?>()
+                        fn.optJSONObject("args")?.let { argsObj ->
+                            val keys = argsObj.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                args[key] = argsObj.opt(key)
+                            }
+                        }
+                        calls.add(mapOf("name" to fn.optString("name"), "arguments" to args))
+                    }
+                }
+            }
+            Result.success(AIResponse(content = text.toString().trim(), toolCalls = calls))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun stream(
         apiKey: String,
         model: String,
@@ -109,6 +164,70 @@ class OpenAiAIProvider : AIProvider {
                 val json = JSONObject(resp.body?.string() ?: "{}")
                 val content = json.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
                 Result.success(AIResponse(content = content))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun generateWithTools(
+        apiKey: String,
+        model: String,
+        systemInstruction: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        tools: org.json.JSONArray
+    ): Result<AIResponse> = withContext(Dispatchers.IO) {
+        try {
+            val messages = JSONArray()
+            messages.put(JSONObject().put("role", "system").put("content", systemInstruction))
+            history.forEach { (role, text) ->
+                messages.put(
+                    JSONObject()
+                        .put("role", if (role == "jarvis") "assistant" else "user")
+                        .put("content", text)
+                )
+            }
+            messages.put(JSONObject().put("role", "user").put("content", userMessage))
+
+            val body = JSONObject()
+                .put("model", model)
+                .put("messages", messages)
+                .put("tools", tools)
+                .put("tool_choice", "auto")
+
+            val request = Request.Builder()
+                .url("https://api.openai.com/v1/chat/completions")
+                .header("Authorization", "Bearer $apiKey")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    return@withContext Result.failure(Exception("Neural core status: ${resp.code}"))
+                }
+                val json = JSONObject(resp.body?.string() ?: "{}")
+                val message = json.getJSONArray("choices").getJSONObject(0).optJSONObject("message")
+                    ?: JSONObject()
+
+                val calls = mutableListOf<Map<String, Any>>()
+                val toolCalls = message.optJSONArray("tool_calls")
+                if (toolCalls != null) {
+                    for (i in 0 until toolCalls.length()) {
+                        val fn = toolCalls.optJSONObject(i)?.optJSONObject("function") ?: continue
+                        val args = mutableMapOf<String, Any?>()
+                        val argsObj = org.json.JSONObject(fn.optString("arguments", "{}"))
+                        val keys = argsObj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            args[key] = argsObj.opt(key)
+                        }
+                        calls.add(mapOf("name" to fn.optString("name"), "arguments" to args))
+                    }
+                }
+                Result.success(
+                    AIResponse(content = message.optString("content", ""), toolCalls = calls)
+                )
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -694,6 +813,44 @@ class ProviderRouter {
 
     private fun mask(key: String): String =
         if (key.length <= 10) "****" else key.take(6) + "..." + key.takeLast(4)
+
+    /**
+     * Function-calling pass. Providers that support tools (Gemini, OpenAI) receive the real
+     * ToolRegistry schema; the rest fall back to their normal text call. Failures degrade to
+     * the text path in AgentExecutor rather than ending the turn.
+     */
+    suspend fun executeWithTools(
+        systemInstruction: String,
+        history: List<Pair<String, String>>,
+        userMessage: String
+    ): Result<AIResponse> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val sortedConfigs = getSortedConfigs()
+        if (sortedConfigs.isEmpty()) {
+            return@withContext Result.failure(
+                Exception("No AI key configured. Add GEMINI_API_KEY to local.properties and rebuild.")
+            )
+        }
+
+        val geminiTools = ToolSchema.forGemini()
+        val openAiTools = ToolSchema.forOpenAI()
+
+        var lastError: Throwable? = null
+        for (config in sortedConfigs) {
+            val provider = providers[config.provider] ?: continue
+            val tools = if (config.provider == "openai") openAiTools else geminiTools
+            val result = provider.generateWithTools(
+                config.apiKey, config.model, systemInstruction, history, userMessage, tools
+            )
+            if (result.isSuccess) {
+                config.failureCount = 0
+                config.isHealthy = true
+                return@withContext result
+            }
+            lastError = result.exceptionOrNull()
+            config.failureCount++
+        }
+        Result.failure(lastError ?: Exception("Every provider failed."))
+    }
 
     suspend fun streamWithFallback(
         systemInstruction: String,

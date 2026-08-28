@@ -87,13 +87,10 @@ object ApiConfig {
     const val LIVEKIT_API_SECRET = ""
     val hasLiveKit get() = LIVEKIT_URL.isNotBlank() && LIVEKIT_API_KEY.isNotBlank()
 
-    // JARVIS BACKEND CONNECTION
-    const val JARVIS_BACKEND_URL = "https://jarvis-backend.example.com" // Update with real backend URL
-
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
     val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY
 
-    // Custom user key and provider (Deprecated logic)
+    // Custom user key and provider
     var customApiKey: String? = null
         private set
     var customProvider: String? = null
@@ -105,7 +102,13 @@ object ApiConfig {
         }
 
     val activeApiKey: String
-        get() = if (customApiKey?.isNotBlank() == true) customApiKey!! else GEMINI_API_KEY
+        get() {
+            val custom = customApiKey?.trim()
+            if (!custom.isNullOrBlank() && (custom.startsWith("AIza") || custom.startsWith("sk-") || custom.startsWith("gsk_") || custom.startsWith("csk-"))) {
+                return custom
+            }
+            return GEMINI_API_KEY
+        }
 
     fun getProviderLabel(): String = when (activeProvider) {
         "gemini" -> "Google Gemini"
@@ -130,7 +133,7 @@ object ApiConfig {
     const val OPENROUTER_MODEL = "openai/gpt-4o-mini"
 
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
-    val hasAI: Boolean = true
+    val hasAI: Boolean get() = activeApiKey.isNotBlank()
 
     // ===== Cloud STT (optional) =====
     const val GOOGLE_STT_API_KEY = ""
@@ -140,16 +143,32 @@ object ApiConfig {
     const val GOOGLE_TTS_API_KEY = ""
     val hasCloudTTS get() = GOOGLE_TTS_API_KEY.isNotBlank()
 
-    // ===== ElevenLabs (optional) =====
-
     // ===== Connectors (optional, later) =====
     const val HOME_ASSISTANT_URL = ""
     const val HOME_ASSISTANT_TOKEN = ""
     val hasHomeAssistant get() = HOME_ASSISTANT_URL.isNotBlank() && HOME_ASSISTANT_TOKEN.isNotBlank()
 
-    /**
-     * Automatically detects the AI provider based on API key prefix.
-     */
+    fun autoDetectProvider(key: String): String = when {
+        key.startsWith("AIza") -> "gemini"
+        key.startsWith("sk-proj-") || key.startsWith("sk-") && !key.startsWith("sk-ant-") -> "openai"
+        key.startsWith("sk-ant-") -> "anthropic"
+        key.startsWith("gsk_") -> "groq"
+        key.startsWith("csk-") -> "cerebras"
+        key.startsWith("sk-or-") -> "openrouter"
+        else -> "gemini"
+    }
+
+    fun saveCustomApiKey(context: Context, key: String?, provider: String? = null) {
+        val cleanKey = key?.trim()?.takeIf { it.isNotBlank() }
+        val detectedProvider = if (cleanKey != null) (provider ?: autoDetectProvider(cleanKey)) else null
+        customApiKey = cleanKey
+        customProvider = detectedProvider
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_KEY_CUSTOM_API_KEY, cleanKey)
+            .putString(PREF_KEY_CUSTOM_PROVIDER, detectedProvider)
+            .apply()
+    }
 
     /**
      * Loads persisted settings on app startup.
@@ -160,8 +179,10 @@ object ApiConfig {
         userName = prefs.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         personalityTone = prefs.getString(PREF_KEY_AI_TONE, "jarvis_protocol") ?: "jarvis_protocol"
         isOnboardingCompleted = prefs.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
-        voiceEngineType = prefs.getString(PREF_KEY_VOICE_ENGINE, "elevenlabs") ?: "elevenlabs"
+        voiceEngineType = prefs.getString(PREF_KEY_VOICE_ENGINE, "native") ?: "native"
         selectedVoiceId = prefs.getString(PREF_KEY_VOICE_ID, "JBFqnCBsd6RMkjVDRZzb") ?: "JBFqnCBsd6RMkjVDRZzb"
+        customApiKey = prefs.getString(PREF_KEY_CUSTOM_API_KEY, null)?.takeIf { it.isNotBlank() }
+        customProvider = prefs.getString(PREF_KEY_CUSTOM_PROVIDER, "gemini")?.takeIf { it.isNotBlank() } ?: "gemini"
     }
 
     fun saveUserName(context: Context, name: String) {

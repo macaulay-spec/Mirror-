@@ -20,6 +20,10 @@ object ToolSchema {
     private val ARG_HINTS: Map<String, List<String>> = mapOf(
         "call_contact" to listOf("contact", "number", "number_type"),
         "send_sms" to listOf("contact", "number", "message"),
+        "send_whatsapp" to listOf("contact", "number", "message"),
+        "set_alarm" to listOf("hour", "minute", "message"),
+        "set_timer" to listOf("seconds", "minutes", "message"),
+        "navigate_to" to listOf("destination", "query"),
         "contact_lookup" to listOf("contact", "name", "query"),
         "read_call_log" to listOf("limit"),
         "reply_to_notification" to listOf("app_name", "package_name", "reply_text"),
@@ -36,7 +40,7 @@ object ToolSchema {
         "set_ringer_mode" to listOf("mode"),
         "toggle_wifi" to listOf("on"),
         "toggle_bluetooth" to listOf("on"),
-        "device_volume" to listOf("direction", "level"),
+        "device_volume" to listOf("action", "direction", "level"),
         "device_flashlight" to listOf("enabled", "on"),
         "device_media_control" to listOf("action"),
         "device_vibrate" to listOf("duration_ms"),
@@ -56,7 +60,7 @@ object ToolSchema {
         "get_recent_apps" to listOf("limit")
     )
 
-    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms")
+    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes")
     private val NUMBER_ARGS = setOf("x", "y", "fromX", "fromY", "toX", "toY")
     private val BOOLEAN_ARGS = setOf("on", "auto", "enabled")
 

@@ -1,12 +1,12 @@
 package com.jarvis.app.voice
 
 import android.content.Context
-import android.os.Build
 import android.speech.tts.TextToSpeech
-import android.speech.tts.Voice
+import java.util.Locale
 
 class SpeechOutput(context: Context) : TextToSpeech.OnInitListener {
     private var ready = false
+    private var pendingText: String? = null
     private var tts: TextToSpeech? = null
 
     init {
@@ -21,27 +21,35 @@ class SpeechOutput(context: Context) : TextToSpeech.OnInitListener {
         }
         ready = true
 
-        // JARVIS is British, and so is the fallback. Prefer an engine voice that actually
-        // speaks the accent rather than trusting setLanguage to find one.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val best = runCatching { engine.voices }.getOrNull()
-                ?.filter { it.locale.language == JarvisVoice.LOCALE.language && !it.isNetworkConnectionRequired }
-                ?.sortedWith(
-                    compareByDescending<Voice> { it.locale.country == JarvisVoice.LOCALE.country }
-                        .thenByDescending { it.quality >= Voice.QUALITY_VERY_HIGH }
-                )
-                ?.firstOrNull()
-            if (best != null) {
-                runCatching { engine.voice = best }
-                return
+        try {
+            val ukLocale = Locale.UK
+            engine.language = ukLocale
+            val voices = engine.voices
+            val maleVoice = voices?.firstOrNull { voice ->
+                val name = voice.name.lowercase()
+                name.contains("male") || name.contains("en-gb-x-rjd") || name.contains("en-us-x-iom") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iob")
+            } ?: voices?.firstOrNull { voice ->
+                voice.locale.language == "en" && !voice.name.lowercase().contains("female")
             }
+            if (maleVoice != null) {
+                engine.voice = maleVoice
+            }
+            engine.setPitch(0.78f)
+            engine.setSpeechRate(0.96f)
+        } catch (_: Exception) {}
+
+        pendingText?.let { text ->
+            speak(text)
+            pendingText = null
         }
-        runCatching { engine.language = JarvisVoice.LOCALE }
     }
 
     fun speak(text: String, rate: Float = 1.0f) {
-        if (!ready) return
-        tts?.setSpeechRate(rate * JarvisVoice.RATE)
+        if (!ready) {
+            pendingText = text
+            return
+        }
+        tts?.setSpeechRate(rate * 0.96f)
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
     }
 

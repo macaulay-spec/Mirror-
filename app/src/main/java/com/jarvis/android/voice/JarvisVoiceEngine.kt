@@ -169,11 +169,44 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         }
     }
 
+    fun updateVoiceConfig() {
+        mainHandler.post {
+            try {
+                val ukLocale = Locale.UK
+                val result = tts?.setLanguage(ukLocale)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts?.language = Locale.US
+                }
+                
+                val voices = tts?.voices
+                if (!voices.isNullOrEmpty()) {
+                    val selectedVoiceId = com.jarvis.app.config.ApiConfig.selectedVoiceId
+                    val matchedVoice = voices.firstOrNull { v -> v.name == selectedVoiceId }
+                        ?: voices.firstOrNull { voice ->
+                            val name = voice.name.lowercase()
+                            name.contains("male") || name.contains("en-gb-x-rjd") || name.contains("en-us-x-iom") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iob")
+                        } ?: voices.firstOrNull { voice ->
+                            voice.locale.language == "en" && !voice.name.lowercase().contains("female")
+                        }
+                    if (matchedVoice != null) {
+                        tts?.voice = matchedVoice
+                    }
+                }
+                
+                tts?.setPitch(0.78f) // Deep, calm male pitch
+                tts?.setSpeechRate(0.96f) // Measured, articulate pace
+            } catch (_: Exception) {}
+        }
+    }
+
     fun speak(text: String) {
         if (text.isBlank()) return
         mainHandler.post {
             stopListening()
             setState(JarvisVisualState.SPEAKING)
+            
+            // Re-apply latest voice config
+            updateVoiceConfig()
             
             // Launch coroutine to try preferred voice engine, fallback if needed
             CoroutineScope(Dispatchers.IO).launch {
@@ -217,13 +250,28 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             try {
-                val loc = Locale.US
-                val result = tts?.setLanguage(loc)
+                val ukLocale = Locale.UK
+                val result = tts?.setLanguage(ukLocale)
                 if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.language = Locale.getDefault()
+                    tts?.language = Locale.US
                 }
-                tts?.setPitch(0.95f)
-                tts?.setSpeechRate(1.05f)
+                
+                // Select a male voice if available in the installed voices
+                try {
+                    val voices = tts?.voices
+                    val maleVoice = voices?.firstOrNull { voice ->
+                        val name = voice.name.lowercase()
+                        !voice.isNetworkConnectionRequired && (name.contains("male") || name.contains("en-gb") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iob"))
+                    } ?: voices?.firstOrNull { voice ->
+                        voice.locale.language == "en" && !voice.name.lowercase().contains("female")
+                    }
+                    if (maleVoice != null) {
+                        tts?.voice = maleVoice
+                    }
+                } catch (_: Exception) {}
+
+                tts?.setPitch(0.85f) // Deep, calm male pitch
+                tts?.setSpeechRate(0.98f) // Articulate, measured pace
                 isTtsReady = true
             } catch (_: Exception) {
                 isTtsReady = true

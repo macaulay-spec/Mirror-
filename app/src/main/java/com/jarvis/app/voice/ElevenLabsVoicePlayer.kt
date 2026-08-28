@@ -25,23 +25,30 @@ object ElevenLabsVoicePlayer {
     private var mediaPlayer: MediaPlayer? = null
 
     /**
-     * Attempts to stream and play audio from ElevenLabs HD Voice API.
-     * Returns true if audio played successfully, false if failed/rate limited.
+     * Attempts to stream and play audio from ElevenLabs HD Voice API directly.
+     * Returns true if audio played successfully, false if key missing or failed.
      */
-    suspend fun speak(context: Context, text: String, voiceId: String = "21m00Tcm4TlvDq8ikWAM"): Boolean = withContext(Dispatchers.IO) {
+    suspend fun speak(context: Context, text: String, voiceId: String = ApiConfig.selectedVoiceId): Boolean = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext false
+        val apiKey = ApiConfig.ELEVENLABS_API_KEY
+        if (apiKey.isBlank()) return@withContext false
 
         try {
             stop()
 
-            val url = "${ApiConfig.JARVIS_BACKEND_URL}/api/v1/voice/tts"
+            val url = "https://api.elevenlabs.io/v1/text-to-speech/$voiceId"
             val payload = JSONObject().apply {
                 put("text", text)
-                put("voiceId", voiceId)
+                put("model_id", "eleven_turbo_v2_5")
+                put("voice_settings", JSONObject().apply {
+                    put("stability", 0.5)
+                    put("similarity_boost", 0.75)
+                })
             }
 
             val request = Request.Builder()
                 .url(url)
+                .addHeader("xi-api-key", apiKey)
                 .addHeader("Content-Type", "application/json")
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
@@ -78,7 +85,7 @@ object ElevenLabsVoicePlayer {
                         start()
                         setOnCompletionListener {
                             try {
-                                com.jarvis.app.voice.VoiceBus.setEngineState(com.jarvis.core.model.JarvisVisualState.IDLE)
+                                VoiceBus.setEngineState(com.jarvis.core.model.JarvisVisualState.IDLE)
                                 it.release()
                                 tempFile.delete()
                             } catch (_: Exception) {}

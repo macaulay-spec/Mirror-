@@ -28,10 +28,40 @@ class JarvisAccessibilityService : AccessibilityService() {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                    AccessibilityServiceInfo.FLAG_REQUEST_ACCESSIBILITY_BUTTON
             notificationTimeout = 100
         }
         serviceInfo = info
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val buttonController = accessibilityButtonController
+            buttonController.registerAccessibilityButtonCallback(object : android.accessibilityservice.AccessibilityButtonController.AccessibilityButtonCallback() {
+                override fun onClicked(controller: android.accessibilityservice.AccessibilityButtonController?) {
+                    super.onClicked(controller)
+                    toggleOverlay()
+                }
+
+                override fun onAvailabilityChanged(
+                    controller: android.accessibilityservice.AccessibilityButtonController?,
+                    available: Boolean
+                ) {
+                    super.onAvailabilityChanged(controller, available)
+                }
+            })
+        }
+    }
+
+    fun toggleOverlay() {
+        try {
+            if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) {
+                val stopIntent = Intent(this, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java)
+                stopService(stopIntent)
+            } else {
+                val startIntent = Intent(this, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java)
+                startService(startIntent)
+            }
+        } catch (_: Exception) {}
     }
 
     var currentPackageName: String = "unknown"

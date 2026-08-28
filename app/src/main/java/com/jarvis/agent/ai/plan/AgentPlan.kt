@@ -7,8 +7,8 @@ data class AgentPlan(
 
 data class AgentStep(
     val tool: String,
-    val arguments: Map<String, Any>,
-    val expectedResult: String?,
+    val arguments: Map<String, Any?> = emptyMap(),
+    val expectedResult: String? = null,
     var status: StepStatus = StepStatus.PENDING,
     var result: String? = null,
     var error: String? = null

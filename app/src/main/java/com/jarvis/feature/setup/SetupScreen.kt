@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CameraAlt
@@ -167,20 +168,32 @@ fun SetupScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(
-                                text = "JARVIS ACCESS CONTROL",
-                                color = JarvisColors.CyanPrimary,
-                                fontSize = 18.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = "Subsystem Permissions & Advanced Access",
-                                color = JarvisColors.TextSecondary,
-                                fontSize = 12.sp
-                            )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IconButton(onClick = onClose) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back to AI Interface",
+                                    tint = JarvisColors.CyanBright
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "JARVIS ACCESS CONTROL",
+                                    color = JarvisColors.CyanPrimary,
+                                    fontSize = 17.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "Subsystem Permissions & Config",
+                                    color = JarvisColors.TextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(
@@ -193,16 +206,18 @@ fun SetupScreen(
                                     )
                                 },
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("DIAGNOSTICS", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("DIAGNOSTICS", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
-                            OutlinedButton(
+                            Button(
                                 onClick = onClose,
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
-                                shape = RoundedCornerShape(8.dp)
+                                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.CyanPrimary, contentColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("CLOSE", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("← AI INTERFACE", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -279,6 +294,63 @@ fun SetupScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // AI Neural Core & API Key Configuration Card
+                item {
+                    var apiKeyInput by remember { mutableStateOf(ApiConfig.customApiKey ?: "") }
+                    var showKey by remember { mutableStateOf(false) }
+                    var savedKey by remember { mutableStateOf(false) }
+                    val activeProvider = ApiConfig.getProviderLabel()
+
+                    PermissionCard(
+                        title = "NEURAL AI CORE & API KEY",
+                        subtitle = "Provider: $activeProvider · Direct Gemini 2.5 Flash Function Calling",
+                        icon = Icons.Default.Key,
+                        isGranted = ApiConfig.hasAI,
+                        actionLabel = if (savedKey) "SAVED ✓" else "SAVE KEY",
+                        onAction = {
+                            ApiConfig.saveCustomApiKey(context, apiKeyInput.trim())
+                            savedKey = true
+                            android.widget.Toast.makeText(context, "API Key updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = apiKeyInput,
+                                onValueChange = {
+                                    apiKeyInput = it
+                                    savedKey = false
+                                },
+                                label = { Text("Gemini / OpenAI API Key", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showKey = !showKey }) {
+                                        Icon(
+                                            imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (showKey) "Hide key" else "Show key",
+                                            tint = JarvisColors.CyanBright
+                                        )
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = JarvisColors.CyanBright,
+                                    unfocusedBorderColor = JarvisColors.BorderCyan,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Text(
+                                text = "Auto-detects Gemini (AIza...), OpenAI (sk-...), Groq (gsk_...), Cerebras (csk-...). All actions & tools execute on-device.",
+                                color = JarvisColors.TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
                         }
                     }
                 }
@@ -560,8 +632,8 @@ fun SetupScreen(
 
                 item {
                     PermissionCard(
-                        title = "ACCESSIBILITY",
-                        subtitle = "Screen interaction, UI element reading & global navigation",
+                        title = "ACCESSIBILITY & BUTTON TRIGGER",
+                        subtitle = "Screen interaction, UI automation & toggle HUD overlay via Accessibility Button",
                         icon = Icons.Default.AccessibilityNew,
                         isGranted = hasAccessibility,
                         actionLabel = "ENABLE",
@@ -573,8 +645,8 @@ fun SetupScreen(
 
                 item {
                     PermissionCard(
-                        title = "NOTIFICATION ACCESS",
-                        subtitle = "Read incoming messages and notification-based replies",
+                        title = "NOTIFICATION ACCESS & AUTO-REPLY",
+                        subtitle = "Read incoming messages, one-time verification codes & direct replies",
                         icon = Icons.Default.NotificationsActive,
                         isGranted = hasNotifListener,
                         actionLabel = "ENABLE",
@@ -586,13 +658,31 @@ fun SetupScreen(
 
                 item {
                     PermissionCard(
-                        title = "OVERLAY",
-                        subtitle = "Floating Jarvis interface & holographic HUD over apps",
+                        title = "SYSTEM OVERLAY WINDOW",
+                        subtitle = "Floating Jarvis living core & holographic HUD over all other applications",
                         icon = Icons.Default.Layers,
                         isGranted = hasOverlay,
-                        actionLabel = "ENABLE",
+                        actionLabel = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) "RUNNING" else "ENABLE",
                         onAction = {
-                            PermissionAndSetupHelper.openOverlaySettings(context)
+                            if (!hasOverlay) {
+                                PermissionAndSetupHelper.openOverlaySettings(context)
+                            } else {
+                                // Toggle directly
+                                val service = com.jarvis.android.accessibility.JarvisAccessibilityService.instance
+                                if (service != null) {
+                                    service.toggleOverlay()
+                                } else {
+                                    try {
+                                        if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) {
+                                            context.stopService(android.content.Intent(context, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java))
+                                        } else {
+                                            context.startService(android.content.Intent(context, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java))
+                                        }
+                                    } catch (_: Exception) {
+                                        PermissionAndSetupHelper.openOverlaySettings(context)
+                                    }
+                                }
+                            }
                         }
                     )
                 }

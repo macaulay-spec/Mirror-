@@ -43,10 +43,10 @@ class DialogueManager(
 
         // Parse new intent
         val intent = IntentRouter.route(utterance)
-        return processIntent(intent)
+        return processIntent(intent, utterance)
     }
 
-    private suspend fun processIntent(intent: Intent): DialogueResult {
+    private suspend fun processIntent(intent: Intent, utterance: String): DialogueResult {
         when (intent) {
             is Intent.CallPerson -> {
                 val contactName = intent.contact ?: return DialogueResult.Ask("contact_name", "Who do you want to call?")
@@ -116,6 +116,10 @@ class DialogueManager(
 
             is Intent.OpenApp -> {
                 val appName = intent.appName ?: return DialogueResult.Ask("app_name", "Which app?")
+                // If it's a compound command with search/and/to, send to LLM
+                if (appName.contains(" and ") || appName.contains(" search") || appName.contains(" for ") || appName.contains(" to ")) {
+                    return DialogueResult.ToolCall("llm_fallback", mapOf("utterance" to utterance))
+                }
                 return DialogueResult.ToolCall("open_app", mapOf("app_name" to appName))
             }
             
@@ -151,19 +155,19 @@ class DialogueManager(
                     if (matches.isNotEmpty()) {
                         PeopleGraph.setRelationship(context, matches.first().person, relation)
                     }
-                    return processIntent(intent)
+                    return processIntent(intent, utterance)
                 }
                 if (slot == "number_type") {
                     val updatedIntent = intent.copy(numberType = utterance.trim().lowercase())
                     pendingIntent = null
-                    return processIntent(updatedIntent)
+                    return processIntent(updatedIntent, utterance)
                 }
             }
             is Intent.SendMessage -> {
                 if (slot == "message_body") {
                     val updatedIntent = intent.copy(body = utterance)
                     pendingIntent = null
-                    return processIntent(updatedIntent)
+                    return processIntent(updatedIntent, utterance)
                 }
             }
             else -> {}

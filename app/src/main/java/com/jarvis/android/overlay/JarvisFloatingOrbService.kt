@@ -27,6 +27,7 @@ class JarvisFloatingOrbService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val params = WindowManager.LayoutParams(
@@ -106,5 +107,11 @@ class JarvisFloatingOrbService : Service() {
         }
         floatingView = null
         super.onDestroy()
+        isRunning = false
+    }
+
+    companion object {
+        var isRunning: Boolean = false
+            private set
     }
 }

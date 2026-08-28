@@ -87,7 +87,7 @@ class JarvisAIEngine(private val context: Context) {
             history.add(0, "system" to memorySnippet)
         }
 
-        // 1. Check deterministic fast-path or contextual routing
+        // 1. Check direct hardware deterministic fast-path (e.g. flashlight toggle, volume hardware mute)
         val deterministicResult = checkDeterministicRouting(input)
         if (deterministicResult != null) {
             memoryManager.recordToolExecution(
@@ -109,20 +109,16 @@ class JarvisAIEngine(private val context: Context) {
             )
         }
 
-        // 2. Fast local path for pure conversational talk (greetings, identity, capabilities)
-        if (isTalkIntent(input)) {
-            val talkReply = generateLocalProtocolReply(input)
-            memoryManager.addConversation("jarvis", talkReply)
-            return@withContext JarvisEngineResult(reply = talkReply, state = JarvisVisualState.SUCCESS)
-        }
-
-        // 3. Query Provider Router via AgentExecutor for reasoning / complex tasks
+        // 2. Query Gemini 2.5 / Neural Agent for conversational intelligence and multi-step reasoning
         val agentResult = agentExecutor.executeTask(systemPrompt, history, input, null, onChunk)
-        val sanitizedReply = ReplySanitizer.sanitize(agentResult.reply)
-        val finalResult = if (agentResult.state == JarvisVisualState.ERROR) {
+        val finalResult = if (agentResult.state == JarvisVisualState.ERROR || agentResult.reply.contains("HTTP 401") || agentResult.reply.contains("unauthorized") || agentResult.reply.contains("API key")) {
             val localReply = generateLocalProtocolReply(input)
-            JarvisEngineResult(localReply, JarvisVisualState.SUCCESS)
+            JarvisEngineResult(
+                reply = localReply,
+                state = JarvisVisualState.SUCCESS
+            )
         } else {
+            val sanitizedReply = ReplySanitizer.sanitize(agentResult.reply)
             agentResult.copy(reply = sanitizedReply)
         }
         memoryManager.addConversation("jarvis", finalResult.reply)

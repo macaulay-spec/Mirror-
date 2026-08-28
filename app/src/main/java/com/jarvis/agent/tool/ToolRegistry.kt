@@ -654,5 +654,205 @@ object ToolRegistry {
                 }
             }
         )
+
+        // 21. Send WhatsApp (Level 2)
+        register(
+            ToolDefinition(
+                id = "send_whatsapp",
+                name = "Send WhatsApp Message",
+                description = "Sends a message to a contact via WhatsApp. Requires 'contact' or 'number' and 'message'.",
+                category = "MESSAGING",
+                riskLevel = RiskLevel.LEVEL_2
+            ) { context, args ->
+                val contactQuery = (args["contact"] ?: args["name"] ?: args["number"] ?: args["recipient"])?.toString() ?: ""
+                val message = (args["message"] ?: args["body"] ?: args["text"])?.toString() ?: ""
+                if (contactQuery.isBlank() || message.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult("send_whatsapp", false, null, "Contact and message are required.")
+                }
+                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactQuery)
+                val topMatch = matches.firstOrNull()
+                val rawNumber = topMatch?.numbers?.firstOrNull()?.value ?: run {
+                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactQuery)
+                    phoneContact?.phone
+                } ?: contactQuery
+                val displayName = topMatch?.person?.displayName ?: contactQuery
+                val cleanNumber = rawNumber.replace(Regex("[^0-9+]"), "")
+
+                try {
+                    val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(message)}")
+                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        setPackage("com.whatsapp")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    ToolExecutionResult(
+                        toolId = "send_whatsapp",
+                        success = true,
+                        data = mapOf("contact" to displayName, "number" to cleanNumber, "message" to message),
+                        verificationDetails = "WhatsApp message dispatched to $displayName."
+                    )
+                } catch (_: Exception) {
+                    try {
+                        val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(message)}")
+                        val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(fallbackIntent)
+                        ToolExecutionResult(
+                            toolId = "send_whatsapp",
+                            success = true,
+                            data = mapOf("contact" to displayName, "number" to cleanNumber, "message" to message),
+                            verificationDetails = "WhatsApp link opened for $displayName."
+                        )
+                    } catch (e2: Exception) {
+                        ToolExecutionResult("send_whatsapp", false, null, "Could not launch WhatsApp: ${e2.localizedMessage}")
+                    }
+                }
+            }
+        )
+
+        // 22. Set Alarm (Level 1)
+        register(
+            ToolDefinition(
+                id = "set_alarm",
+                name = "Set Alarm",
+                description = "Sets an alarm on the device clock. Pass 'hour' (0-23), 'minute' (0-59), and optional 'message'.",
+                category = "CALENDAR",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val hour = (args["hour"] as? Number)?.toInt() ?: 7
+                val minute = (args["minute"] as? Number)?.toInt() ?: 0
+                val message = (args["message"] ?: args["label"] ?: "Alarm")?.toString() ?: "Alarm"
+                val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                    putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                    putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message)
+                    putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    val timeStr = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
+                    ToolExecutionResult(
+                        toolId = "set_alarm",
+                        success = true,
+                        data = mapOf("hour" to hour, "minute" to minute, "message" to message),
+                        verificationDetails = "Alarm set for $timeStr ($message)."
+                    )
+                } catch (e: Exception) {
+                    ToolExecutionResult("set_alarm", false, null, "Failed to set alarm: ${e.localizedMessage}")
+                }
+            }
+        )
+
+        // 23. Set Timer (Level 1)
+        register(
+            ToolDefinition(
+                id = "set_timer",
+                name = "Set Timer",
+                description = "Sets a countdown timer. Pass 'seconds' or 'minutes' and optional 'message'.",
+                category = "CALENDAR",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val secondsArg = (args["seconds"] as? Number)?.toInt()
+                val minutesArg = (args["minutes"] as? Number)?.toInt()
+                val totalSeconds = secondsArg ?: ((minutesArg ?: 1) * 60)
+                val message = (args["message"] ?: args["label"] ?: "Timer")?.toString() ?: "Timer"
+                val intent = Intent(android.provider.AlarmClock.ACTION_SET_TIMER).apply {
+                    putExtra(android.provider.AlarmClock.EXTRA_LENGTH, totalSeconds)
+                    putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message)
+                    putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    ToolExecutionResult(
+                        toolId = "set_timer",
+                        success = true,
+                        data = mapOf("seconds" to totalSeconds, "message" to message),
+                        verificationDetails = "Timer set for $totalSeconds seconds ($message)."
+                    )
+                } catch (e: Exception) {
+                    ToolExecutionResult("set_timer", false, null, "Failed to set timer: ${e.localizedMessage}")
+                }
+            }
+        )
+
+        // 24. Volume Adjustment (Level 1)
+        register(
+            ToolDefinition(
+                id = "device_volume",
+                name = "Adjust Volume",
+                description = "Controls media volume. Pass 'action' ('up', 'down', 'mute', 'unmute', 'max') or 'level' (0-100).",
+                category = "DEVICE",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                if (am == null) {
+                    return@ToolDefinition ToolExecutionResult("device_volume", false, null, "Audio service unavailable.")
+                }
+                val action = (args["action"] ?: args["direction"])?.toString()?.lowercase() ?: "up"
+                val level = (args["level"] as? Number)?.toInt()
+                val maxVol = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+
+                val result = when {
+                    level != null -> {
+                        val target = (level.coerceIn(0, 100) * maxVol) / 100
+                        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume set to $level%"
+                    }
+                    action == "up" || action == "raise" || action == "increase" -> {
+                        am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume increased."
+                    }
+                    action == "down" || action == "lower" || action == "decrease" -> {
+                        am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume decreased."
+                    }
+                    action == "mute" || action == "silence" -> {
+                        am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume muted."
+                    }
+                    action == "unmute" -> {
+                        am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume unmuted."
+                    }
+                    action == "max" -> {
+                        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, maxVol, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume set to maximum."
+                    }
+                    else -> {
+                        am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+                        "Volume adjusted."
+                    }
+                }
+                ToolExecutionResult(
+                    toolId = "device_volume",
+                    success = true,
+                    data = mapOf("action" to action),
+                    verificationDetails = result
+                )
+            }
+        )
+
+        // 25. Flashlight (Level 1)
+        register(
+            ToolDefinition(
+                id = "device_flashlight",
+                name = "Toggle Flashlight",
+                description = "Turns the flashlight / torch on or off. Pass 'enabled' or 'on' as boolean.",
+                category = "DEVICE",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val enable = (args["enabled"] ?: args["on"] ?: args["state"] ?: true) as? Boolean ?: true
+                val response = com.jarvis.app.tools.DeviceToolkit(context).flashlight(enable)
+                ToolExecutionResult(
+                    toolId = "device_flashlight",
+                    success = !response.contains("failed", ignoreCase = true),
+                    data = mapOf("enabled" to enable),
+                    verificationDetails = response
+                )
+            }
+        )
     }
 }

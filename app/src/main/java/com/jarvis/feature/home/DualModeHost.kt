@@ -38,15 +38,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardVoice
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -336,9 +341,81 @@ private fun VoiceStageView(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        // Holographic Telemetry Bar
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            backgroundColor = Color(0x1000E5FF),
+            borderColor = JarvisColors.BorderCyan.copy(alpha = 0.35f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = null,
+                        tint = JarvisColors.CyanBright,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "CORE: GEMINI 2.5",
+                        color = JarvisColors.CyanBright,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-        // Center Hero Orb
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = JarvisColors.TealSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "AUDIO: ${ApiConfig.voiceEngineType.uppercase()}",
+                        color = JarvisColors.TealSecondary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) JarvisColors.CyanBright else JarvisColors.TextMuted,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) "OVERLAY: ON" else "OVERLAY: READY",
+                        color = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) JarvisColors.CyanBright else JarvisColors.TextMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Center Hero Orb Area
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -356,7 +433,7 @@ private fun VoiceStageView(
                     onClick = onOrbTap
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
                     text = when (visualState) {
@@ -378,7 +455,7 @@ private fun VoiceStageView(
                 )
 
                 if (lastMessage != null && visualState != JarvisVisualState.IDLE) {
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = lastMessage.take(120),
                         color = JarvisColors.TextSecondary,
@@ -391,13 +468,13 @@ private fun VoiceStageView(
             }
         }
 
-        // Voice Stage Controls
-        Row(
+        // Voice Stage Controls & Quick Mode
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -411,7 +488,7 @@ private fun VoiceStageView(
                         CircleShape
                     )
                     .clickable { onOrbTap() }
-                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                    .padding(horizontal = 28.dp, vertical = 14.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -431,6 +508,14 @@ private fun VoiceStageView(
                     )
                 }
             }
+
+            Text(
+                text = "⚡ Press Accessibility Button or swipe edge to toggle HUD overlay over any app",
+                color = JarvisColors.TextMuted,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
         }
     }
 }
@@ -701,7 +786,17 @@ private fun ChatInputBar(
                 .padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            listOf("Battery", "Time", "Read Screen", "Flashlight On", "Volume Up", "Open Chrome").forEach { query ->
+            listOf(
+                "Read Notifications",
+                "What's on screen?",
+                "Read my OTP code",
+                "Battery & Network",
+                "Flashlight Toggle",
+                "Volume 80%",
+                "Set alarm 7 AM",
+                "Open WhatsApp",
+                "Remember Mumsi is my Mom"
+            ).forEach { query ->
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)

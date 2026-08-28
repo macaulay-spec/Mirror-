@@ -25,6 +25,7 @@ object AppLauncher {
         "facebook" to listOf("com.facebook.katana", "com.facebook.lite"),
         "messenger" to listOf("com.facebook.orca", "com.facebook.mlite"),
         "chrome" to listOf("com.android.chrome"),
+        "google" to listOf("com.google.android.googlequicksearchbox", "com.android.chrome"),
         "browser" to listOf("com.android.chrome", "org.mozilla.firefox", "com.android.browser"),
         "youtube" to listOf("com.google.android.youtube"),
         "spotify" to listOf("com.spotify.music"),
@@ -34,6 +35,7 @@ object AppLauncher {
         "gmail" to listOf("com.google.android.gm"),
         "play store" to listOf("com.android.vending"),
         "twitter" to listOf("com.twitter.android"),
+        "x" to listOf("com.twitter.android"),
         "tiktok" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
         "snapchat" to listOf("com.snapchat.android"),
         "camera" to listOf("com.android.camera", "com.android.camera2"),
@@ -53,6 +55,25 @@ object AppLauncher {
     private val noise = setOf("open", "launch", "start", "please", "app", "application", "the", "my", "for", "me")
 
     fun launch(context: Context, rawQuery: String): Result {
+        val lowerRaw = rawQuery.lowercase().trim()
+
+        // Check if query is a compound search command (e.g., "chrome and search for a book" or "search for a book")
+        if (lowerRaw.contains("search for ") || lowerRaw.contains("search ") || (lowerRaw.contains("chrome") && lowerRaw.contains("book"))) {
+            val query = if (lowerRaw.contains("search for ")) lowerRaw.substringAfter("search for ").trim()
+                        else if (lowerRaw.contains("search ")) lowerRaw.substringAfter("search ").trim()
+                        else rawQuery.removePrefix("open").removePrefix("chrome").trim()
+            if (query.isNotBlank()) {
+                val searchIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + java.net.URLEncoder.encode(query, "UTF-8")))
+                searchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                return try {
+                    context.startActivity(searchIntent)
+                    Result(true, "Searching Google for '$query'.")
+                } catch (_: Exception) {
+                    Result(false, "Could not open browser for search.")
+                }
+            }
+        }
+
         val query = normalize(rawQuery)
         if (query.isBlank()) return Result(false, "Which app should I open?")
 
@@ -92,7 +113,15 @@ object AppLauncher {
             return Result(true, "Opened ${best.second}.", best.first)
         }
 
-        return Result(false, "I couldn't find an app called \"$rawQuery\" on this phone.")
+        // 5. Fallback: If not found as an app, search web
+        val searchIntent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + java.net.URLEncoder.encode(rawQuery, "UTF-8")))
+        searchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(searchIntent)
+            Result(true, "Opened search for '$rawQuery'.")
+        } catch (_: Exception) {
+            Result(false, "I couldn't find an app called \"$rawQuery\" on this phone.")
+        }
     }
 
     fun resolve(context: Context, rawQuery: String): String? {

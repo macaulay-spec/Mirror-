@@ -113,8 +113,8 @@ private fun DiagnosticsScreen(
                 color = JarvisColors.TextPrimary, fontSize = 12.sp
             )
             Text(
-                "Gemini key present: ${if (ApiConfig.GEMINI_API_KEY.isBlank()) "NO — add GEMINI_API_KEY to local.properties" else "yes"}",
-                color = if (ApiConfig.GEMINI_API_KEY.isBlank()) JarvisColors.AmberWarning else JarvisColors.TextPrimary,
+                "Gemini key present: ${if (ApiConfig.activeApiKey.isBlank()) "NO — configure in Access Control settings" else "yes"}",
+                color = if (ApiConfig.activeApiKey.isBlank()) JarvisColors.AmberWarning else JarvisColors.TextPrimary,
                 fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))

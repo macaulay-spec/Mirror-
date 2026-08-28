@@ -518,21 +518,22 @@ object ToolRegistry {
                     return@ToolDefinition ToolExecutionResult("call_contact", false, null, "Contact name or number not specified.")
                 }
 
-                // Check context graph first for relationships like mumsi
-                val db = com.jarvis.app.memory.AppDatabase.get(context)
-                val person = db.contextGraphDao().getPersonByName(contactQuery)
-                val number = person?.phoneNumbers?.firstOrNull() ?: run {
+                // Check people graph first for relationships like mumsi / nicknames
+                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactQuery)
+                val topMatch = matches.firstOrNull()
+                val number = topMatch?.numbers?.firstOrNull()?.value ?: run {
                     val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactQuery)
                     phoneContact?.phone
                 } ?: contactQuery
+                val displayName = topMatch?.person?.displayName ?: contactQuery
 
                 val dialed = com.jarvis.app.tools.ContactsToolkit(context).dial(number)
                 if (dialed) {
                     ToolExecutionResult(
                         toolId = "call_contact",
                         success = true,
-                        data = mapOf("target" to (person?.name ?: contactQuery), "number" to number),
-                        verificationDetails = "Initiating call to ${person?.name ?: contactQuery} ($number)."
+                        data = mapOf("target" to displayName, "number" to number),
+                        verificationDetails = "Initiating call to $displayName ($number)."
                     )
                 } else {
                     ToolExecutionResult("call_contact", false, null, "Could not open dialer for $contactQuery.")
@@ -555,20 +556,21 @@ object ToolRegistry {
                     return@ToolDefinition ToolExecutionResult("send_message", false, null, "Both recipient and message body are required.")
                 }
 
-                val db = com.jarvis.app.memory.AppDatabase.get(context)
-                val person = db.contextGraphDao().getPersonByName(contactName)
-                val phone = person?.phoneNumbers?.firstOrNull() ?: run {
+                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactName)
+                val topMatch = matches.firstOrNull()
+                val phone = topMatch?.numbers?.firstOrNull()?.value ?: run {
                     val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactName)
                     phoneContact?.phone
                 } ?: contactName
+                val displayName = topMatch?.person?.displayName ?: contactName
 
                 val result = com.jarvis.app.tools.DeviceToolkit(context).sendSms(phone, body)
                 if (result.startsWith("Sent")) {
                     ToolExecutionResult(
                         toolId = "send_message",
                         success = true,
-                        data = mapOf("recipient" to contactName, "body" to body),
-                        verificationDetails = "Message sent to $contactName: \"$body\""
+                        data = mapOf("recipient" to displayName, "body" to body),
+                        verificationDetails = "Message sent to $displayName: \"$body\""
                     )
                 } else {
                     // Fallback to drafting in SMS app
@@ -576,8 +578,8 @@ object ToolRegistry {
                     ToolExecutionResult(
                         toolId = "send_message",
                         success = true,
-                        data = mapOf("recipient" to contactName, "body" to body),
-                        verificationDetails = "Opened SMS composer for $contactName with draft: \"$body\""
+                        data = mapOf("recipient" to displayName, "body" to body),
+                        verificationDetails = "Opened SMS composer for $displayName with draft: \"$body\""
                     )
                 }
             }

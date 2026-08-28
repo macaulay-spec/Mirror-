@@ -4,11 +4,12 @@ import android.content.Context
 import com.jarvis.app.contextgraph.ContextGraphDao
 import com.jarvis.app.intent.Intent
 import com.jarvis.app.intent.IntentRouter
-import com.jarvis.app.contextgraph.PersonEntity
+import com.jarvis.app.memory.PersonEntity
+import com.jarvis.app.people.PeopleGraph
 
 class DialogueManager(
     private val context: Context,
-    private val contextGraphDao: ContextGraphDao
+    private val contextGraphDao: ContextGraphDao? = null
 ) {
     var openSlot: String? = null // e.g., "contact", "message_body"
     var pendingIntent: Intent? = null
@@ -55,24 +56,25 @@ class DialogueManager(
                     // Start lazy onboarding: Ask who this is
                     pendingIntent = intent
                     openSlot = "new_contact_relation"
-                    return DialogueResult.Ask("new_contact_relation", "I don't know who \$contactName is. Who are they to you?")
+                    return DialogueResult.Ask("new_contact_relation", "I don't know who $contactName is. Who are they to you?")
                 }
 
                 entities.lastContact = person
+                val numbers = PeopleGraph.numbers(person)
                 
                 // Disambiguate if multiple numbers and type not specified
-                if (intent.numberType == null && person.phoneNumbers.size > 1) {
+                if (intent.numberType == null && numbers.size > 1) {
                     pendingIntent = intent
                     openSlot = "number_type"
-                    return DialogueResult.Ask("number_type", "\${person.name} has multiple numbers. Home or mobile?", listOf("Home", "Mobile"))
+                    return DialogueResult.Ask("number_type", "${person.displayName} has multiple numbers. Home or mobile?", listOf("Home", "Mobile"))
                 }
 
                 if (!intent.confirm) {
                     pendingConfirm = intent.copy(confirm = true)
                     return DialogueResult.Confirm(
                         tool = "call_contact",
-                        arguments = mapOf("contact" to person.name, "type" to (intent.numberType ?: "default")),
-                        prompt = "Calling \${person.name}. Yes?",
+                        arguments = mapOf("contact" to person.displayName, "type" to (intent.numberType ?: "default")),
+                        prompt = "Calling ${person.displayName}. Yes?",
                         risk = 2
                     )
                 }
@@ -87,7 +89,7 @@ class DialogueManager(
                 if (person == null) {
                     pendingIntent = intent
                     openSlot = "new_contact_relation"
-                    return DialogueResult.Ask("new_contact_relation", "I don't have \$contactName saved. Who is that?")
+                    return DialogueResult.Ask("new_contact_relation", "I don't have $contactName saved. Who is that?")
                 }
                 
                 entities.lastContact = person
@@ -96,15 +98,15 @@ class DialogueManager(
                 if (body == null) {
                     pendingIntent = intent
                     openSlot = "message_body"
-                    return DialogueResult.Ask("message_body", "What should I say to \${person.name}?")
+                    return DialogueResult.Ask("message_body", "What should I say to ${person.displayName}?")
                 }
                 
                 if (!intent.confirm) {
                     pendingConfirm = intent.copy(confirm = true)
                     return DialogueResult.Confirm(
                         tool = "send_message",
-                        arguments = mapOf("contact" to person.name, "body" to body),
-                        prompt = "Send to \${person.name}: '\$body'. Send it?",
+                        arguments = mapOf("contact" to person.displayName, "body" to body),
+                        prompt = "Send to ${person.displayName}: '$body'. Send it?",
                         risk = 2
                     )
                 }
@@ -144,8 +146,11 @@ class DialogueManager(
                 if (slot == "new_contact_relation") {
                     // The user is answering "Who is mumsi?" e.g., "my mother"
                     val relation = utterance.replace("my ", "").trim()
-                    val newPerson = PersonEntity(name = intent.contact!!, relationship = relation)
-                    contextGraphDao.insertPerson(newPerson)
+                    val contactName = intent.contact ?: ""
+                    val matches = PeopleGraph.resolve(context, contactName)
+                    if (matches.isNotEmpty()) {
+                        PeopleGraph.setRelationship(context, matches.first().person, relation)
+                    }
                     return processIntent(intent)
                 }
                 if (slot == "number_type") {
@@ -172,14 +177,14 @@ class DialogueManager(
         return when (intent) {
             is Intent.CallPerson -> {
                 DialogueResult.ToolCall("call_contact", mapOf(
-                    "contact" to intent.contact,
-                    "type" to intent.numberType
+                    "contact" to (intent.contact ?: ""),
+                    "type" to (intent.numberType ?: "default")
                 ))
             }
             is Intent.SendMessage -> {
                 DialogueResult.ToolCall("send_message", mapOf(
-                    "contact" to intent.contact,
-                    "body" to intent.body
+                    "contact" to (intent.contact ?: ""),
+                    "body" to (intent.body ?: "")
                 ))
             }
             else -> DialogueResult.Reply("Action not implemented yet.")
@@ -194,7 +199,8 @@ class DialogueManager(
         }
         
         // Otherwise look up in graph
-        return contextGraphDao.getPersonByName(name)
+        val matches = PeopleGraph.resolve(context, name)
+        return matches.firstOrNull()?.person
     }
 
     private fun clearState() {

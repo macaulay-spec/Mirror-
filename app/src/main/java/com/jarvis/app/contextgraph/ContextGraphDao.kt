@@ -10,22 +10,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ContextGraphDao {
-    // --- People ---
-    @Query("SELECT * FROM people")
-    fun getAllPeople(): Flow<List<PersonEntity>>
-
-    @Query("SELECT * FROM people WHERE name = :name LIMIT 1")
-    suspend fun getPersonByName(name: String): PersonEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertPerson(person: PersonEntity): Long
-
-    @Update
-    suspend fun updatePerson(person: PersonEntity)
-
-    @Delete
-    suspend fun deletePerson(person: PersonEntity)
-
     // --- Places ---
     @Query("SELECT * FROM places")
     fun getAllPlaces(): Flow<List<PlaceEntity>>
@@ -56,3 +40,4 @@ interface ContextGraphDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHabit(habit: HabitEntity): Long
 }
+

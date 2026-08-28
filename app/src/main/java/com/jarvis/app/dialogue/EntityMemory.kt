@@ -1,6 +1,6 @@
 package com.jarvis.app.dialogue
 
-import com.jarvis.app.contextgraph.PersonEntity
+import com.jarvis.app.memory.PersonEntity
 
 class EntityMemory {
     var lastContact: PersonEntity? = null

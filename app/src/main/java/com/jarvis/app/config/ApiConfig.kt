@@ -90,6 +90,9 @@ object ApiConfig {
     // JARVIS BACKEND CONNECTION
     const val JARVIS_BACKEND_URL = "https://jarvis-backend.example.com" // Update with real backend URL
 
+    val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
+    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY
+
     // Custom user key and provider (Deprecated logic)
     var customApiKey: String? = null
         private set
@@ -100,6 +103,21 @@ object ApiConfig {
         get() {
             return customProvider ?: "gemini"
         }
+
+    val activeApiKey: String
+        get() = if (customApiKey?.isNotBlank() == true) customApiKey!! else GEMINI_API_KEY
+
+    fun getProviderLabel(): String = when (activeProvider) {
+        "gemini" -> "Google Gemini"
+        "openai" -> "OpenAI"
+        "cerebras" -> "Cerebras"
+        "groq" -> "Groq"
+        "anthropic" -> "Anthropic Claude"
+        "mistral" -> "Mistral AI"
+        "cohere" -> "Cohere"
+        "openrouter" -> "OpenRouter"
+        else -> activeProvider.replaceFirstChar { it.uppercase() }
+    }
 
     const val GEMINI_MODEL = "gemini-2.5-flash"
     const val CEREBRAS_MODEL = "llama3.1-70b"

@@ -8,7 +8,6 @@ import androidx.room.RoomDatabase
 import com.jarvis.app.contextgraph.AppAliasEntity
 import com.jarvis.app.contextgraph.ContextGraphDao
 import com.jarvis.app.contextgraph.HabitEntity
-import com.jarvis.app.contextgraph.PersonEntity
 import com.jarvis.app.contextgraph.PlaceEntity
 
 @Database(entities = [
@@ -19,12 +18,13 @@ import com.jarvis.app.contextgraph.PlaceEntity
     PlaceEntity::class,
     AppAliasEntity::class,
     HabitEntity::class
-], version = 3, exportSchema = false)
+], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun conversationDao(): ConversationDao
     abstract fun notificationDao(): NotificationDao
     abstract fun contextGraphDao(): ContextGraphDao
+    abstract fun personDao(): PersonDao
 
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
@@ -38,3 +38,4 @@ abstract class AppDatabase : RoomDatabase() {
             }
     }
 }
+

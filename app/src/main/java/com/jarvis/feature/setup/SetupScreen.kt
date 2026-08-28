@@ -419,7 +419,7 @@ fun SetupScreen(
                     androidx.compose.runtime.LaunchedEffect(Unit) {
                         try {
                             val db = com.jarvis.app.memory.AppDatabase.get(context)
-                            peopleCount = db.contextGraphDao().getAllPeople().let { 0 }
+                            peopleCount = db.personDao().all().size
                             aliasesCount = db.contextGraphDao().getAllAppAliasesSync().size
                         } catch (_: Exception) {}
                     }
@@ -433,13 +433,14 @@ fun SetupScreen(
                             coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 try {
                                     val db = com.jarvis.app.memory.AppDatabase.get(context)
-                                    db.contextGraphDao().insertPerson(
-                                        com.jarvis.app.contextgraph.PersonEntity(
-                                            name = "Mumsi",
+                                    db.personDao().insert(
+                                        com.jarvis.app.memory.PersonEntity(
+                                            displayName = "Mumsi",
                                             relationship = "Mother",
-                                            nicknames = listOf("Mum", "Mom", "Mama")
+                                            nicknames = "[\"Mum\",\"Mom\",\"Mama\"]"
                                         )
                                     )
+                                    peopleCount = db.personDao().all().size
                                 } catch (_: Exception) {}
                             }
                             android.widget.Toast.makeText(context, "Sample relation 'Mumsi' (Mother) registered to Graph.", android.widget.Toast.LENGTH_SHORT).show()

@@ -130,7 +130,7 @@ private fun DiagnosticsScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.CyanPrimary)
             ) { Text(if (testing) "TESTING..." else "TEST ALL PROVIDERS", color = androidx.compose.ui.graphics.Color.Black) }
 
-            providerResults?.forEach { status ->
+            for (status in providerResults.orEmpty()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
                     Text(
                         if (status.ok) "OK " else "FAIL",

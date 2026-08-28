@@ -29,7 +29,7 @@ object ApiConfig {
         private set
     var voiceEngineType: String = "elevenlabs" // "elevenlabs" or "native"
         private set
-    var selectedVoiceId: String = "21m00Tcm4TlvDq8ikWAM"
+    var selectedVoiceId: String = "onwK4e9ZLuTAKqWW03F9"
         private set
 
     fun saveVoicePreferences(context: Context, engineType: String, voiceId: String) {
@@ -58,7 +58,11 @@ object ApiConfig {
     var ELEVENLABS_API_KEY: String = BuildConfig.ELEVENLABS_API_KEY
         .takeIf { it.isNotBlank() }
         ?: "sk_7049a5e7b9f58b28ba134bb1a0e195de5d00b98ee0e44450"
-    const val ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM" // Rachel / Adam British / Jarvis voice profile
+    // Daniel: British, calm, the closest thing to JARVIS shipped by ElevenLabs.
+    // Rachel (21m00Tcm4TlvDq8ikWAM) is the American voice this used to default to; she is
+    // kept in JarvisVoice.BRITISH_CANDIDATES as the last-resort fallback because she
+    // exists on every ElevenLabs account.
+    const val ELEVENLABS_DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"
     val hasElevenLabs get() = ELEVENLABS_API_KEY.isNotBlank()
 
     // LiveKit Cloud WebRTC Configuration
@@ -227,7 +231,7 @@ object ApiConfig {
         userName = prefs.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         isOnboardingCompleted = prefs.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
         voiceEngineType = prefs.getString(PREF_KEY_VOICE_ENGINE, "elevenlabs") ?: "elevenlabs"
-        selectedVoiceId = prefs.getString(PREF_KEY_VOICE_ID, "21m00Tcm4TlvDq8ikWAM") ?: "21m00Tcm4TlvDq8ikWAM"
+        selectedVoiceId = prefs.getString(PREF_KEY_VOICE_ID, "onwK4e9ZLuTAKqWW03F9") ?: "onwK4e9ZLuTAKqWW03F9"
     }
 
     fun saveUserName(context: Context, name: String) {

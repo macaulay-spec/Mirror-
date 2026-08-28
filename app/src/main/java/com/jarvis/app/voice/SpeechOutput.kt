@@ -25,9 +25,9 @@ class SpeechOutput(context: Context) : TextToSpeech.OnInitListener {
         // speaks the accent rather than trusting setLanguage to find one.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val best = runCatching { engine.voices }.getOrNull()
-                ?.filter { it.locale.language == LOCALE.language && !it.isNetworkConnectionRequired }
+                ?.filter { it.locale.language == JarvisVoice.LOCALE.language && !it.isNetworkConnectionRequired }
                 ?.sortedWith(
-                    compareByDescending<Voice> { it.locale.country == LOCALE.country }
+                    compareByDescending<Voice> { it.locale.country == JarvisVoice.LOCALE.country }
                         .thenByDescending { it.quality >= Voice.QUALITY_VERY_HIGH }
                 )
                 ?.firstOrNull()
@@ -36,7 +36,7 @@ class SpeechOutput(context: Context) : TextToSpeech.OnInitListener {
                 return
             }
         }
-        runCatching { engine.language = LOCALE }
+        runCatching { engine.language = JarvisVoice.LOCALE }
     }
 
     fun speak(text: String, rate: Float = 1.0f) {

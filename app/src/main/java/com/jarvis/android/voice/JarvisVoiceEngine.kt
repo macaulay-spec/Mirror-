@@ -188,8 +188,12 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                     mainHandler.post {
                         if (isTtsReady) {
                             requestAudioFocus()
+                            com.jarvis.app.voice.VoiceDiagnostics.success("Android TTS")
                             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS_TTS_${System.currentTimeMillis()}")
                         } else {
+                            com.jarvis.app.voice.VoiceDiagnostics.report(
+                                "Android TTS is not ready yet — nothing was spoken."
+                            )
                             setState(JarvisVisualState.IDLE)
                         }
                     }

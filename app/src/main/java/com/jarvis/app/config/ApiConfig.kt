@@ -164,7 +164,15 @@ object ApiConfig {
             trimmed.startsWith("sk-ant-") -> "anthropic"
             trimmed.startsWith("sk-or-") -> "openrouter"
             trimmed.startsWith("gsk_") -> "groq"
+            trimmed.startsWith("csk-") -> "cerebras"
+            trimmed.startsWith("cohere_") -> "cohere"
+            trimmed.startsWith("key_") -> "mistral"
+            // xAI Grok keys: "AQ.Ab8RN6..." — easy to mistake for a Gemini key
+            trimmed.startsWith("AQ.") -> "grok"
+            trimmed.startsWith("sk-proj-") -> "openai"
             trimmed.startsWith("sk-") -> "openai"
+            // ElevenLabs: "sk_" followed by a hex blob. A voice key, not a chat key.
+            trimmed.startsWith("sk_") -> "elevenlabs"
             else -> "gemini"
         }
     }
@@ -179,6 +187,11 @@ object ApiConfig {
             "anthropic" -> "Anthropic Claude"
             "groq" -> "Groq Ultra-Fast Core"
             "openrouter" -> "OpenRouter Gateway"
+            "cerebras" -> "Cerebras Core"
+            "mistral" -> "Mistral Core"
+            "cohere" -> "Cohere Core"
+            "grok" -> "Grok (xAI) Core"
+            "elevenlabs" -> "ElevenLabs — this is a VOICE key. Paste it in Voice settings, not here."
             else -> "Neural Gateway"
         }
     }

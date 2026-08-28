@@ -30,7 +30,11 @@ object ElevenLabsVoicePlayer {
      */
     suspend fun speak(context: Context, text: String, voiceId: String = ApiConfig.ELEVENLABS_DEFAULT_VOICE_ID): Boolean = withContext(Dispatchers.IO) {
         val apiKey = ApiConfig.ELEVENLABS_API_KEY
-        if (apiKey.isBlank() || text.isBlank()) return@withContext false
+        if (apiKey.isBlank()) {
+            VoiceDiagnostics.report("ElevenLabs: no API key. Put ELEVENLABS_API_KEY in local.properties.")
+            return@withContext false
+        }
+        if (text.isBlank()) return@withContext false
 
         try {
             stop()
@@ -56,10 +60,19 @@ object ElevenLabsVoicePlayer {
 
             val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) {
+                val detail = runCatching { response.body?.string()?.take(300) }.getOrNull()
+                VoiceDiagnostics.report(
+                    "ElevenLabs HTTP ${response.code}: ${detail ?: response.message}. " +
+                        hintFor(response.code)
+                )
                 return@withContext false
             }
 
-            val body = response.body ?: return@withContext false
+            val body = response.body
+            if (body == null) {
+                VoiceDiagnostics.report("ElevenLabs returned an empty response body.")
+                return@withContext false
+            }
             val tempFile = File.createTempFile("jarvis_speech_", ".mp3", context.cacheDir)
             tempFile.deleteOnExit()
 
@@ -69,7 +82,10 @@ object ElevenLabsVoicePlayer {
                 }
             }
 
-            if (tempFile.length() <= 0) return@withContext false
+            if (tempFile.length() <= 0L) {
+                VoiceDiagnostics.report("ElevenLabs returned an empty audio file.")
+                return@withContext false
+            }
 
             withContext(Dispatchers.Main) {
                 try {
@@ -92,14 +108,25 @@ object ElevenLabsVoicePlayer {
                             } catch (_: Exception) {}
                         }
                     }
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    VoiceDiagnostics.report("Playback failed: ${e.localizedMessage}")
                     return@withContext false
                 }
             }
+            VoiceDiagnostics.success("ElevenLabs")
             return@withContext true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            VoiceDiagnostics.report("ElevenLabs request failed: ${e.localizedMessage}")
             return@withContext false
         }
+    }
+
+    private fun hintFor(code: Int): String = when (code) {
+        401 -> "The key was rejected — revoke it and paste a fresh one into local.properties."
+        403 -> "The key is not allowed to use this voice. Try a different voice ID."
+        429 -> "Quota exceeded on this ElevenLabs plan."
+        404 -> "That voice ID does not exist on this account."
+        else -> ""
     }
 
     fun stop() {

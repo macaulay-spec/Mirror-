@@ -26,5 +26,8 @@ object ToolRegistration {
 
         // Brightness, Do Not Disturb, ringer, Wi-Fi, Bluetooth
         DeviceSettingTools.registerAll()
+
+        // Events, reminders, alarms, navigation, clipboard, screenshots
+        LifeTools.registerAll()
     }
 }

@@ -29,5 +29,8 @@ object ToolRegistration {
 
         // Events, reminders, alarms, navigation, clipboard, screenshots
         LifeTools.registerAll()
+
+        // The switches JARVIS controls about itself, reachable by voice
+        ProactiveTools.registerAll()
     }
 }

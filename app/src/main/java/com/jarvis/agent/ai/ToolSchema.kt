@@ -64,9 +64,13 @@ object ToolSchema {
      * Tools worth exposing to the model. Read-only informational tools are left out of the
      * schema because the intent router already answers those instantly and offline.
      */
+    // Keep this in step with the categories tools are registered under. A tool in a
+    // category that is missing here is invisible to the model — it exists, it just never
+    // gets called, which is the worst kind of bug to chase.
     private val EXPOSED_CATEGORIES = setOf(
         "PHONE", "MESSAGING", "APPS", "DEVICE", "SCREEN", "NOTIFICATIONS", "WEB",
-        "CALENDAR", "MEMORY", "MEDIA", "COMMUNICATION", "INTEGRATION", "USAGE"
+        "CALENDAR", "MEMORY", "MEDIA", "COMMUNICATION", "INTEGRATION", "USAGE",
+        "LOCATION", "ASSISTANT"
     )
 
     fun exportedTools(): List<ToolDefinition> =

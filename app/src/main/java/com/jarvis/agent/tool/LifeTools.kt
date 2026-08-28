@@ -437,39 +437,21 @@ object LifeTools {
         )
     }
 
+    /**
+     * AccessibilityService.ScreenshotResult never had a getBitmap() — the bitmap has to be
+     * wrapped out of the hardware buffer, and the buffer must be closed afterwards or the
+     * system leaks it on every capture.
+     */
     @Suppress("NewApi")
     private fun bitmapFrom(
         result: android.accessibilityservice.AccessibilityService.ScreenshotResult
     ): Bitmap? = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            result.getBitmap()
-        } else {
-            val buffer = result.hardwareBuffer
-            val colorSpace = result.colorSpace
-            val wrapped = Bitmap.wrapHardwareBuffer(buffer, colorSpace)
-            buffer?.close()
-            wrapped
-        }
+        val buffer = result.hardwareBuffer
+        val wrapped = if (buffer != null) Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) else null
+        buffer?.close()
+        wrapped
     } catch (_: Exception) {
         null
-    }
-
-    private fun describeBitmap(context: Context, bitmap: Bitmap?): ToolExecutionResult {
-        if (bitmap == null) return error("screen_capture", "The screen returned nothing.")
-        return try {
-            val file = File(context.cacheDir, "jarvis_screen_${System.currentTimeMillis()}.png")
-            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
-            val analysis = com.jarvis.app.tools.ImageAnalyzer.analyze(bitmap)
-            val described = com.jarvis.app.tools.ImageAnalyzer.describe(analysis)
-            ToolExecutionResult(
-                toolId = "screen_capture",
-                success = true,
-                data = mapOf("path" to file.absolutePath, "width" to bitmap.width, "height" to bitmap.height),
-                verificationDetails = described
-            )
-        } catch (e: Exception) {
-            error("screen_capture", "I captured the screen but could not read it: ${e.localizedMessage}")
-        }
     }
 
     // ---------------------------------------------------------------- utils

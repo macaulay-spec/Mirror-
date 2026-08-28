@@ -97,7 +97,7 @@ object PeopleGraph {
                 preferredChannel = previous?.preferredChannel ?: "",
                 notes = previous?.notes ?: "",
                 lastContactedAt = previous?.lastContactedAt ?: 0,
-                timesContacted = previous?.timesContacted
+                timesContacted = previous?.timesContacted ?: 0
             )
             db.personDao().insert(person)
             imported++

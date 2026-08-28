@@ -28,28 +28,45 @@ object ElevenLabsVoicePlayer {
      * Attempts to stream and play audio from ElevenLabs HD Voice API.
      * Returns true if audio played successfully, false if failed/rate limited.
      */
-    suspend fun speak(context: Context, text: String, voiceId: String = ApiConfig.selectedVoiceId): Boolean = withContext(Dispatchers.IO) {
+    suspend fun speak(
+        context: Context,
+        text: String,
+        voiceId: String = ApiConfig.selectedVoiceId
+    ): Boolean {
         val apiKey = ApiConfig.ELEVENLABS_API_KEY
         if (apiKey.isBlank()) {
             VoiceDiagnostics.report("ElevenLabs: no API key. Put ELEVENLABS_API_KEY in local.properties.")
-            return@withContext false
+            return false
         }
-        if (text.isBlank()) return@withContext false
+        if (text.isBlank()) return false
 
         // Walk the British voices until one exists on this account. A wrong voice ID used to
         // mean silence; now it means JARVIS finds another voice and carries on.
-        var candidate = voiceId
-        var attempts = 0
-        while (true) {
-            val result = attempt(context, candidate, text)
-            if (result.played) return@withContext true
-            val next = if (result.voiceMissing) JarvisVoice.fallbackFor(candidate) else null
-            if (next == null || attempts >= 4) return@withContext false
-            VoiceDiagnostics.report(
-                "Voice ${JarvisVoice.labelFor(candidate)} unavailable on this account — trying ${JarvisVoice.labelFor(next)}."
-            )
-            candidate = next
-            attempts++
+        return withContext(Dispatchers.IO) {
+            var candidate = voiceId
+            var attempts = 0
+            var played = false
+            var keepTrying = true
+
+            while (keepTrying) {
+                val result = attempt(context, candidate, text)
+                if (result.played) {
+                    played = true
+                    keepTrying = false
+                } else {
+                    val next = if (result.voiceMissing) JarvisVoice.fallbackFor(candidate) else null
+                    if (next == null || attempts >= 4) {
+                        keepTrying = false
+                    } else {
+                        VoiceDiagnostics.report(
+                            "Voice ${JarvisVoice.labelFor(candidate)} unavailable on this account - trying ${JarvisVoice.labelFor(next)}."
+                        )
+                        candidate = next
+                        attempts++
+                    }
+                }
+            }
+            played
         }
     }
 

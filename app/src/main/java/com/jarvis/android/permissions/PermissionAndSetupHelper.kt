@@ -26,8 +26,27 @@ import com.jarvis.app.notifications.JarvisNotificationListener
 object PermissionAndSetupHelper {
 
     val REQUIRED_PERMISSIONS: Array<String> = buildList {
+        // Voice
         add(Manifest.permission.RECORD_AUDIO)
+        // Camera / media
         add(Manifest.permission.CAMERA)
+        // Calls — without these "call mumsi" is impossible
+        add(Manifest.permission.CALL_PHONE)
+        add(Manifest.permission.READ_PHONE_STATE)
+        add(Manifest.permission.READ_CALL_LOG)
+        // Contacts — resolving names and nicknames
+        add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.WRITE_CONTACTS)
+        // Messaging
+        add(Manifest.permission.SEND_SMS)
+        add(Manifest.permission.READ_SMS)
+        add(Manifest.permission.RECEIVE_SMS)
+        // Location
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        // Calendar
+        add(Manifest.permission.READ_CALENDAR)
+        add(Manifest.permission.WRITE_CALENDAR)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
             add(Manifest.permission.READ_MEDIA_IMAGES)

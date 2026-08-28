@@ -39,11 +39,16 @@ object ToolRegistry {
 
     fun getTool(id: String): ToolDefinition? = tools[id]
 
+    /**
+     * Backwards-compatible tool aliases.
+     *
+     * `open_app`, `battery_info`, `read_notifications` and `reply_notification` used to be
+     * redirected here. That silently discarded the newer implementations — and because
+     * `app_launch` reads `app_name` while callers send `app`, every "open X" command
+     * arrived with an empty name and launched whatever app PackageManager returned first.
+     * Those redirects are gone; the canonical tools now run.
+     */
     private val aliases = mapOf(
-        "battery_info" to "device_battery",
-        "open_app" to "app_launch",
-        "read_notifications" to "get_recent_notifications",
-        "reply_notification" to "reply_to_notification",
         "memory_save" to "memory_remember"
     )
 
@@ -117,76 +122,16 @@ object ToolRegistry {
                 category = "APPS",
                 riskLevel = RiskLevel.LEVEL_1
             ) { context, args ->
-                val appName = args["app_name"]?.toString()?.lowercase()?.trim() ?: ""
-                val pm = context.packageManager
-                
-                // Try specific standard intents
-                var launchIntent: Intent? = when {
-                    appName == "camera" || appName.contains("camera") -> Intent("android.media.action.IMAGE_CAPTURE")
-                    appName == "settings" || appName.contains("setting") -> Intent(android.provider.Settings.ACTION_SETTINGS)
-                    appName == "calendar" -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR)
-                    appName == "maps" || appName.contains("map") -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MAPS)
-                    appName == "music" -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC)
-                    appName == "browser" -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
-                    appName == "calculator" || appName.contains("calculator") -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALCULATOR)
-                    else -> null
-                }
-
-                // If not found or if specific app requested, query installed packages
-                if (launchIntent == null || launchIntent.resolveActivity(pm) == null) {
-                    try {
-                        val installedApps = pm.getInstalledApplications(0)
-                        val match = installedApps.firstOrNull { appInfo ->
-                            val label = appInfo.loadLabel(pm).toString().lowercase()
-                            label == appName || label.contains(appName) || appInfo.packageName.lowercase().contains(appName)
-                        }
-                        if (match != null) {
-                            launchIntent = pm.getLaunchIntentForPackage(match.packageName)
-                        }
-                    } catch (_: Exception) { }
-                }
-
-                // Fallback: Query launcher activities
-                if (launchIntent == null) {
-                    try {
-                        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                        val resolveInfos = pm.queryIntentActivities(launcherIntent, 0)
-                        val match = resolveInfos.firstOrNull {
-                            val label = it.loadLabel(pm).toString().lowercase()
-                            label == appName || label.contains(appName) || it.activityInfo.packageName.lowercase().contains(appName)
-                        }
-                        if (match != null) {
-                            launchIntent = pm.getLaunchIntentForPackage(match.activityInfo.packageName)
-                        }
-                    } catch (_: Exception) { }
-                }
-
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    try {
-                        context.startActivity(launchIntent)
-                        ToolExecutionResult(
-                            toolId = "app_launch",
-                            success = true,
-                            data = mapOf("launched" to appName),
-                            verificationDetails = "Application '$appName' launched successfully."
-                        )
-                    } catch (e: Exception) {
-                        ToolExecutionResult(
-                            toolId = "app_launch",
-                            success = false,
-                            data = null,
-                            error = "Could not start application '$appName': ${e.message}"
-                        )
-                    }
-                } else {
-                    ToolExecutionResult(
-                        toolId = "app_launch",
-                        success = false,
-                        data = null,
-                        error = "Could not find an installed application matching '$appName'."
-                    )
-                }
+                val raw = (args["app"] ?: args["app_name"] ?: args["name"] ?: args["query"] ?: args["target"])
+                    ?.toString()?.trim() ?: ""
+                val result = com.jarvis.app.tools.AppLauncher.launch(context, raw)
+                ToolExecutionResult(
+                    toolId = "app_launch",
+                    success = result.success,
+                    data = mapOf("app" to raw, "package" to (result.packageName ?: "")),
+                    verificationDetails = if (result.success) result.message else null,
+                    error = if (result.success) null else result.message
+                )
             }
         )
 
@@ -258,7 +203,7 @@ object ToolRegistry {
                     )
                 }
                 
-                val appName = args["app_name"]?.toString()
+                val appName = (args["app_name"] ?: args["app"] ?: args["package"])?.toString()
                 val limit = (args["limit"] as? Number)?.toInt() ?: 5
                 
                 val notifs = if (!appName.isNullOrBlank()) {
@@ -285,8 +230,8 @@ object ToolRegistry {
                 category = "NOTIFICATIONS",
                 riskLevel = RiskLevel.LEVEL_2
             ) { _, args ->
-                val appName = args["app_name"]?.toString() ?: args["package_name"]?.toString() ?: ""
-                val replyText = args["reply_text"]?.toString() ?: ""
+                val appName = (args["app_name"] ?: args["app"] ?: args["package_name"] ?: args["package"])?.toString() ?: ""
+                val replyText = (args["reply_text"] ?: args["message"] ?: args["text"] ?: args["body"])?.toString() ?: ""
                 
                 if (appName.isBlank() || replyText.isBlank()) {
                     return@ToolDefinition ToolExecutionResult(
@@ -383,7 +328,7 @@ object ToolRegistry {
                     return@ToolDefinition ToolExecutionResult("get_daily_usage", false, null, "Usage Access is not enabled.")
                 }
                 
-                val appName = args["app_name"]?.toString()
+                val appName = (args["app_name"] ?: args["app"] ?: args["package"])?.toString()
                 
                 if (!appName.isNullOrBlank()) {
                     val appUsage = com.jarvis.app.usage.JarvisUsageManager.getAppUsage(context, appName)

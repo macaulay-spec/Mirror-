@@ -10,6 +10,7 @@ import com.jarvis.core.model.RiskLevel
  */
 object ToolRegistration {
 
+    @Suppress("UNUSED_PARAMETER")
     fun registerAll(context: Context) {
         // Register device controls & hardware tools
         DeviceToolExecutors.registerAll()
@@ -19,5 +20,11 @@ object ToolRegistration {
 
         // Register notification tools
         com.jarvis.app.notifications.JarvisNotificationListener.registerTools()
+
+        // Calls, SMS, contacts, call log
+        PhoneTools.registerAll()
+
+        // Brightness, Do Not Disturb, ringer, Wi-Fi, Bluetooth
+        DeviceSettingTools.registerAll()
     }
 }

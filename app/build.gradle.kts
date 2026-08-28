@@ -1,9 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+// API keys live in local.properties (gitignored) or in the environment.
+// Copy local.properties.example -> local.properties and paste your keys there.
+//   GEMINI_API_KEY=AIza...
+//   ELEVENLABS_API_KEY=sk_...
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun secretKey(name: String): String =
+    (localProperties.getProperty(name) ?: System.getenv(name) ?: "").trim()
 
 android {
     namespace = "com.jarvis.app"
@@ -15,7 +29,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
-        buildConfigField("String", "GEMINI_API_KEY", "\"${System.getenv("GEMINI_API_KEY") ?: ""}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${secretKey("GEMINI_API_KEY")}\"")
+        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${secretKey("ELEVENLABS_API_KEY")}\"")
     }
 
     buildTypes {

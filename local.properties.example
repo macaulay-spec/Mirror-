@@ -1,0 +1,12 @@
+# Copy this file to local.properties and paste your real keys there.
+# local.properties is gitignored — your keys never enter the repository.
+#
+#   cp local.properties.example local.properties
+#
+# Where to get them (all free, all with a normal personal email):
+#
+#   GEMINI      https://aistudio.google.com/apikey   -> key starts with "AIzaSy"
+#   ELEVENLABS  https://elevenlabs.io                -> key starts with "sk_"
+
+GEMINI_API_KEY=
+ELEVENLABS_API_KEY=

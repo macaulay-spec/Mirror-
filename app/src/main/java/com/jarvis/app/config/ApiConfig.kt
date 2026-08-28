@@ -50,7 +50,14 @@ object ApiConfig {
     const val BUNDLED_COHERE_KEY = "cohere_kqX8R0ZQcveFcVczw8uQHIndhccSWzFzw9NSFV0J2X1WcG."
 
     // Voice & Audio Infrastructure Keys
-    var ELEVENLABS_API_KEY = "sk_7049a5e7b9f58b28ba134bb1a0e195de5d00b98ee0e44450"
+    /**
+     * Local override wins: put ELEVENLABS_API_KEY in local.properties (gitignored) or in
+     * the environment. The fallback below is the key that shipped in this public repo and
+     * may be throttled or revoked at any time — treat the local one as the real key.
+     */
+    var ELEVENLABS_API_KEY: String = BuildConfig.ELEVENLABS_API_KEY
+        .takeIf { it.isNotBlank() }
+        ?: "sk_7049a5e7b9f58b28ba134bb1a0e195de5d00b98ee0e44450"
     const val ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM" // Rachel / Adam British / Jarvis voice profile
     val hasElevenLabs get() = ELEVENLABS_API_KEY.isNotBlank()
 

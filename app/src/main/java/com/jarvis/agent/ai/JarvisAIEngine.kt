@@ -7,6 +7,7 @@ import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
+import com.jarvis.app.assistant.JarvisApiClient
 import com.jarvis.core.model.ToolExecutionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,17 +15,13 @@ import kotlinx.coroutines.withContext
 data class JarvisEngineResult(
     val reply: String,
     val state: JarvisVisualState = JarvisVisualState.SUCCESS,
-    val toolResult: ToolExecutionResult? = null,
-    /** Set when the action is risky and must be confirmed before it runs. */
-    val confirmRequest: ToolExecutionRequest? = null
+    val toolResult: ToolExecutionResult? = null
 )
 
 class JarvisAIEngine(private val context: Context) {
-    private val providerRouter = ProviderRouter()
-    /** Holds conversation state: open questions, pending confirmations, entity memory. */
-    val dialogueManager = com.jarvis.agent.dialogue.DialogueManager(context)
+    private val apiClient = JarvisApiClient()
     val memoryManager = JarvisMemoryManager(context)
-    private val agentExecutor = AgentExecutor(context, providerRouter, memoryManager)
+    private val agentExecutor = AgentExecutor(context, apiClient, memoryManager)
 
     val systemPrompt: String
         get() {
@@ -58,9 +55,7 @@ class JarvisAIEngine(private val context: Context) {
                 - press_back / press_home / open_recents: system navigation
                 - smart_tv_control: control smart TV / Android box casting
 
-                The available actions are supplied to you as callable functions — call them
-                directly, with the correct argument names, instead of describing them.
-                Only if functions are unavailable, reply with a JSON object in this format:
+                To use a device action tool, reply with a JSON object in this format:
                 {
                     "action": "tool_call",
                     "tool": "tool_name",
@@ -81,31 +76,6 @@ class JarvisAIEngine(private val context: Context) {
         memoryManager.updateSessionContext(app = activeApp, task = "Processing command", action = null, result = null, details = null)
 
         memoryManager.addConversation("user", input)
-
-        // 0. The dialogue manager handles anything it has state for (an open question, a
-        //    pending confirmation) or can parse locally. Only what it cannot handle —
-        //    genuine conversation, planning, knowledge — falls through to the LLM.
-        val turn = dialogueManager.handle(input)
-        if (turn.handled) {
-            val rawReply = turn.spoken
-                ?: turn.toolResult?.verificationDetails
-                ?: turn.toolResult?.error
-                ?: "Done."
-            val reply = ReplySanitizer.sanitize(rawReply)
-            memoryManager.addConversation("jarvis", reply)
-            turn.toolResult?.let { memoryManager.recordToolExecution(it.toolId, emptyMap(), it) }
-            return@withContext JarvisEngineResult(
-                reply = reply,
-                state = when {
-                    turn.confirmRequest != null -> JarvisVisualState.IDLE
-                    turn.toolResult == null -> JarvisVisualState.IDLE
-                    turn.toolResult.success -> JarvisVisualState.SUCCESS
-                    else -> JarvisVisualState.ERROR
-                },
-                toolResult = turn.toolResult,
-                confirmRequest = turn.confirmRequest
-            )
-        }
 
         // Retrieve relevant long term memories and recent conversation history
         val relevantMemories = memoryManager.recallRelevant(input)

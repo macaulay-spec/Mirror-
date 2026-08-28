@@ -73,6 +73,7 @@ object ToolRegistry {
     }
 
     private fun registerDefaultTools() {
+        WebTools.register(this)
         // 1. Battery Status (Level 0)
         register(
             ToolDefinition(
@@ -500,6 +501,155 @@ object ToolRegistry {
                     verificationDetails = loc,
                     error = if (loc.contains("failed", ignoreCase = true) || loc.contains("need", ignoreCase = true)) loc else null
                 )
+            }
+        )
+
+        // 17. Call Contact / Phone Dial (Level 2)
+        register(
+            ToolDefinition(
+                id = "call_contact",
+                name = "Call Contact",
+                description = "Places a call or opens the dialer for a given person or phone number.",
+                category = "COMMUNICATION",
+                riskLevel = RiskLevel.LEVEL_2
+            ) { context, args ->
+                val contactQuery = args["contact"]?.toString() ?: args["name"]?.toString() ?: args["number"]?.toString() ?: ""
+                if (contactQuery.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult("call_contact", false, null, "Contact name or number not specified.")
+                }
+
+                // Check context graph first for relationships like mumsi
+                val db = com.jarvis.app.memory.AppDatabase.get(context)
+                val person = db.contextGraphDao().getPersonByName(contactQuery)
+                val number = person?.phoneNumbers?.firstOrNull() ?: run {
+                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactQuery)
+                    phoneContact?.phone
+                } ?: contactQuery
+
+                val dialed = com.jarvis.app.tools.ContactsToolkit(context).dial(number)
+                if (dialed) {
+                    ToolExecutionResult(
+                        toolId = "call_contact",
+                        success = true,
+                        data = mapOf("target" to (person?.name ?: contactQuery), "number" to number),
+                        verificationDetails = "Initiating call to ${person?.name ?: contactQuery} ($number)."
+                    )
+                } else {
+                    ToolExecutionResult("call_contact", false, null, "Could not open dialer for $contactQuery.")
+                }
+            }
+        )
+
+        // 18. Send Message / SMS (Level 2)
+        register(
+            ToolDefinition(
+                id = "send_message",
+                name = "Send Direct Message",
+                description = "Sends an SMS or direct message to a contact.",
+                category = "COMMUNICATION",
+                riskLevel = RiskLevel.LEVEL_2
+            ) { context, args ->
+                val contactName = args["contact"]?.toString() ?: args["recipient"]?.toString() ?: ""
+                val body = args["body"]?.toString() ?: args["message"]?.toString() ?: ""
+                if (contactName.isBlank() || body.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult("send_message", false, null, "Both recipient and message body are required.")
+                }
+
+                val db = com.jarvis.app.memory.AppDatabase.get(context)
+                val person = db.contextGraphDao().getPersonByName(contactName)
+                val phone = person?.phoneNumbers?.firstOrNull() ?: run {
+                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactName)
+                    phoneContact?.phone
+                } ?: contactName
+
+                val result = com.jarvis.app.tools.DeviceToolkit(context).sendSms(phone, body)
+                if (result.startsWith("Sent")) {
+                    ToolExecutionResult(
+                        toolId = "send_message",
+                        success = true,
+                        data = mapOf("recipient" to contactName, "body" to body),
+                        verificationDetails = "Message sent to $contactName: \"$body\""
+                    )
+                } else {
+                    // Fallback to drafting in SMS app
+                    com.jarvis.app.tools.DeviceToolkit(context).openSmsApp(phone, body)
+                    ToolExecutionResult(
+                        toolId = "send_message",
+                        success = true,
+                        data = mapOf("recipient" to contactName, "body" to body),
+                        verificationDetails = "Opened SMS composer for $contactName with draft: \"$body\""
+                    )
+                }
+            }
+        )
+
+        // 19. Toggle System Setting (Level 1)
+        register(
+            ToolDefinition(
+                id = "toggle_setting",
+                name = "Toggle Setting",
+                description = "Toggles Wi-Fi, Bluetooth, Flashlight, or Do Not Disturb.",
+                category = "DEVICE",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val setting = args["setting"]?.toString()?.lowercase() ?: ""
+                val state = args["state"] as? Boolean ?: true
+                val dtk = com.jarvis.app.tools.DeviceToolkit(context)
+                val response = when (setting) {
+                    "wifi", "wi-fi" -> dtk.toggleWifi(state)
+                    "flashlight", "torch" -> dtk.flashlight(state)
+                    "dnd", "do_not_disturb" -> dtk.dnd(state)
+                    else -> "Setting '$setting' toggle not supported directly."
+                }
+                ToolExecutionResult(
+                    toolId = "toggle_setting",
+                    success = !response.contains("failed", ignoreCase = true) && !response.contains("unavailable", ignoreCase = true),
+                    data = mapOf("setting" to setting, "state" to state),
+                    verificationDetails = response
+                )
+            }
+        )
+
+        // 20. Navigate To (Level 1)
+        register(
+            ToolDefinition(
+                id = "navigate_to",
+                name = "Navigate To Location",
+                description = "Opens turn-by-turn navigation or Google Maps for a destination.",
+                category = "NAVIGATION",
+                riskLevel = RiskLevel.LEVEL_1
+            ) { context, args ->
+                val destination = args["destination"]?.toString() ?: args["query"]?.toString() ?: ""
+                if (destination.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult("navigate_to", false, null, "Destination not provided.")
+                }
+                val navUri = Uri.parse("google.navigation:q=${Uri.encode(destination)}")
+                val intent = Intent(Intent.ACTION_VIEW, navUri).apply {
+                    setPackage("com.google.android.apps.maps")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    ToolExecutionResult(
+                        toolId = "navigate_to",
+                        success = true,
+                        data = mapOf("destination" to destination),
+                        verificationDetails = "Starting navigation to $destination."
+                    )
+                } catch (_: Exception) {
+                    // Fallback to geo URI
+                    val geoUri = Uri.parse("geo:0,0?q=${Uri.encode(destination)}")
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(fallbackIntent)
+                    ToolExecutionResult(
+                        toolId = "navigate_to",
+                        success = true,
+                        data = mapOf("destination" to destination),
+                        verificationDetails = "Opened map search for $destination."
+                    )
+                }
             }
         )
     }

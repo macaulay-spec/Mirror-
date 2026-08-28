@@ -1,0 +1,205 @@
+package com.jarvis.app.dialogue
+
+import android.content.Context
+import com.jarvis.app.contextgraph.ContextGraphDao
+import com.jarvis.app.intent.Intent
+import com.jarvis.app.intent.IntentRouter
+import com.jarvis.app.contextgraph.PersonEntity
+
+class DialogueManager(
+    private val context: Context,
+    private val contextGraphDao: ContextGraphDao
+) {
+    var openSlot: String? = null // e.g., "contact", "message_body"
+    var pendingIntent: Intent? = null
+    var pendingConfirm: Intent? = null
+    val entities = EntityMemory()
+
+    suspend fun handle(utterance: String): DialogueResult {
+        // Handle corrections/cancellations
+        val lower = utterance.lowercase().trim()
+        if (lower == "stop" || lower == "cancel" || lower == "never mind" || lower == "nevermind") {
+            clearState()
+            return DialogueResult.Reply("Cancelled.")
+        }
+
+        // Check if we are confirming an action
+        if (pendingConfirm != null) {
+            val intent = pendingConfirm!!
+            if (lower == "yes" || lower == "yeah" || lower == "do it") {
+                pendingConfirm = null
+                return executeIntent(intent)
+            } else if (lower == "no" || lower == "don't") {
+                pendingConfirm = null
+                return DialogueResult.Reply("Okay, cancelled.")
+            }
+        }
+
+        // Check if we are filling an open slot
+        if (openSlot != null && pendingIntent != null) {
+            return fillSlot(utterance)
+        }
+
+        // Parse new intent
+        val intent = IntentRouter.route(utterance)
+        return processIntent(intent)
+    }
+
+    private suspend fun processIntent(intent: Intent): DialogueResult {
+        when (intent) {
+            is Intent.CallPerson -> {
+                val contactName = intent.contact ?: return DialogueResult.Ask("contact_name", "Who do you want to call?")
+                val person = resolvePerson(contactName)
+                
+                if (person == null) {
+                    // Start lazy onboarding: Ask who this is
+                    pendingIntent = intent
+                    openSlot = "new_contact_relation"
+                    return DialogueResult.Ask("new_contact_relation", "I don't know who \$contactName is. Who are they to you?")
+                }
+
+                entities.lastContact = person
+                
+                // Disambiguate if multiple numbers and type not specified
+                if (intent.numberType == null && person.phoneNumbers.size > 1) {
+                    pendingIntent = intent
+                    openSlot = "number_type"
+                    return DialogueResult.Ask("number_type", "\${person.name} has multiple numbers. Home or mobile?", listOf("Home", "Mobile"))
+                }
+
+                if (!intent.confirm) {
+                    pendingConfirm = intent.copy(confirm = true)
+                    return DialogueResult.Confirm(
+                        tool = "call_contact",
+                        arguments = mapOf("contact" to person.name, "type" to (intent.numberType ?: "default")),
+                        prompt = "Calling \${person.name}. Yes?",
+                        risk = 2
+                    )
+                }
+
+                return executeIntent(intent)
+            }
+            
+            is Intent.SendMessage -> {
+                val contactName = intent.contact ?: return DialogueResult.Ask("contact_name", "Who do you want to text?")
+                val person = resolvePerson(contactName)
+                
+                if (person == null) {
+                    pendingIntent = intent
+                    openSlot = "new_contact_relation"
+                    return DialogueResult.Ask("new_contact_relation", "I don't have \$contactName saved. Who is that?")
+                }
+                
+                entities.lastContact = person
+                
+                val body = intent.body
+                if (body == null) {
+                    pendingIntent = intent
+                    openSlot = "message_body"
+                    return DialogueResult.Ask("message_body", "What should I say to \${person.name}?")
+                }
+                
+                if (!intent.confirm) {
+                    pendingConfirm = intent.copy(confirm = true)
+                    return DialogueResult.Confirm(
+                        tool = "send_message",
+                        arguments = mapOf("contact" to person.name, "body" to body),
+                        prompt = "Send to \${person.name}: '\$body'. Send it?",
+                        risk = 2
+                    )
+                }
+                
+                return executeIntent(intent)
+            }
+
+            is Intent.OpenApp -> {
+                val appName = intent.appName ?: return DialogueResult.Ask("app_name", "Which app?")
+                return DialogueResult.ToolCall("open_app", mapOf("app_name" to appName))
+            }
+            
+            is Intent.ToggleSetting -> {
+                return DialogueResult.ToolCall("toggle_setting", mapOf("setting" to intent.setting, "state" to intent.state))
+            }
+            
+            is Intent.SetVolume -> {
+                return DialogueResult.ToolCall("set_volume", mapOf("direction" to (intent.direction ?: "up")))
+            }
+
+            is Intent.Unknown -> {
+                // LLM Fallback
+                return DialogueResult.ToolCall("llm_fallback", mapOf("utterance" to intent.raw))
+            }
+            else -> return DialogueResult.Reply("I'm not sure how to do that yet.")
+        }
+    }
+
+    private suspend fun fillSlot(utterance: String): DialogueResult {
+        val slot = openSlot
+        val intent = pendingIntent ?: return DialogueResult.Reply("I forgot what we were doing.")
+        
+        openSlot = null // Close the slot
+        
+        when (intent) {
+            is Intent.CallPerson -> {
+                if (slot == "new_contact_relation") {
+                    // The user is answering "Who is mumsi?" e.g., "my mother"
+                    val relation = utterance.replace("my ", "").trim()
+                    val newPerson = PersonEntity(name = intent.contact!!, relationship = relation)
+                    contextGraphDao.insertPerson(newPerson)
+                    return processIntent(intent)
+                }
+                if (slot == "number_type") {
+                    val updatedIntent = intent.copy(numberType = utterance.trim().lowercase())
+                    pendingIntent = null
+                    return processIntent(updatedIntent)
+                }
+            }
+            is Intent.SendMessage -> {
+                if (slot == "message_body") {
+                    val updatedIntent = intent.copy(body = utterance)
+                    pendingIntent = null
+                    return processIntent(updatedIntent)
+                }
+            }
+            else -> {}
+        }
+        
+        clearState()
+        return DialogueResult.Reply("I got confused. Let's start over.")
+    }
+
+    private fun executeIntent(intent: Intent): DialogueResult {
+        return when (intent) {
+            is Intent.CallPerson -> {
+                DialogueResult.ToolCall("call_contact", mapOf(
+                    "contact" to intent.contact,
+                    "type" to intent.numberType
+                ))
+            }
+            is Intent.SendMessage -> {
+                DialogueResult.ToolCall("send_message", mapOf(
+                    "contact" to intent.contact,
+                    "body" to intent.body
+                ))
+            }
+            else -> DialogueResult.Reply("Action not implemented yet.")
+        }
+    }
+
+    private suspend fun resolvePerson(name: String): PersonEntity? {
+        // If pronoun, check entity memory
+        val lower = name.lowercase()
+        if (lower == "him" || lower == "her" || lower == "them") {
+            return entities.lastContact
+        }
+        
+        // Otherwise look up in graph
+        return contextGraphDao.getPersonByName(name)
+    }
+
+    private fun clearState() {
+        openSlot = null
+        pendingConfirm = null
+        pendingIntent = null
+    }
+}

@@ -22,7 +22,6 @@ import com.jarvis.android.voice.JarvisSoundManager
 import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.android.voice.SoundEvent
 import com.jarvis.android.voice.VoiceOrchestratorBridge
-import com.jarvis.app.assistant.GeminiService
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.app.memory.AppDatabase
 import com.jarvis.core.model.JarvisVisualState
@@ -60,7 +59,6 @@ class MainActivity : ComponentActivity() {
 
         orchestrator = AssistantOrchestrator(
             context = applicationContext,
-            geminiService = GeminiService(),
             database = AppDatabase.get(applicationContext),
             voiceEngine = voiceEngine
         )

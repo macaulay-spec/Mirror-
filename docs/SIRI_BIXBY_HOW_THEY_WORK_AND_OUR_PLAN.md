@@ -27,7 +27,7 @@ part JARVIS has almost none of.
                     → intent=CALL_PERSON, slots={contact: mumsi, number_type: mobile}
         ↓
  ⑥ DIALOGUE         State tracker + policy: do I have every slot? Is there more than
-   MANAGER          one "mumsi"? Is this action risky? → ask / confirm / execute
+   one "mumsi"? Is this action risky? → ask / confirm / execute
         ↓
  ⑦ FULFILLMENT      Call the API (SiriKit domain / Bixby Capsule / App Intent),
    + NLG + TTS      get a result, generate a natural reply, speak it — streaming

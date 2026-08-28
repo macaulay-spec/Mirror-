@@ -177,7 +177,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
             
             // Launch coroutine to try preferred voice engine, fallback if needed
             CoroutineScope(Dispatchers.IO).launch {
-                val useElevenLabs = com.jarvis.app.config.ApiConfig.voiceEngineType == "elevenlabs" && com.jarvis.app.config.ApiConfig.hasElevenLabs
+                val useElevenLabs = com.jarvis.app.config.ApiConfig.voiceEngineType == "elevenlabs"
                 val success = if (useElevenLabs) {
                     com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(context, text, com.jarvis.app.config.ApiConfig.selectedVoiceId)
                 } else {

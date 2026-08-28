@@ -125,16 +125,52 @@ object DeviceToolExecutors {
                 category = "DEVICE",
                 riskLevel = RiskLevel.LEVEL_0
             ) { context, args ->
-                val raw = (args["app"] ?: args["name"] ?: args["app_name"] ?: args["package"] ?: args["query"])
-                    ?.toString()?.trim() ?: ""
-                val result = com.jarvis.app.tools.AppLauncher.launch(context, raw)
-                ToolExecutionResult(
-                    toolId = "open_app",
-                    success = result.success,
-                    data = mapOf("app" to raw, "package" to (result.packageName ?: "")),
-                    verificationDetails = if (result.success) result.message else null,
-                    error = if (result.success) null else result.message
-                )
+                val appQuery = args["app"]?.toString() ?: args["name"]?.toString() ?: args["app_name"]?.toString() ?: ""
+                if (appQuery.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult(toolId = "open_app", success = false, data = null, error = "App name must be provided.")
+                }
+
+                val pm = context.packageManager
+                val db = com.jarvis.app.memory.AppDatabase.get(context)
+                // Check Context Graph app aliases first (e.g., 'the bank app' -> specific package)
+                var resolvedPackage: String? = null
+                try {
+                    val aliases = db.contextGraphDao().getAllAppAliasesSync()
+                    val matchedAlias = aliases.firstOrNull { alias ->
+                        alias.defaultLabel.equals(appQuery, ignoreCase = true) ||
+                        alias.nicknames.any { nick -> nick.equals(appQuery, ignoreCase = true) || appQuery.contains(nick, ignoreCase = true) }
+                    }
+                    resolvedPackage = matchedAlias?.packageName
+                } catch (_: Exception) {}
+
+                val intent = (resolvedPackage?.let { pm.getLaunchIntentForPackage(it) })
+                    ?: pm.getLaunchIntentForPackage(appQuery)
+                    ?: run {
+                        val apps = pm.getInstalledApplications(0)
+                        val match = apps.firstOrNull { app ->
+                            val label = pm.getApplicationLabel(app).toString()
+                            label.equals(appQuery, ignoreCase = true) || label.contains(appQuery, ignoreCase = true) || app.packageName.contains(appQuery, ignoreCase = true)
+                        }
+                        match?.let { pm.getLaunchIntentForPackage(it.packageName) }
+                    }
+
+                if (intent != null) {
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                    ToolExecutionResult(
+                        toolId = "open_app",
+                        success = true,
+                        data = mapOf("app" to appQuery),
+                        verificationDetails = "Successfully opened app '$appQuery'."
+                    )
+                } else {
+                    ToolExecutionResult(
+                        toolId = "open_app",
+                        success = false,
+                        data = null,
+                        error = "App '$appQuery' not found on device."
+                    )
+                }
             }
         )
 

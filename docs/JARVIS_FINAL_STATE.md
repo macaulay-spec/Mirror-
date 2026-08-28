@@ -48,7 +48,7 @@ Legend for the **Needs** column:
 | Read SMS conversations aloud | PHONE |
 | Read unread messages from WhatsApp / Telegram / Instagram / Messenger / X | NOTIF |
 | Reply to any of them by voice (notification RemoteInput) | NOTIF |
-| Start a **new** WhatsApp/Telegram message to a contact (not just a reply) | ACC |
+| Start a **new** WhatsApp message to a contact (not just a reply) | ACC |
 | Draft → read it back → "send it" → confirmed send | PHONE / NOTIF / ACC |
 | Smart digest: "12 messages, 3 people — 2 from Mumsi, 1 from Tunde" | NOTIF |
 | Group chat handling, sender names, timestamps | NOTIF |

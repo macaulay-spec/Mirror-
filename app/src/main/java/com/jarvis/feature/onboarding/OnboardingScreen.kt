@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.sp
 import com.jarvis.android.permissions.PermissionAndSetupHelper
 import com.jarvis.android.voice.JarvisSoundManager
 import com.jarvis.android.voice.SoundEvent
-import com.jarvis.app.assistant.GeminiService
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
@@ -132,7 +131,7 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header: Step indicators
+            // Header: Step indicators & Quick Launch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -148,12 +147,39 @@ fun OnboardingScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp
                 )
-                Text(
-                    text = "PHASE ${currentStep + 1} / 8",
-                    color = JarvisColors.TextSecondary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0x1800E5FF))
+                            .border(1.dp, JarvisColors.BorderCyan.copy(alpha = 0.4f), CircleShape)
+                            .clickable {
+                                ApiConfig.setOnboardingCompleted(context, true)
+                                JarvisSoundManager.play(SoundEvent.ACTIVATE)
+                                onFinishOnboarding()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "SKIP TO CONSOLE ➔",
+                            color = JarvisColors.CyanBright,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        text = "PHASE ${currentStep + 1} / 7",
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             }
 
             // Hero Orb
@@ -218,35 +244,6 @@ fun OnboardingScreen(
                                 PermissionAndSetupHelper.openBatteryOptimizationSettings(context)
                             }
                         )
-                        7 -> StepNeuralCore(
-                            apiKey = apiKeyInput,
-                            onKeyChange = { apiKeyInput = it },
-                            isValidating = isValidatingKey,
-                            statusText = keyValidationStatus,
-                            onTestKey = {
-                                scope.launch {
-                                    isValidatingKey = true
-                                    keyValidationStatus = "Verifying neural key..."
-                                    try {
-                                        val testResult = GeminiService().generateChatResponse(
-                                            userMessage = "Status ping",
-                                            apiKey = apiKeyInput.trim()
-                                        )
-                                        if (testResult.isSuccess) {
-                                            keyValidationStatus = "Neural Gateway: Active & Connected"
-                                            JarvisSoundManager.play(SoundEvent.SUCCESS)
-                                        } else {
-                                            keyValidationStatus = "Key Error: ${testResult.exceptionOrNull()?.message?.take(50)}"
-                                            JarvisSoundManager.play(SoundEvent.ERROR)
-                                        }
-                                    } catch (e: Exception) {
-                                        keyValidationStatus = "Connection error. Local Core active."
-                                    } finally {
-                                        isValidatingKey = false
-                                    }
-                                }
-                            }
-                        )
                     }
                 }
             }
@@ -275,10 +272,7 @@ fun OnboardingScreen(
                         if (currentStep == 2) {
                             ApiConfig.saveUserName(context, userNameInput)
                         }
-                        if (currentStep == 7) {
-                            if (apiKeyInput.isNotBlank()) {
-                                ApiConfig.saveCustomKey(context, apiKeyInput)
-                            }
+                        if (currentStep == 6) {
                             ApiConfig.setOnboardingCompleted(context, true)
                             JarvisSoundManager.play(SoundEvent.ACTIVATE)
                             onFinishOnboarding()
@@ -295,7 +289,7 @@ fun OnboardingScreen(
                     modifier = Modifier.height(48.dp)
                 ) {
                     Text(
-                        text = if (currentStep == 7) "ACTIVATE JARVIS" else "CONTINUE",
+                        text = if (currentStep == 6) "ACTIVATE JARVIS" else "CONTINUE",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -585,99 +579,6 @@ private fun StepBattery(
             actionLabel = if (hasBattery) "Exempted" else "Request Exemption",
             onAction = onOpen
         )
-    }
-}
-
-@Composable
-private fun StepNeuralCore(
-    apiKey: String,
-    onKeyChange: (String) -> Unit,
-    isValidating: Boolean,
-    statusText: String?,
-    onTestKey: () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "NEURAL GATEWAY (OPTIONAL)",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Paste your Google AI Studio / Gemini API key, or proceed in local zero-key mode.",
-            color = JarvisColors.TextSecondary,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0x1A00E5FF))
-                .border(1.dp, JarvisColors.BorderCyan, RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
-            BasicTextField(
-                value = apiKey,
-                onValueChange = onKeyChange,
-                textStyle = TextStyle(
-                    color = JarvisColors.TextPrimary,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace
-                ),
-                cursorBrush = SolidColor(JarvisColors.CyanPrimary),
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (apiKey.isEmpty()) {
-                Text(
-                    text = "AIzaSy... (Paste Gemini Key)",
-                    color = JarvisColors.TextMuted,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-
-        if (apiKey.isNotBlank()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isValidating) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = JarvisColors.CyanPrimary,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Text(
-                    text = "TEST KEY CONNECTION",
-                    color = JarvisColors.CyanBright,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable(enabled = !isValidating) { onTestKey() }
-                )
-            }
-        }
-
-        if (statusText != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = statusText,
-                color = if (statusText.contains("Active")) Color(0xFF00F5D4) else Color(0xFFFFB703),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
-            )
-        }
     }
 }
 

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.KeyboardVoice
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -515,9 +516,15 @@ private fun ConversationView(
             }
 
             items(messages, key = { it.id }) { msg ->
-                ChatMessageItem(message = msg, onConfirmTool = { req ->
-                    orchestrator.confirmToolExecution(req)
-                })
+                ChatMessageItem(
+                    message = msg,
+                    onConfirmTool = { req ->
+                        orchestrator.confirmToolExecution(req)
+                    },
+                    onRejectTool = {
+                        orchestrator.rejectToolExecution()
+                    }
+                )
             }
         }
     }
@@ -526,7 +533,8 @@ private fun ConversationView(
 @Composable
 private fun ChatMessageItem(
     message: AssistantMessage,
-    onConfirmTool: (com.jarvis.core.model.ToolExecutionRequest) -> Unit
+    onConfirmTool: (com.jarvis.core.model.ToolExecutionRequest) -> Unit,
+    onRejectTool: (() -> Unit)? = null
 ) {
     val isUser = message.role == MessageRole.USER
     val isSystem = message.role == MessageRole.SYSTEM
@@ -593,40 +601,76 @@ private fun ChatMessageItem(
                     lineHeight = 18.sp
                 )
 
-                // Tool Execution Confirmation Card
+                // Tool Execution Confirmation Card (Risk Tier 2)
                 if (message.toolCall != null && message.toolCall.requiresConfirmation && message.toolResult == null) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(JarvisColors.AmberWarning.copy(alpha = 0.15f))
-                            .border(1.dp, JarvisColors.AmberWarning.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
+                            .border(1.dp, JarvisColors.AmberWarning.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = "VERIFICATION REQUIRED: ${message.toolCall.name}",
-                                color = JarvisColors.AmberWarning,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(JarvisColors.AmberWarning)
-                                    .clickable { onConfirmTool(message.toolCall) }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = JarvisColors.AmberWarning,
+                                    modifier = Modifier.size(16.dp)
+                                )
                                 Text(
-                                    text = "CONFIRM & EXECUTE",
-                                    color = Color.Black,
-                                    fontSize = 10.sp,
+                                    text = "CONFIRMATION PROTOCOL: ${message.toolCall.name.uppercase()}",
+                                    color = JarvisColors.AmberWarning,
+                                    fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
                                 )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(JarvisColors.AmberWarning)
+                                        .clickable { onConfirmTool(message.toolCall) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "CONFIRM & EXECUTE",
+                                        color = Color.Black,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x25FF0055))
+                                        .border(1.dp, Color(0x66FF0055), RoundedCornerShape(8.dp))
+                                        .clickable { onRejectTool?.invoke() }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "CANCEL",
+                                        color = Color(0xFFFF5588),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }

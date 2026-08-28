@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
-import com.jarvis.app.assistant.GeminiService
 import com.jarvis.app.memory.AppDatabase
 import com.jarvis.app.memory.MemoryEntity
 import com.jarvis.app.memory.MemoryRepository
@@ -22,7 +21,6 @@ class JarvisViewModel(app: Application) : AndroidViewModel(app) {
 
     val orchestrator = AssistantOrchestrator(
         context = app,
-        geminiService = GeminiService(),
         database = AppDatabase.get(app),
         voiceEngine = null
     )

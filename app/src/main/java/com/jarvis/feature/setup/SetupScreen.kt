@@ -102,6 +102,7 @@ fun SetupScreen(
     var hasWriteSettings by remember { mutableStateOf(PermissionAndSetupHelper.hasWriteSettings(context)) }
     var hasAllFiles by remember { mutableStateOf(PermissionAndSetupHelper.hasAllFilesAccess(context)) }
     var hasBatteryOpt by remember { mutableStateOf(PermissionAndSetupHelper.hasBatteryOptimizationExemption(context)) }
+    var hasDefaultAssistant by remember { mutableStateOf(PermissionAndSetupHelper.isDefaultAssistant(context)) }
 
     fun refreshAllStatus() {
         hasMic = PermissionAndSetupHelper.hasMicrophone(context)
@@ -115,6 +116,7 @@ fun SetupScreen(
         hasWriteSettings = PermissionAndSetupHelper.hasWriteSettings(context)
         hasAllFiles = PermissionAndSetupHelper.hasAllFilesAccess(context)
         hasBatteryOpt = PermissionAndSetupHelper.hasBatteryOptimizationExemption(context)
+        hasDefaultAssistant = PermissionAndSetupHelper.isDefaultAssistant(context)
     }
 
     // Auto-refresh when returning from Settings (onResume)
@@ -136,9 +138,6 @@ fun SetupScreen(
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshAllStatus() }
     val coreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshAllStatus() }
 
-    var apiKeyText by remember { mutableStateOf(ApiConfig.customApiKey ?: "") }
-    var showApiKey by remember { mutableStateOf(false) }
-    var keySaved by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -209,54 +208,36 @@ fun SetupScreen(
                     }
                 }
 
-                // AI Neural Engine Card
+                
+                // Section 0: USER PROFILE & AI PERSONA
                 item {
-                    val detectedProvider = remember(apiKeyText) {
-                        if (apiKeyText.isNotBlank()) ApiConfig.detectProvider(apiKeyText) else ApiConfig.activeProvider
-                    }
-                    val subtitleText = when {
-                        ApiConfig.hasCustomKey -> "Custom Key Active (${ApiConfig.getProviderLabel(ApiConfig.activeProvider)})"
-                        ApiConfig.hasAI -> "JARVIS Cloud Core Active (Zero-Configuration)"
-                        else -> "JARVIS Local Offline Protocols Active"
-                    }
+                    var currentName by remember { mutableStateOf(ApiConfig.userName) }
+                    var currentTone by remember { mutableStateOf(ApiConfig.personalityTone) }
+                    var savedProfile by remember { mutableStateOf(false) }
 
                     PermissionCard(
-                        title = "JARVIS NEURAL CORE",
-                        subtitle = subtitleText,
-                        icon = Icons.Default.Key,
-                        isGranted = ApiConfig.hasAI,
-                        actionLabel = if (keySaved) "SAVED ✓" else "SAVE & ACTIVATE",
+                        title = "USER IDENTITY & AI PROTOCOL",
+                        subtitle = "Personalized addressing and tone profile",
+                        icon = Icons.Default.AccessibilityNew,
+                        isGranted = true,
+                        actionLabel = if (savedProfile) "SAVED ✓" else "SAVE PROFILE",
                         onAction = {
-                            val newKey = apiKeyText.trim()
-                            if (newKey.isNotBlank()) {
-                                ApiConfig.saveCustomKey(context, newKey)
-                            } else {
-                                ApiConfig.clearCustomKey(context)
-                            }
-                            keySaved = true
+                            ApiConfig.saveUserName(context, currentName)
+                            ApiConfig.savePersonalityTone(context, currentTone)
+                            savedProfile = true
+                            android.widget.Toast.makeText(context, "User profile updated!", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
-                                value = apiKeyText,
-                                onValueChange = { input ->
-                                    apiKeyText = input
-                                    keySaved = false
+                                value = currentName,
+                                onValueChange = {
+                                    currentName = it
+                                    savedProfile = false
                                 },
-                                label = { Text("Neural Access Key (Optional / Bring Your Own)", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
-                                placeholder = { Text("Default Cloud Core active if blank", color = JarvisColors.TextSecondary.copy(alpha = 0.5f), fontSize = 12.sp) },
+                                label = { Text("Your Preferred Name", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    IconButton(onClick = { showApiKey = !showApiKey }) {
-                                        Icon(
-                                            imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = if (showApiKey) "Hide key" else "Show key",
-                                            tint = JarvisColors.CyanBright
-                                        )
-                                    }
-                                },
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = JarvisColors.CyanBright,
                                     unfocusedBorderColor = JarvisColors.BorderCyan,
@@ -265,72 +246,62 @@ fun SetupScreen(
                                 )
                             )
 
+                            Text(
+                                text = "AI Interaction Persona:",
+                                color = JarvisColors.TextSecondary,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (apiKeyText.isNotBlank()) {
-                                    Text(
-                                        text = "⚡ Detected: ${ApiConfig.getProviderLabel(detectedProvider)}",
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp,
-                                        color = JarvisColors.TealSecondary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                } else {
-                                    Text(
-                                        text = "⚡ Mode: Automatic JARVIS Core",
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp,
-                                        color = JarvisColors.CyanPrimary
-                                    )
-                                }
-
-                                if (ApiConfig.hasCustomKey) {
-                                    OutlinedButton(
+                                val tones = listOf(
+                                    "jarvis_protocol" to "JARVIS",
+                                    "conversational" to "WARM",
+                                    "executive" to "EXECUTIVE"
+                                )
+                                tones.forEach { (key, label) ->
+                                    Button(
                                         onClick = {
-                                            apiKeyText = ""
-                                            ApiConfig.clearCustomKey(context)
-                                            keySaved = false
+                                            currentTone = key
+                                            savedProfile = false
                                         },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.AmberWarning),
-                                        shape = RoundedCornerShape(6.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (currentTone == key) JarvisColors.CyanPrimary else JarvisColors.SurfaceCard,
+                                            contentColor = if (currentTone == key) Color.Black else JarvisColors.TextPrimary
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.RestartAlt,
-                                            contentDescription = "Reset",
-                                            modifier = Modifier.size(14.dp),
-                                            tint = JarvisColors.AmberWarning
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("RESET TO DEFAULT", fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                        Text(label, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
                         }
                     }
                 }
-                
+
                 // Voice & Persona Customization Card
                 item {
                     var engineType by remember { mutableStateOf(ApiConfig.voiceEngineType) }
-                    var voiceId by remember { mutableStateOf(ApiConfig.selectedVoiceId) }
+                    var selectedVoice by remember { mutableStateOf(ApiConfig.selectedVoiceId) }
                     var savedVoice by remember { mutableStateOf(false) }
 
                     PermissionCard(
-                        title = "VOICE & PERSONA ENGINE",
-                        subtitle = "ElevenLabs HD Voice & Native British TTS",
+                        title = "VOICE SYNTHESIS & ELEVENLABS",
+                        subtitle = "Select voice character & regional accent",
                         icon = Icons.Default.Mic,
                         isGranted = true,
                         actionLabel = if (savedVoice) "APPLIED ✓" else "APPLY VOICE",
                         onAction = {
-                            ApiConfig.saveVoicePreferences(context, engineType, voiceId)
+                            ApiConfig.saveVoicePreferences(context, engineType, selectedVoice)
                             savedVoice = true
+                            android.widget.Toast.makeText(context, "Voice configured!", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -363,31 +334,73 @@ fun SetupScreen(
                                 }
                             }
 
-                            OutlinedTextField(
-                                value = voiceId,
-                                onValueChange = {
-                                    voiceId = it
-                                    savedVoice = false
-                                },
-                                label = { Text("ElevenLabs Voice ID", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = JarvisColors.CyanBright,
-                                    unfocusedBorderColor = JarvisColors.BorderCyan,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
+                            if (engineType == "elevenlabs") {
+                                Text(
+                                    text = "Select Voice Profile:",
+                                    color = JarvisColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
                                 )
-                            )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    ApiConfig.PRESET_VOICES.forEach { preset ->
+                                        val isSelected = selectedVoice == preset.id
+                                        Card(
+                                            onClick = {
+                                                selectedVoice = preset.id
+                                                savedVoice = false
+                                            },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isSelected) JarvisColors.CyanPrimary.copy(alpha = 0.15f) else JarvisColors.SurfaceCard
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, JarvisColors.CyanBright) else null,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text(
+                                                        text = "${preset.name} (${preset.accent} ${preset.gender})",
+                                                        color = if (isSelected) JarvisColors.CyanBright else Color.White,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                    Text(
+                                                        text = preset.description,
+                                                        color = JarvisColors.TextSecondary,
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CheckCircle,
+                                                        contentDescription = "Selected",
+                                                        tint = JarvisColors.CyanBright,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             OutlinedButton(
                                 onClick = {
-                                    ApiConfig.saveVoicePreferences(context, engineType, voiceId)
+                                    ApiConfig.saveVoicePreferences(context, engineType, selectedVoice)
                                     try {
                                         val speech = com.jarvis.app.voice.SpeechOutput(context)
-                                        speech.speak("Voice output test. JARVIS audio profile updated.")
+                                        val name = ApiConfig.userName
+                                        speech.speak("Greetings $name. Systems operational. How may I assist you today?")
                                     } catch (_: Exception) {}
-                                    android.widget.Toast.makeText(context, "Testing voice output...", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Playing audio sample...", android.widget.Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
@@ -399,19 +412,37 @@ fun SetupScreen(
                     }
                 }
 
-                // LiveKit WebRTC Cloud Card
+                // Personal Context Graph Card
                 item {
-                    var liveKitConnected by remember { mutableStateOf(false) }
+                    var peopleCount by remember { mutableStateOf(0) }
+                    var aliasesCount by remember { mutableStateOf(0) }
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        try {
+                            val db = com.jarvis.app.memory.AppDatabase.get(context)
+                            peopleCount = db.contextGraphDao().getAllPeople().let { 0 }
+                            aliasesCount = db.contextGraphDao().getAllAppAliasesSync().size
+                        } catch (_: Exception) {}
+                    }
                     PermissionCard(
-                        title = "LIVEKIT CLOUD WEBRTC",
-                        subtitle = "wss://jjk-aqil5yrm.livekit.cloud (Full-Duplex Audio)",
-                        icon = Icons.Default.Layers,
-                        isGranted = liveKitConnected,
-                        actionLabel = if (liveKitConnected) "DISCONNECT" else "TEST CONNECT",
+                        title = "PERSONAL CONTEXT GRAPH",
+                        subtitle = "Offline knowledge of family, aliases, and habits",
+                        icon = Icons.Default.AccessibilityNew,
+                        isGranted = true,
+                        actionLabel = "ADD RELATION",
                         onAction = {
-                            liveKitConnected = !liveKitConnected
-                            val msg = if (liveKitConnected) "LiveKit Cloud Room connected successfully!" else "LiveKit session closed."
-                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val db = com.jarvis.app.memory.AppDatabase.get(context)
+                                    db.contextGraphDao().insertPerson(
+                                        com.jarvis.app.contextgraph.PersonEntity(
+                                            name = "Mumsi",
+                                            relationship = "Mother",
+                                            nicknames = listOf("Mum", "Mom", "Mama")
+                                        )
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                            android.widget.Toast.makeText(context, "Sample relation 'Mumsi' (Mother) registered to Graph.", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -508,8 +539,21 @@ fun SetupScreen(
                     Spacer(Modifier.height(8.dp))
                     SectionHeader(
                         title = "ADVANCED ACCESS",
-                        countGranted = listOf(hasAccessibility, hasNotifListener, hasOverlay, hasUsage, hasWriteSettings, hasAllFiles, hasBatteryOpt).count { it },
-                        total = 7
+                        countGranted = listOf(hasDefaultAssistant, hasAccessibility, hasNotifListener, hasOverlay, hasUsage, hasWriteSettings, hasAllFiles, hasBatteryOpt).count { it },
+                        total = 8
+                    )
+                }
+
+                item {
+                    PermissionCard(
+                        title = "DEFAULT DIGITAL ASSISTANT",
+                        subtitle = "Summon JARVIS via long-press Home, swipe-up, or headset button",
+                        icon = Icons.Default.Settings,
+                        isGranted = hasDefaultAssistant,
+                        actionLabel = "ENABLE",
+                        onAction = {
+                            PermissionAndSetupHelper.openDefaultAssistantSettings(context)
+                        }
                     )
                 }
 

@@ -349,6 +349,46 @@ object PermissionAndSetupHelper {
         safelyStart(context, intent, fallback = { openAppDetails(context) })
     }
 
+    fun isDefaultAssistant(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+            roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) ?: false
+        } else {
+            val defaultAssist = Settings.Secure.getString(context.contentResolver, "assistant")
+            defaultAssist != null && defaultAssist.contains(context.packageName)
+        }
+    }
+
+    fun openDefaultAssistantSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                    val intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_ASSISTANT).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    return
+                }
+            } catch (_: Exception) {}
+        }
+        try {
+            val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(fallback)
+            } catch (_: Exception) {
+                openAppDetails(context)
+            }
+        }
+    }
+
     fun openAppDetails(context: Context) {
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", context.packageName, null)

@@ -182,7 +182,7 @@ Legend for the **Needs** column:
 
 | Capability | Needs |
 |---|---|
-| Wake word (on-device), VAD end-pointing | MIC |
+| Wake word — **Vosk by default** (offline, no account), Picovoice Porcupine optional, system SpeechRecognizer as zero-setup fallback | MIC + one-time ~45 MB model |
 | HD natural voice (ElevenLabs) with a real JARVIS-style British voice | NET + key |
 | Offline TTS fallback when there's no data | — |
 | **Barge-in** — interrupt it mid-sentence and it stops | MIC |
@@ -410,13 +410,29 @@ display (overlay orb) · network (Wi-Fi/cellular for cloud features)
 | **Home Assistant** URL + token | optional | lights, plugs, scenes | |
 | **Porcupine / Picovoice** | optional | best-in-class on-device wake word | free tier available |
 
-## C6. What YOU must tell it (the part that makes it smart)
+## C6. What YOU must tell it — very little (it figures out the rest)
+
+### It already knows, automatically
+Once contacts permission is granted, JARVIS **imports your whole address book itself** —
+names, every phone number, nicknames, and the *relation* field many phones already fill in
+(mother, father, spouse, brother). It also learns from usage: who you call and text most,
+and when. **You never type a contact list.**
+
+### It asks — once, lazily, at the moment it matters
+Exactly like Siri. The first time you say "call mumsi" and it cannot resolve the name:
+
+> "I can't find a mumsi in your contacts. Who is that?" → *picker with your contacts*
+> → you tap Amaka Okafor → "Got it. What is Amaka to you?" → *mother / father / sister /
+> friend / wife / boss* → **saved forever, never asked again.**
+
+Same for app nicknames: "I don't know which app you mean — which one is 'the bank app'?"
+
+### All you actually provide
 
 | Data | Why |
 |---|---|
 | Your name / what to call you | "Good morning, Macaulay" |
-| **Nickname map** — mumsi = Amaka Okafor (mother), plus dad, "my guy", boss… | the entire reason "call mumsi" can work |
-| Relationships for each person | enables "call my wife", "text my brother" |
+| **One-tap answers** when JARVIS asks who someone is | teaches the people graph permanently |
 | Home & work addresses | "navigate home", "how long to get home", geofences |
 | App nicknames — "the bank app" → Kuda, "my music" → Spotify | natural speech |
 | Favourite apps & defaults | music service, maps, browser |

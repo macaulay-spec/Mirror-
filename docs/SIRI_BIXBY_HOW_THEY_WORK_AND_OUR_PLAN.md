@@ -108,10 +108,16 @@ and it kept the structured layer underneath.
 
 ## Piece 1 — Audio front-end (① ② ③)
 - **Wake word**: today it's Android `SpeechRecognizer` restarted in a loop (battery
-  heavy, misses words, needs network for accuracy). Options:
-  - *Keep it* — works offline, zero setup, costs ~2–4% battery/hour
-  - *Upgrade to Picovoice Porcupine / openWakeWord* — a real on-device wake-word engine
-    (Porcupine has a free tier; ~1% battery/hour; custom "Hey JARVIS" model)
+  heavy, misses words, needs network for accuracy). Options, behind one
+  `WakeWordEngine` interface so they are swappable:
+  - **Vosk (default)** — fully offline, open source, **no account, no email, no key**.
+    One-time ~45 MB model download at setup. Runs a tiny grammar
+    `["hey jarvis", "jarvis", …]` continuously against `vosk-model-small-en-us`.
+    ~2–4 % battery/hour, zero network, zero telemetry.
+  - **System SpeechRecognizer** — zero download, zero setup, works on the very first run
+    before any model is downloaded. Kept as the fallback.
+  - **Picovoice Porcupine (optional)** — best accuracy, ~1 % battery/hour, model measured
+    in kilobytes — but needs a free Picovoice account. Only if you want one.
 - **VAD + end-pointing** — stop listening the moment you finish speaking instead of
   waiting for a timeout (currently `EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS`
   only)

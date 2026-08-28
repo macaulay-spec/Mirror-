@@ -23,6 +23,12 @@ All work is on branch `arena/01a045b1-mirror`, pushed to GitHub.
 | `d2964aa` | **Always-on "Hey JARVIS" service is started** — it existed but nothing ever launched it. |
 | `7386129` | **Diagnostics screen** (Settings → DIAGNOSTICS) — tests every provider, shows the real voice error, contacts imported, assistant status, tool count. |
 | `3ed1576` | **Default system assistant** (`ACTION_ASSIST` + `RoleManager`) + **Quick Settings tile** + **Vosk seam**. |
+| `397aa88` | **Real function calling.** The model now gets Gemini `functionDeclarations` / OpenAI `tools` generated from the registry, instead of a text list it had to guess JSON against. Any tool added from here on is reachable with no prompt edit. |
+| `e630244` | **Everyday actions**: `TimeParser` ("tomorrow 3pm", "next Thursday", "in 20 minutes") replacing `calendar_create`'s hardcoded tomorrow-9am; plus reminders, alarms, timers, navigation, nearby search, share location, clipboard, screenshots. |
+| `c8a8fb7` | **JARVIS speaks first**: daily morning briefing (calendar + unread + battery), re-armed after reboot, spoken aloud and left in a notification. Battery-low warning. Notification channels, which were missing entirely. |
+| `314a0e8` | **OTPs are actually read.** The listener used to redact anything containing "otp" or a 4-8 digit number, silently killing the feature most wanted. New `read_otp` tool reads codes digit by digit. |
+| `ab0f1f9` | **British voice.** Default was American Rachel. Now Daniel, with a fallback chain through the other British voices, and a UK engine voice for the offline fallback. |
+| `0595c28` | **Self-configuration by voice**: "brief me at seven", "stop reading my codes", "turn off always listening". Fixed `LOCATION` and `ASSISTANT` being filtered out of the tool schema, which had made navigation invisible to the model. |
 
 ---
 
@@ -31,12 +37,30 @@ All work is on branch `arena/01a045b1-mirror`, pushed to GitHub.
 | Item | Why it waits |
 |---|---|
 | Vosk actually running | Needs a Gradle dependency + 45 MB model downloaded in Android Studio. `docs/VOSK_SETUP.md` has the exact 3 steps; the code swap is one line. Doing it here would have added an unverifiable dependency and risked breaking your build. |
-| Real function calling (native tool schemas) | Needs a working LLM key first. Currently the LLM receives a text tool list. |
-| Proactive layer (morning briefing, routines, nudges) | Phase 3 |
+| Vosk model wired end to end | The seam and the setup doc exist; step 2 of `docs/VOSK_SETUP.md` is downloading the 45 MB model in Android Studio. |
 | VoiceInteractionService (system-drawn overlay, lock-screen) | Phase P1 |
 | Streaming TTS + barge-in | Phase P4 |
 | OCR, PDF/DOCX, web answers | Phase P2 |
+| Routines ("I'm leaving home") | Phase P3 — the scheduler and briefing are the groundwork |
 | Onboarding rewrite (10 steps incl. "make JARVIS default") | Next pass |
+
+### Known limits that are Android's rules, not bugs
+
+- Cannot read WhatsApp message *history* — only notifications, which is the sandbox every
+  assistant lives in.
+- Cannot toggle mobile data, airplane mode or hotspot on a non-rooted phone.
+- `FLAG_SECURE` screens (banking apps) are invisible to accessibility and to screenshots.
+- Wi-Fi toggle opens the system panel on Android 10+, Bluetooth on Android 13+ — the
+  direct setters were removed by Google.
+
+### Two things to confirm on the device
+
+1. **The ElevenLabs voice IDs.** They are per-account. If Daniel is not on the account the
+   app walks down the British list on its own and reports which voice it landed on in
+   Diagnostics — but the right ID is worth pasting into Settings → Voice once you have it.
+2. **The briefing has to be switched on once.** Say "brief me every morning at seven" or
+   it stays off. It uses an inexact alarm on purpose, so there is no
+   `SCHEDULE_EXACT_ALARM` permission prompt. |
 
 ---
 

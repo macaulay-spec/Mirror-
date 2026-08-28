@@ -111,6 +111,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".diagnostics.DiagnosticsActivity"
+            android:exported="false"
+            android:label="JARVIS Diagnostics"
+            android:screenOrientation="portrait" />
+
         <!-- Continuous listening foreground service -->
         <service
             android:name=".voice.WakeWordForegroundService"

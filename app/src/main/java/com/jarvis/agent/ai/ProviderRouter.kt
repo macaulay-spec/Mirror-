@@ -629,6 +629,72 @@ class ProviderRouter {
         return Result.failure(lastError ?: Exception("JARVIS neural matrix connection temporarily unavailable."))
     }
 
+    /**
+     * Pings every configured provider so the user can see, in seconds, which keys are
+     * alive. Without this there was no way to tell a missing Gemini key from a dead
+     * bundled one — the app just quietly answered from local rules instead.
+     */
+    suspend fun diagnostics(): List<ProviderStatus> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val configs = getSortedConfigs()
+        if (configs.isEmpty()) {
+            return@withContext listOf(
+                ProviderStatus(
+                    provider = "none",
+                    keyPreview = "",
+                    model = "",
+                    ok = false,
+                    latencyMs = 0,
+                    message = "No AI key configured. Put GEMINI_API_KEY=... in local.properties and rebuild. " +
+                        "Device control still works without it."
+                )
+            )
+        }
+
+        val out = ArrayList<ProviderStatus>()
+        for (config in configs) {
+            val provider = providers[config.provider]
+            if (provider == null) {
+                out.add(
+                    ProviderStatus(config.provider, mask(config.apiKey), config.model, false, 0,
+                        "No client for this provider.")
+                )
+                continue
+            }
+            val start = System.currentTimeMillis()
+            val attempt = runCatching {
+                provider.generate(
+                    config.apiKey, config.model,
+                    "You are a connectivity test.", emptyList(),
+                    "Reply with the single word: online"
+                )
+            }
+            val latency = System.currentTimeMillis() - start
+            val result = attempt.getOrNull()
+            val ok = result?.isSuccess == true
+            val message = when {
+                ok -> (result?.getOrNull()?.content ?: "responded").take(60).trim()
+                result != null -> result.exceptionOrNull()?.localizedMessage ?: "failed"
+                else -> attempt.exceptionOrNull()?.localizedMessage ?: "failed"
+            }
+            out.add(
+                ProviderStatus(config.provider, mask(config.apiKey), config.model, ok, latency, message)
+            )
+        }
+        out
+    }
+
+    data class ProviderStatus(
+        val provider: String,
+        val keyPreview: String,
+        val model: String,
+        val ok: Boolean,
+        val latencyMs: Long,
+        val message: String
+    )
+
+    private fun mask(key: String): String =
+        if (key.length <= 10) "****" else key.take(6) + "..." + key.takeLast(4)
+
     suspend fun streamWithFallback(
         systemInstruction: String,
         history: List<Pair<String, String>>,

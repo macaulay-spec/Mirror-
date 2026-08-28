@@ -9,6 +9,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.jarvis.agent.tool.ToolDefinition
 import com.jarvis.agent.tool.ToolRegistry
+import com.jarvis.app.config.AssistantPrefs
 import com.jarvis.app.memory.AppDatabase
 import com.jarvis.app.memory.NotificationEntity
 import com.jarvis.core.model.RiskLevel
@@ -90,6 +91,60 @@ class JarvisNotificationListener : NotificationListenerService() {
                 }
             )
 
+            // read_otp tool — "what's my code" is the question that matters most
+            ToolRegistry.register(
+                ToolDefinition(
+                    id = "read_otp",
+                    name = "Read One-Time Code",
+                    description = "Finds the verification or one-time code in recent notifications and SMS.",
+                    category = "NOTIFICATIONS",
+                    riskLevel = RiskLevel.LEVEL_0
+                ) { _, args ->
+                    if (!AssistantPrefs.readOtpAloud) {
+                        return@ToolDefinition ToolExecutionResult(
+                            toolId = "read_otp",
+                            success = false,
+                            data = null,
+                            error = "Reading codes aloud is switched off in Settings."
+                        )
+                    }
+
+                    val only = args["app"]?.toString() ?: args["package"]?.toString() ?: ""
+                    val pool = if (only.isBlank()) NotificationRepository.all.value
+                    else NotificationRepository.byApp(only)
+
+                    val hit = pool.asSequence()
+                        .mapNotNull { n ->
+                            val body = if (n.fullContent.isNotBlank()) n.fullContent else n.text
+                            val code = OtpExtractor.find("$body ${n.title}") ?: return@mapNotNull null
+                            Triple(n, code, body)
+                        }
+                        .firstOrNull()
+
+                    if (hit == null) {
+                        ToolExecutionResult(
+                            toolId = "read_otp",
+                            success = true,
+                            data = mapOf("found" to false),
+                            verificationDetails = "I cannot see a verification code in your notifications."
+                        )
+                    } else {
+                        val (n, code, _) = hit
+                        ToolExecutionResult(
+                            toolId = "read_otp",
+                            success = true,
+                            data = mapOf(
+                                "found" to true,
+                                "code" to code,
+                                "app" to n.appLabel,
+                                "sender" to n.sender
+                            ),
+                            verificationDetails = OtpExtractor.spoken(code, n.appLabel)
+                        )
+                    }
+                }
+            )
+
             // reply_notification tool
             ToolRegistry.register(
                 ToolDefinition(
@@ -160,11 +215,19 @@ class JarvisNotificationListener : NotificationListenerService() {
         super.onDestroy()
     }
 
-    private fun isSensitive(text: String): Boolean {
+    /**
+     * This used to redact anything containing "otp", "verification code", or any 4-8 digit
+     * number — which quietly broke the one notification feature people actually asked for:
+     * "read my code". Reading codes aloud is the point, so redaction now only happens when
+     * the user has switched on Hide Sensitive Content, and even then one-time codes are
+     * spared because they are useless when hidden.
+     */
+    private fun hideContent(text: String): Boolean {
+        if (!AssistantPrefs.hideSensitiveContent) return false
+        if (OtpExtractor.find(text) != null) return false
         val lower = text.lowercase()
-        if (lower.contains("password") || lower.contains("otp") || lower.contains("verification code")) return true
-        if (lower.matches(".*\\b\\d{4,8}\\b.*".toRegex())) return true
-        return false
+        return lower.contains("password") || lower.contains("passcode") ||
+            lower.contains("cvv") || lower.contains("pin is")
     }
 
     private fun persistNotification(sbn: StatusBarNotification) {
@@ -178,8 +241,8 @@ class JarvisNotificationListener : NotificationListenerService() {
         val sender = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString() ?: title
         
         if (text.isBlank() && title.isBlank()) return
-        if (isSensitive(text)) text = "[REDACTED SENSITIVE CONTENT]"
-        if (isSensitive(title)) title = "[REDACTED SENSITIVE CONTENT]"
+        if (hideContent(text)) text = "[HIDDEN - sensitive content]"
+        if (hideContent(title)) title = "[HIDDEN - sensitive content]"
 
         val appLabel = try {
             val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
@@ -252,8 +315,8 @@ class JarvisNotificationListener : NotificationListenerService() {
                 
                 if (text.isBlank() && title.isBlank()) return@mapNotNull null
                 
-                if (isSensitive(text)) text = "[REDACTED SENSITIVE CONTENT]"
-                if (isSensitive(title)) title = "[REDACTED SENSITIVE CONTENT]"
+                if (hideContent(text)) text = "[HIDDEN - sensitive content]"
+                if (hideContent(title)) title = "[HIDDEN - sensitive content]"
                 
                 val label = apps.firstOrNull { it.packageName == sbn.packageName }?.loadLabel(packageManager)?.toString()
                     ?: sbn.packageName

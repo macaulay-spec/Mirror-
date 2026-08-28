@@ -29,7 +29,7 @@ object ApiConfig {
         private set
     var voiceEngineType: String = "elevenlabs" // "elevenlabs" or "native"
         private set
-    var selectedVoiceId: String = "21m00Tcm4TlvDq8ikWAM"
+    var selectedVoiceId: String = "onwK4e9ZLuTAKqWW03F9"
         private set
 
     fun saveVoicePreferences(context: Context, engineType: String, voiceId: String) {
@@ -50,8 +50,19 @@ object ApiConfig {
     const val BUNDLED_COHERE_KEY = "cohere_kqX8R0ZQcveFcVczw8uQHIndhccSWzFzw9NSFV0J2X1WcG."
 
     // Voice & Audio Infrastructure Keys
-    var ELEVENLABS_API_KEY = "sk_7049a5e7b9f58b28ba134bb1a0e195de5d00b98ee0e44450"
-    const val ELEVENLABS_DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM" // Rachel / Adam British / Jarvis voice profile
+    /**
+     * Local override wins: put ELEVENLABS_API_KEY in local.properties (gitignored) or in
+     * the environment. The fallback below is the key that shipped in this public repo and
+     * may be throttled or revoked at any time — treat the local one as the real key.
+     */
+    var ELEVENLABS_API_KEY: String = BuildConfig.ELEVENLABS_API_KEY
+        .takeIf { it.isNotBlank() }
+        ?: "sk_7049a5e7b9f58b28ba134bb1a0e195de5d00b98ee0e44450"
+    // Daniel: British, calm, the closest thing to JARVIS shipped by ElevenLabs.
+    // Rachel (21m00Tcm4TlvDq8ikWAM) is the American voice this used to default to; she is
+    // kept in JarvisVoice.BRITISH_CANDIDATES as the last-resort fallback because she
+    // exists on every ElevenLabs account.
+    const val ELEVENLABS_DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"
     val hasElevenLabs get() = ELEVENLABS_API_KEY.isNotBlank()
 
     // LiveKit Cloud WebRTC Configuration
@@ -157,7 +168,15 @@ object ApiConfig {
             trimmed.startsWith("sk-ant-") -> "anthropic"
             trimmed.startsWith("sk-or-") -> "openrouter"
             trimmed.startsWith("gsk_") -> "groq"
+            trimmed.startsWith("csk-") -> "cerebras"
+            trimmed.startsWith("cohere_") -> "cohere"
+            trimmed.startsWith("key_") -> "mistral"
+            // xAI Grok keys: "AQ.Ab8RN6..." — easy to mistake for a Gemini key
+            trimmed.startsWith("AQ.") -> "grok"
+            trimmed.startsWith("sk-proj-") -> "openai"
             trimmed.startsWith("sk-") -> "openai"
+            // ElevenLabs: "sk_" followed by a hex blob. A voice key, not a chat key.
+            trimmed.startsWith("sk_") -> "elevenlabs"
             else -> "gemini"
         }
     }
@@ -172,6 +191,11 @@ object ApiConfig {
             "anthropic" -> "Anthropic Claude"
             "groq" -> "Groq Ultra-Fast Core"
             "openrouter" -> "OpenRouter Gateway"
+            "cerebras" -> "Cerebras Core"
+            "mistral" -> "Mistral Core"
+            "cohere" -> "Cohere Core"
+            "grok" -> "Grok (xAI) Core"
+            "elevenlabs" -> "ElevenLabs — this is a VOICE key. Paste it in Voice settings, not here."
             else -> "Neural Gateway"
         }
     }
@@ -207,7 +231,7 @@ object ApiConfig {
         userName = prefs.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         isOnboardingCompleted = prefs.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
         voiceEngineType = prefs.getString(PREF_KEY_VOICE_ENGINE, "elevenlabs") ?: "elevenlabs"
-        selectedVoiceId = prefs.getString(PREF_KEY_VOICE_ID, "21m00Tcm4TlvDq8ikWAM") ?: "21m00Tcm4TlvDq8ikWAM"
+        selectedVoiceId = prefs.getString(PREF_KEY_VOICE_ID, "onwK4e9ZLuTAKqWW03F9") ?: "onwK4e9ZLuTAKqWW03F9"
     }
 
     fun saveUserName(context: Context, name: String) {

@@ -125,38 +125,16 @@ object DeviceToolExecutors {
                 category = "DEVICE",
                 riskLevel = RiskLevel.LEVEL_0
             ) { context, args ->
-                val appQuery = args["app"]?.toString() ?: args["name"]?.toString() ?: ""
-                if (appQuery.isBlank()) {
-                    return@ToolDefinition ToolExecutionResult(toolId = "open_app", success = false, data = null, error = "App name must be provided.")
-                }
-
-                val pm = context.packageManager
-                val intent = pm.getLaunchIntentForPackage(appQuery) ?: run {
-                    val apps = pm.getInstalledApplications(0)
-                    val match = apps.firstOrNull { app ->
-                        val label = pm.getApplicationLabel(app).toString()
-                        label.equals(appQuery, ignoreCase = true) || label.contains(appQuery, ignoreCase = true) || app.packageName.contains(appQuery, ignoreCase = true)
-                    }
-                    match?.let { pm.getLaunchIntentForPackage(it.packageName) }
-                }
-
-                if (intent != null) {
-                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
-                    ToolExecutionResult(
-                        toolId = "open_app",
-                        success = true,
-                        data = mapOf("app" to appQuery),
-                        verificationDetails = "Successfully opened app '$appQuery'."
-                    )
-                } else {
-                    ToolExecutionResult(
-                        toolId = "open_app",
-                        success = false,
-                        data = null,
-                        error = "App '$appQuery' not found on device."
-                    )
-                }
+                val raw = (args["app"] ?: args["name"] ?: args["app_name"] ?: args["package"] ?: args["query"])
+                    ?.toString()?.trim() ?: ""
+                val result = com.jarvis.app.tools.AppLauncher.launch(context, raw)
+                ToolExecutionResult(
+                    toolId = "open_app",
+                    success = result.success,
+                    data = mapOf("app" to raw, "package" to (result.packageName ?: "")),
+                    verificationDetails = if (result.success) result.message else null,
+                    error = if (result.success) null else result.message
+                )
             }
         )
 

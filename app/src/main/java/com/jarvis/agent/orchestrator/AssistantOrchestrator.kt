@@ -59,6 +59,7 @@ class AssistantOrchestrator(
     }
 
     fun confirmToolExecution(request: ToolExecutionRequest) {
+        aiEngine.dialogueManager.noteConfirmed()
         CoroutineScope(Dispatchers.Main).launch {
             _pendingConfirmation.value = null
             _visualState.value = JarvisVisualState.EXECUTING
@@ -68,6 +69,7 @@ class AssistantOrchestrator(
     }
 
     fun rejectToolExecution() {
+        aiEngine.dialogueManager.cancel()
         _pendingConfirmation.value = null
         _visualState.value = JarvisVisualState.IDLE
         postSystemMessage("Execution canceled by user protocol.")
@@ -93,9 +95,17 @@ class AssistantOrchestrator(
 
         try {
             val engineResult = aiEngine.processCommand(userInput)
+
+            // A risky action (call, message, payment) is parked until the user confirms.
+            // Attaching it to the message is what makes the CONFIRM card appear in the UI —
+            // before this it was the one piece of the safety design that never fired.
+            val confirmation = engineResult.confirmRequest
+            _pendingConfirmation.value = confirmation
+
             val jarvisMsg = AssistantMessage(
                 role = MessageRole.JARVIS,
                 text = engineResult.reply,
+                toolCall = confirmation,
                 toolResult = engineResult.toolResult
             )
             _messages.value = _messages.value + jarvisMsg
@@ -133,6 +143,7 @@ class AssistantOrchestrator(
     }
 
     fun emergencyStop() {
+        aiEngine.dialogueManager.cancel()
         voiceEngine?.stopSpeaking()
         voiceEngine?.stopListening()
         _visualState.value = JarvisVisualState.IDLE

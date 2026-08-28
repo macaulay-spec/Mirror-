@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.agent.tool.ToolRegistration
 import com.jarvis.android.permissions.PermissionAndSetupHelper
@@ -47,6 +49,10 @@ class MainActivity : ComponentActivity() {
         try {
             ToolRegistration.registerAll(applicationContext)
         } catch (_: Exception) { }
+
+        // The always-on "Hey JARVIS" service existed but nothing ever started it,
+        // so hands-free never worked. Start it here when the mic is available.
+        startWakeWordServiceIfAllowed()
 
         try {
             voiceEngine = JarvisVoiceEngine(applicationContext)
@@ -132,12 +138,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startWakeWordServiceIfAllowed() {
+        if (!com.jarvis.app.config.AssistantPrefs.alwaysListening) return
+        if (!PermissionAndSetupHelper.hasMicrophone(this)) return
+        if (com.jarvis.app.voice.WakeWordForegroundService.running) return
+        runCatching {
+            val intent = android.content.Intent(this, com.jarvis.app.voice.WakeWordForegroundService::class.java)
+            androidx.core.content.ContextCompat.startForegroundService(this, intent)
+        }
+    }
+
+    private fun stopWakeWordService() {
+        runCatching {
+            val intent = android.content.Intent(this, com.jarvis.app.voice.WakeWordForegroundService::class.java)
+            intent.action = "stop"
+            startService(intent)
+        }
+    }
+
     private fun requestCorePermissions() {
         val needed = PermissionAndSetupHelper.REQUIRED_PERMISSIONS.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (needed.isNotEmpty()) {
             permissionLauncher.launch(needed.toTypedArray())
+        } else {
+            // Everything is granted — the always-on listener can safely start.
+            startWakeWordServiceIfAllowed()
+            CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                runCatching { com.jarvis.app.people.PeopleGraph.syncFromContacts(applicationContext) }
+            }
         }
     }
 

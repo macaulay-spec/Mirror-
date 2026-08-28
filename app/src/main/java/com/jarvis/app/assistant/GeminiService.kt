@@ -104,6 +104,72 @@ class GeminiService(
     }
 
     /**
+     * Gemini function calling. Returns the RAW response body so the caller can read either
+     * `candidates[0].content.parts[0].text` or `...parts[0].functionCall`.
+     */
+    suspend fun generateWithTools(
+        systemInstruction: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        tools: org.json.JSONArray,
+        model: String = ApiConfig.GEMINI_MODEL,
+        apiKey: String = ApiConfig.GEMINI_API_KEY
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("Gemini API key is not configured."))
+        }
+        try {
+            val contents = JSONArray()
+            history.forEach { (role, text) ->
+                val apiRole = if (role.equals("jarvis", ignoreCase = true) || role.equals("model", ignoreCase = true)) "model" else "user"
+                contents.put(
+                    JSONObject().apply {
+                        put("role", apiRole)
+                        put("parts", JSONArray().put(JSONObject().put("text", text)))
+                    }
+                )
+            }
+            contents.put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().put(JSONObject().put("text", userMessage)))
+                }
+            )
+
+            val payload = JSONObject().apply {
+                put("contents", contents)
+                put(
+                    "systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().put(JSONObject().put("text", systemInstruction)))
+                    }
+                )
+                put("tools", tools)
+                put(
+                    "generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                        put("topP", 0.95)
+                    }
+                )
+            }
+
+            val request = Request.Builder()
+                .url("$BASE_URL/$model:generateContent?key=$apiKey")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException(parseErrorMessage(bodyString, response.code)))
+                }
+                Result.success(bodyString)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Processes voice/audio data (e.g. recorded PCM / WAV / MP3 / AAC bytes)
      * and generates an understanding / transcription or conversational reply.
      */

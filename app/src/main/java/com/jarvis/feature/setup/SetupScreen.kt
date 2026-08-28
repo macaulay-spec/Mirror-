@@ -183,12 +183,28 @@ fun SetupScreen(
                                 fontSize = 12.sp
                             )
                         }
-                        OutlinedButton(
-                            onClick = onClose,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("CLOSE", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            context,
+                                            com.jarvis.app.diagnostics.DiagnosticsActivity::class.java
+                                        )
+                                    )
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("DIAGNOSTICS", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = onClose,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("CLOSE", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

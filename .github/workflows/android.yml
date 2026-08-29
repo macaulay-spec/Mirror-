@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - 'arena/**'
   pull_request:
     branches:
       - main
@@ -36,15 +37,15 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Create local.properties for CI
-        run: |
-          cp local.properties.example local.properties
-          echo "sdk.dir=$ANDROID_SDK_ROOT" >> local.properties
+        run: cp local.properties.example local.properties
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        run: |
+          sed -i -e 's/\r$//' gradlew
+          chmod +x ./gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4

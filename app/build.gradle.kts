@@ -25,7 +25,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jarvis.app"
+        applicationId = "com.aistudio.jarvis.app99"
         minSdk = 26
         targetSdk = 35
         versionCode = 2

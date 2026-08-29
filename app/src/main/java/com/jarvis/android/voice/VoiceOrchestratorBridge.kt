@@ -17,7 +17,7 @@ class VoiceOrchestratorBridge(
     init {
         voiceEngine.onSpeechResult = { recognizedSpeech ->
             scope.launch(Dispatchers.Main) {
-                orchestrator.processUserCommand(recognizedSpeech)
+                orchestrator.submitUserInput(recognizedSpeech)
             }
         }
         scope.launch(Dispatchers.Main) {

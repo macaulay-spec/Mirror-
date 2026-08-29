@@ -53,15 +53,22 @@ object ApiConfig {
     )
 
     // ── Runtime state ──────────────────────────────────────────────────────
-    var userName: String = "Macaulay"           private set
-    var personalityTone: String = "jarvis_protocol" private set   // jarvis_protocol | conversational | executive
-    var isOnboardingCompleted: Boolean = false   private set
-    var voiceEngineType: String = "native"       private set      // "elevenlabs" | "native"
-    var selectedVoiceId: String = "JBFqnCBsd6RMkjVDRZzb" private set
+    var userName: String = "Macaulay"
+        private set
+    var personalityTone: String = "jarvis_protocol"
+        private set   // jarvis_protocol | conversational | executive
+    var isOnboardingCompleted: Boolean = false
+        private set
+    var voiceEngineType: String = "native"
+        private set      // "elevenlabs" | "native"
+    var selectedVoiceId: String = "JBFqnCBsd6RMkjVDRZzb"
+        private set
 
     // Custom key entered by the user in Settings
-    var customApiKey: String? = null             private set
-    var customProvider: String? = null           private set
+    var customApiKey: String? = null
+        private set
+    var customProvider: String? = null
+        private set
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String    get() = BuildConfig.XAI_API_KEY

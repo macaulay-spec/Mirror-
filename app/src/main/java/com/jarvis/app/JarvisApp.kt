@@ -17,30 +17,45 @@ class JarvisApp : Application() {
 
     companion object {
         const val CHANNEL_LISTENING = "jarvis_listening"
-        const val CHANNEL_BRIEFING = "jarvis_briefing"
+        const val CHANNEL_BRIEFING  = "jarvis_briefing"
     }
 
     override fun onCreate() {
         super.onCreate()
-        
-        // Load persisted custom API key and provider
+
+        // Restore persisted settings (API key, username, voice prefs, etc.)
         ApiConfig.load(this)
         AssistantPrefs.load(this)
 
-        // Register all core device, accessibility, and system tools
+        // Register all device, accessibility and system tools into ToolRegistry
         ToolRegistration.registerAll(this)
 
-        // Import the address book so JARVIS already knows who your people are.
-        // It only ever asks about a person it genuinely cannot resolve.
+        // Import contacts so JARVIS knows your people from the first message
         CoroutineScope(Dispatchers.IO).launch {
             runCatching { PeopleGraph.syncFromContacts(this@JarvisApp) }
         }
 
+        // Create notification channels (required on Android 8+)
         createNotificationChannels()
 
-        // Re-arm the daily briefing after a reboot or an update.
-        if (ProactiveScheduler.isEnabled(this@JarvisApp)) {
-            ProactiveScheduler.schedule(this@JarvisApp)
+        // Re-arm the daily briefing after a reboot or app update
+        if (ProactiveScheduler.isEnabled(this)) {
+            ProactiveScheduler.schedule(this)
+        }
+
+        // Start the floating Orb if overlay permission is granted
+        startOrbIfAllowed()
+    }
+
+    private fun startOrbIfAllowed() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            android.provider.Settings.canDrawOverlays(this)
+        ) {
+            runCatching {
+                startService(
+                    android.content.Intent(this, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java)
+                )
+            }
         }
     }
 
@@ -50,13 +65,13 @@ class JarvisApp : Application() {
 
         val listening = NotificationChannel(
             CHANNEL_LISTENING,
-            "JARVIS assistant",
+            "JARVIS Assistant",
             NotificationManager.IMPORTANCE_LOW
         ).apply { description = "Shown while JARVIS is listening or running in the background" }
 
         val briefing = NotificationChannel(
             CHANNEL_BRIEFING,
-            "JARVIS briefings",
+            "JARVIS Briefings",
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "Morning briefings and proactive suggestions" }
 

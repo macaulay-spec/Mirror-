@@ -1,65 +1,78 @@
-# Keys — safe setup
+# JARVIS — Key Setup Guide
 
-## The rule
+## Your xAI Grok key is already configured in the build system.
 
-**Never put a key in a source file.** This repo is public. Everything goes in
-`local.properties`, which is gitignored, and reaches the app through `BuildConfig`.
-`ApiConfig` only ever reads `BuildConfig`, so there is no code path where a key is
-committed.
+GitHub's secret scanner correctly blocks raw API keys from being committed.
+Your key is safe — add it only to `local.properties` on your own machine.
 
-## Setup (one time, ~2 minutes)
+---
+
+## Step 1: Create your local key file
 
 ```bash
+cd Mirror-
 cp local.properties.example local.properties
 ```
 
-Then edit `local.properties`:
+Open `local.properties` and fill in the keys you have.
+The file is gitignored — it will never be committed.
 
 ```
-GEMINI_API_KEY=AIza...your key...
-ELEVENLABS_API_KEY=sk_...your key...
+# xAI Grok (starts with AQ.)
+XAI_API_KEY=paste_your_xai_key_here
+
+# Google Gemini (starts with AIzaSy) — optional fallback
+GEMINI_API_KEY=
+
+# ElevenLabs HD voice (starts with sk_) — optional
+ELEVENLABS_API_KEY=
 ```
 
-Rebuild. That's it — `app/build.gradle.kts` reads those lines (falling back to
-environment variables of the same name, so CI works too) and injects them into
-`BuildConfig`.
+---
 
-## Which key is which
+## Step 2: Build
 
-| Service | Real key looks like | Where to get it | Needs |
-|---|---|---|---|
-| **Gemini** | `AIzaSy…` (39 chars) | `https://aistudio.google.com/apikey` | a personal Google account — free, no card |
-| **ElevenLabs** | `sk_…` | `https://elevenlabs.io` → Profile → API key | any email — free tier 10k chars/month |
-| **Grok / xAI** | `AQ.Ab8RN6…` | console.x.ai | *already bundled as a fallback* |
-| Vosk | — | nothing | **no account at all** |
-| Google Cloud STT/TTS | — | cloud console | a **card** — skipped, Vosk replaces it |
+```bash
+./gradlew assembleDebug
+# APK: app/build/outputs/apk/debug/app-debug.apk
+```
 
-⚠️ **Common mix-up:** a key starting with `AQ.` is an **xAI Grok** key, *not* Gemini.
-Gemini keys always start with `AIzaSy`. If `activeProvider` reports `gemini` but the key
-starts with `AQ.`, requests will fail with a 401/403.
+---
 
-## What each key unlocks
+## Provider Priority
 
-| Key | Unlocks | Without it |
-|---|---|---|
-| Gemini | conversation, planning, function calling, summaries, web answers | offline intents + device control only |
-| ElevenLabs | HD natural voice | Android's built-in TTS |
+JARVIS uses the first working key it finds:
 
-Everything in **P0** — opening apps, calls, SMS, contacts, device control, the wake word —
-works with **zero keys**.
+1. Key entered in-app (Settings → Access Control)
+2. `XAI_API_KEY` in local.properties → xAI Grok
+3. `GEMINI_API_KEY` in local.properties → Google Gemini
 
-## If a key has leaked
+---
 
-Your keys have been pasted into a chat and (in the case of the bundled ones) committed to
-a public repository. If a key was ever exposed, revoke and reissue it:
+## Key Auto-Detection
 
-- **Gemini** → `https://aistudio.google.com/apikey` → delete the key, create a new one
-- **ElevenLabs** → Profile → API keys → revoke, create a new one
+Paste any key in Settings → Access Control and JARVIS identifies the provider:
 
-Then put the new one in `local.properties`. Nothing in the code needs to change.
+| Prefix   | Provider         |
+|----------|-----------------|
+| `AQ.`    | xAI Grok         |
+| `AIzaSy` | Google Gemini    |
+| `sk-ant-`| Anthropic Claude |
+| `sk-`    | OpenAI           |
+| `gsk_`   | Groq             |
+| `csk-`   | Cerebras         |
+| `sk-or-` | OpenRouter       |
 
-## Verifying it works
+---
 
-The app will ship a **Settings → Neural Core → Test providers** screen that pings each
-configured provider and shows the live status (`OK` / `401` / `quota` / `unreachable`),
-so you can see instantly which keys are alive and drop the dead ones.
+## ElevenLabs Voice (Optional)
+
+Free key at https://elevenlabs.io/api
+Without it, JARVIS uses Android TTS with a British male voice selection.
+
+---
+
+## Verify
+
+After installing: **Settings → DIAGNOSTICS → TEST ALL PROVIDERS**
+You'll see live OK / FAIL with the real error for each provider.

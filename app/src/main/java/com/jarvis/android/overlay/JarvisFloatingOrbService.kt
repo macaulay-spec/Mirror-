@@ -21,14 +21,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -36,25 +35,31 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.JarvisVisualState
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * JarvisFloatingOrbService — the always-visible JARVIS orb overlay.
  *
  * Fully connected to VoiceBus.engineState so it reflects every assistant state:
- *   IDLE        → pulsing blue ring
+ *   IDLE        → pulsing cyan ring
+ *   WAKING      → gentle blue pulse (initializing)
  *   LISTENING   → animated cyan wave rings (reacts to audio level)
  *   THINKING    → rotating arc segments (processing animation)
  *   EXECUTING   → amber pulse (action in progress)
  *   SPEAKING    → green radiating rings
- *   ERROR       → red flash
  *   SUCCESS     → brief white flash then IDLE
+ *   ERROR       → red flash
+ *   OFFLINE     → muted grey ring
  *
  * Tap: opens MainActivity and starts listening.
  * Drag: repositions the orb anywhere on screen.
@@ -70,9 +75,9 @@ class JarvisFloatingOrbService : Service() {
         isRunning = true
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
+        val sizePx = (110 * resources.displayMetrics.density).toInt()
         params = WindowManager.LayoutParams(
-            110.dp.value.toInt().dpToPx(),
-            110.dp.value.toInt().dpToPx(),
+            sizePx, sizePx,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
@@ -88,12 +93,12 @@ class JarvisFloatingOrbService : Service() {
 
         val composeView = ComposeView(this)
 
-        // Required for Compose lifecycle in a Service
+        // Required for Compose lifecycle in a Service context
         val lifecycleOwner = ServiceLifecycleOwner()
         lifecycleOwner.start()
         composeView.setViewTreeLifecycleOwner(lifecycleOwner)
         composeView.setViewTreeViewModelStoreOwner(null)
-        composeView.setViewTreeSavedStateRegistryOwner(null)
+        composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
         composeView.setContent {
             val state by VoiceBus.engineState.collectAsState()
@@ -126,7 +131,7 @@ class JarvisFloatingOrbService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - touchStartX).toInt()
                     val dy = (event.rawY - touchStartY).toInt()
-                    if (dx * dx + dy * dy > 16) {  // minimum drag threshold
+                    if (dx * dx + dy * dy > 16) {
                         params.x = startX + dx
                         params.y = startY + dy
                         windowManager?.updateViewLayout(composeView, params)
@@ -152,20 +157,19 @@ class JarvisFloatingOrbService : Service() {
         super.onDestroy()
     }
 
-    private fun Int.dpToPx(): Int =
-        (this * resources.displayMetrics.density).toInt()
-
     companion object {
         var isRunning: Boolean = false
             private set
     }
 }
 
+// ── Composable Orb ─────────────────────────────────────────────────────────
+
 /**
- * Pure Compose orb — drawn entirely on Canvas so there are zero dependencies on the
- * UI module's component tree. Works in a Service context without a full Activity.
+ * Pure Canvas orb — zero dependency on the UI module's component tree.
+ * Works in a Service context without a full Activity.
  */
-@androidx.compose.runtime.Composable
+@Composable
 private fun JarvisOrbContent(
     state: JarvisVisualState,
     audioLevel: Float,
@@ -173,7 +177,7 @@ private fun JarvisOrbContent(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "orb")
 
-    // Rotating angle for THINKING arc
+    // Rotating angle for THINKING / EXECUTING arcs
     val rotation by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
@@ -194,7 +198,7 @@ private fun JarvisOrbContent(
         label = "brightness"
     )
 
-    val (coreColor, ringColor, glowColor) = orbColors(state)
+    val colors = orbColors(state)
 
     Box(
         modifier = Modifier
@@ -211,7 +215,7 @@ private fun JarvisOrbContent(
             // Outer glow
             drawCircle(
                 brush = Brush.radialGradient(
-                    listOf(glowColor.copy(alpha = 0.18f), Color.Transparent),
+                    listOf(colors.glow.copy(alpha = 0.18f), Color.Transparent),
                     center = center, radius = size.width * 0.52f
                 ),
                 radius = size.width * 0.52f,
@@ -220,7 +224,7 @@ private fun JarvisOrbContent(
 
             // Animated ring
             drawCircle(
-                color = ringColor.copy(alpha = if (state == JarvisVisualState.IDLE) 0.4f else 0.65f),
+                color = colors.ring.copy(alpha = if (state == JarvisVisualState.IDLE || state == JarvisVisualState.OFFLINE) 0.4f else 0.65f),
                 radius = ringRadius,
                 center = center,
                 style = Stroke(width = 1.6f)
@@ -229,25 +233,26 @@ private fun JarvisOrbContent(
             // Second pulse ring for LISTENING / SPEAKING
             if (state == JarvisVisualState.LISTENING || state == JarvisVisualState.SPEAKING) {
                 drawCircle(
-                    color = ringColor.copy(alpha = 0.3f),
+                    color = colors.ring.copy(alpha = 0.3f),
                     radius = ringRadius * 1.3f + audioLevel * 14f,
                     center = center,
                     style = Stroke(width = 0.8f)
                 )
             }
 
-            // THINKING: rotating arc segments
-            if (state == JarvisVisualState.THINKING || state == JarvisVisualState.EXECUTING) {
-                drawThinkingArcs(center, ringRadius * 1.15f, rotation, ringColor)
+            // THINKING / EXECUTING: rotating arc segments
+            if (state == JarvisVisualState.THINKING || state == JarvisVisualState.EXECUTING ||
+                state == JarvisVisualState.WAKING) {
+                drawThinkingArcs(center, ringRadius * 1.15f, rotation, colors.ring)
             }
 
             // Core orb sphere
             drawCircle(
                 brush = Brush.radialGradient(
                     listOf(
-                        coreColor.copy(alpha = coreBrightness + 0.4f),
-                        coreColor.copy(alpha = coreBrightness * 0.5f),
-                        coreColor.copy(alpha = 0f)
+                        colors.core.copy(alpha = coreBrightness + 0.4f),
+                        colors.core.copy(alpha = coreBrightness * 0.5f),
+                        colors.core.copy(alpha = 0f)
                     ),
                     center = center,
                     radius = coreRadius
@@ -272,7 +277,6 @@ private fun DrawScope.drawThinkingArcs(
     rotation: Float,
     color: Color
 ) {
-    // Four rotating arc segments separated by gaps
     val segmentAngle = 72f
     val gapAngle = 18f
     for (i in 0..4) {
@@ -284,42 +288,48 @@ private fun DrawScope.drawThinkingArcs(
             useCenter = false,
             style = Stroke(width = 2f),
             topLeft = Offset(center.x - radius, center.y - radius),
-            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+            size = Size(radius * 2, radius * 2)
         )
     }
 }
 
 private data class OrbColorSet(val core: Color, val ring: Color, val glow: Color)
 
+/**
+ * Maps every JarvisVisualState to an orb colour set.
+ * MUST cover all enum entries — non-exhaustive when is a compile error in Kotlin.
+ */
 private fun orbColors(state: JarvisVisualState): OrbColorSet = when (state) {
     JarvisVisualState.IDLE      -> OrbColorSet(Color(0xFF00B8D4), Color(0xFF00B8D4), Color(0xFF00E5FF))
+    JarvisVisualState.WAKING    -> OrbColorSet(Color(0xFF5CEBFF), Color(0xFF5CEBFF), Color(0xFF5CEBFF))
     JarvisVisualState.LISTENING -> OrbColorSet(Color(0xFF00E5FF), Color(0xFF00E5FF), Color(0xFF00FFFF))
     JarvisVisualState.THINKING  -> OrbColorSet(Color(0xFF7C4DFF), Color(0xFF9C27B0), Color(0xFFAA00FF))
     JarvisVisualState.EXECUTING -> OrbColorSet(Color(0xFFFFAB00), Color(0xFFFFD740), Color(0xFFFFD740))
     JarvisVisualState.SPEAKING  -> OrbColorSet(Color(0xFF00E676), Color(0xFF69F0AE), Color(0xFF1DE9B6))
     JarvisVisualState.SUCCESS   -> OrbColorSet(Color(0xFFFFFFFF), Color(0xFFE0F7FA), Color(0xFFFFFFFF))
     JarvisVisualState.ERROR     -> OrbColorSet(Color(0xFFFF1744), Color(0xFFFF5252), Color(0xFFFF1744))
+    JarvisVisualState.OFFLINE   -> OrbColorSet(Color(0xFF4D657C), Color(0xFF4D657C), Color(0xFF4D657C))
 }
 
-/** Minimal LifecycleOwner that a ComposeView inside a Service can bind to. */
-private class ServiceLifecycleOwner :
-    androidx.lifecycle.LifecycleOwner,
-    androidx.savedstate.SavedStateRegistryOwner {
+// ── ServiceLifecycleOwner ──────────────────────────────────────────────────
 
-    private val lifecycleRegistry = androidx.lifecycle.LifecycleRegistry(this)
-    private val savedStateController = androidx.savedstate.SavedStateRegistryController.create(this)
+/**
+ * Minimal LifecycleOwner + SavedStateRegistryOwner that a ComposeView inside
+ * a Service can bind to. Both interfaces are required for ComposeView to function
+ * correctly outside of a Fragment or Activity.
+ */
+private class ServiceLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
 
-    override val lifecycle: androidx.lifecycle.Lifecycle get() = lifecycleRegistry
-    override val savedStateRegistry: androidx.savedstate.SavedStateRegistry
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateController = SavedStateRegistryController.create(this)
+
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
+    override val savedStateRegistry: SavedStateRegistry
         get() = savedStateController.savedStateRegistry
 
     fun start() {
         savedStateController.performAttach()
         savedStateController.performRestore(null)
-        lifecycleRegistry.currentState = androidx.lifecycle.Lifecycle.State.STARTED
-    }
-
-    fun stop() {
-        lifecycleRegistry.currentState = androidx.lifecycle.Lifecycle.State.DESTROYED
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
     }
 }

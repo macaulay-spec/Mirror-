@@ -23,10 +23,23 @@ data class AiResponse(
     val toolCalls: List<ToolCallRequest> = emptyList()
 )
 
+/**
+ * JARVIS AI Client — routes requests to the correct provider based on ApiConfig.activeProvider.
+ *
+ * Supported providers:
+ *   xai       → https://api.x.ai/v1  (Grok — xAI's OpenAI-compatible endpoint)
+ *   gemini    → Google Generative Language API  (native Gemini format)
+ *   openai    → api.openai.com
+ *   groq      → api.groq.com/openai
+ *   cerebras  → api.cerebras.ai
+ *   openrouter→ openrouter.ai
+ *   mistral   → api.mistral.ai
+ *   anthropic → api.anthropic.com (Claude — special format)
+ */
 class JarvisApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 ) {
     suspend fun chat(
@@ -34,33 +47,107 @@ class JarvisApiClient(
         history: List<Pair<String, String>>,
         userMessage: String,
         provider: String = ApiConfig.activeProvider,
-        model: String = when (provider) {
-            "openai" -> ApiConfig.OPENAI_MODEL
-            "groq" -> ApiConfig.GROQ_MODEL
-            "cerebras" -> ApiConfig.CEREBRAS_MODEL
-            "mistral" -> ApiConfig.MISTRAL_MODEL
-            "cohere" -> ApiConfig.COHERE_MODEL
-            "openrouter" -> ApiConfig.OPENROUTER_MODEL
-            else -> ApiConfig.GEMINI_MODEL
-        }
+        model: String = resolveModel(provider)
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         val apiKey = ApiConfig.activeApiKey
         if (apiKey.isBlank()) {
             return@withContext Result.failure(
-                Exception("Gemini API key is not configured. Please set your API key in Access Control settings.")
+                Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
             )
         }
 
         try {
-            if (provider == "gemini") {
-                executeGemini(apiKey, model, systemPrompt, history, userMessage)
-            } else {
-                executeOpenAICompatible(apiKey, provider, model, systemPrompt, history, userMessage)
+            when (provider) {
+                "gemini" -> executeGemini(apiKey, model, systemPrompt, history, userMessage)
+                "anthropic" -> executeAnthropic(apiKey, model, systemPrompt, history, userMessage)
+                else -> executeOpenAICompatible(apiKey, provider, model, systemPrompt, history, userMessage)
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
+    // ── xAI Grok + OpenAI-compatible providers ────────────────────────────
+
+    private fun executeOpenAICompatible(
+        apiKey: String,
+        provider: String,
+        model: String,
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userMessage: String
+    ): Result<AiResponse> {
+        val endpoint = when (provider) {
+            "xai"        -> "https://api.x.ai/v1/chat/completions"
+            "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
+            "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
+            "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"
+            "mistral"    -> "https://api.mistral.ai/v1/chat/completions"
+            else         -> "https://api.openai.com/v1/chat/completions"
+        }
+
+        val messages = JSONArray()
+        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+        for ((role, text) in history) {
+            if (text.isBlank()) continue
+            val openAiRole = if (role == "jarvis" || role == "assistant" || role == "model") "assistant" else "user"
+            messages.put(JSONObject().put("role", openAiRole).put("content", text))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", userMessage))
+
+        val payload = JSONObject()
+            .put("model", model)
+            .put("messages", messages)
+
+        // Add tool / function calling schemas
+        val tools = ToolSchema.forOpenAI()
+        if (tools.length() > 0) {
+            payload.put("tools", tools)
+            payload.put("tool_choice", "auto")
+        }
+
+        val requestBuilder = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer $apiKey")
+
+        // OpenRouter wants these headers for usage tracking
+        if (provider == "openrouter") {
+            requestBuilder.header("HTTP-Referer", "https://github.com/macaulay-spec/Mirror-")
+            requestBuilder.header("X-Title", "JARVIS")
+        }
+
+        val request = requestBuilder
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return client.newCall(request).execute().use { response ->
+            val bodyString = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                val msg = when (response.code) {
+                    401 -> "$provider API key is invalid or expired (HTTP 401). Check Settings → Access Control."
+                    429 -> "$provider rate limit reached. Please wait a moment and try again."
+                    else -> "$provider API error (HTTP ${response.code}): ${bodyString.take(200)}"
+                }
+                return@use Result.failure(Exception(msg))
+            }
+
+            val json = JSONObject(bodyString)
+            val choices = json.optJSONArray("choices")
+            if (choices == null || choices.length() == 0) {
+                return@use Result.success(AiResponse(message = "Standing by."))
+            }
+
+            val choice = choices.getJSONObject(0)
+            val message = choice.optJSONObject("message")
+            val content = message?.optString("content")?.takeIf { it.isNotBlank() }
+            val toolCallsArray = message?.optJSONArray("tool_calls")
+
+            val toolCalls = parseOpenAIToolCalls(toolCallsArray)
+            Result.success(AiResponse(message = content, toolCalls = toolCalls))
+        }
+    }
+
+    // ── Google Gemini (native format) ─────────────────────────────────────
 
     private fun executeGemini(
         apiKey: String,
@@ -100,26 +187,21 @@ class JarvisApiClient(
         return client.newCall(request).execute().use { response ->
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                // If custom key failed with 401/400 and we have a built-in BuildConfig key, attempt fallback
-                if ((response.code == 401 || response.code == 400) && apiKey != ApiConfig.GEMINI_API_KEY && ApiConfig.GEMINI_API_KEY.isNotBlank()) {
-                    return executeGemini(ApiConfig.GEMINI_API_KEY, model, systemPrompt, history, userMessage)
+                val msg = when (response.code) {
+                    401 -> "Gemini key is invalid (HTTP 401). Check Settings → Access Control."
+                    429 -> "Gemini rate limit reached. Try again in a moment."
+                    else -> "Gemini error (HTTP ${response.code}): ${bodyString.take(200)}"
                 }
-                val userFriendlyMessage = when (response.code) {
-                    401 -> "Gemini API key is unauthorized or invalid (HTTP 401). Please check your Gemini API key in Settings."
-                    429 -> "Gemini API rate limit reached. Please wait a moment and try again."
-                    else -> "Gemini API error (HTTP ${response.code}): ${bodyString.take(150)}"
-                }
-                return@use Result.failure(Exception(userFriendlyMessage))
+                return@use Result.failure(Exception(msg))
             }
 
             val json = JSONObject(bodyString)
             val candidates = json.optJSONArray("candidates")
             if (candidates == null || candidates.length() == 0) {
-                return@use Result.success(AiResponse(message = "I am standing by."))
+                return@use Result.success(AiResponse(message = "Standing by."))
             }
 
-            val firstCandidate = candidates.getJSONObject(0)
-            val content = firstCandidate.optJSONObject("content")
+            val content = candidates.getJSONObject(0).optJSONObject("content")
             val parts = content?.optJSONArray("parts")
 
             val toolCalls = mutableListOf<ToolCallRequest>()
@@ -128,101 +210,93 @@ class JarvisApiClient(
             if (parts != null) {
                 for (i in 0 until parts.length()) {
                     val part = parts.getJSONObject(i)
-                    if (part.has("text")) {
-                        textBuilder.append(part.getString("text"))
-                    }
-                    if (part.has("functionCall")) {
-                        val fn = part.getJSONObject("functionCall")
-                        val fnName = fn.getString("name")
-                        val fnArgsObj = fn.optJSONObject("args") ?: JSONObject()
-                        val argsMap = mutableMapOf<String, Any?>()
-                        val keys = fnArgsObj.keys()
-                        while (keys.hasNext()) {
-                            val k = keys.next()
-                            argsMap[k] = fnArgsObj.get(k)
-                        }
-                        toolCalls.add(ToolCallRequest(toolName = fnName, arguments = argsMap))
+                    part.optString("text").takeIf { it.isNotBlank() }?.let { textBuilder.append(it) }
+                    part.optJSONObject("functionCall")?.let { fn ->
+                        val args = mutableMapOf<String, Any?>()
+                        val fnArgs = fn.optJSONObject("args") ?: JSONObject()
+                        fnArgs.keys().forEach { k -> args[k] = fnArgs.get(k) }
+                        toolCalls.add(ToolCallRequest(fn.getString("name"), args))
                     }
                 }
             }
 
-            val text = textBuilder.toString().trim().takeIf { it.isNotBlank() }
-            Result.success(AiResponse(message = text, toolCalls = toolCalls))
+            Result.success(AiResponse(message = textBuilder.toString().trim().takeIf { it.isNotBlank() }, toolCalls = toolCalls))
         }
     }
 
-    private fun executeOpenAICompatible(
+    // ── Anthropic Claude (unique format) ─────────────────────────────────
+
+    private fun executeAnthropic(
         apiKey: String,
-        provider: String,
         model: String,
         systemPrompt: String,
         history: List<Pair<String, String>>,
         userMessage: String
     ): Result<AiResponse> {
-        val endpoint = when (provider) {
-            "groq" -> "https://api.groq.com/openai/v1/chat/completions"
-            "cerebras" -> "https://api.cerebras.ai/v1/chat/completions"
-            "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"
-            "mistral" -> "https://api.mistral.ai/v1/chat/completions"
-            else -> "https://api.openai.com/v1/chat/completions"
-        }
-
         val messages = JSONArray()
-        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
         for ((role, text) in history) {
             if (text.isBlank()) continue
-            val openAiRole = if (role == "jarvis" || role == "assistant" || role == "model") "assistant" else "user"
-            messages.put(JSONObject().put("role", openAiRole).put("content", text))
+            val claudeRole = if (role == "jarvis" || role == "assistant") "assistant" else "user"
+            messages.put(JSONObject().put("role", claudeRole).put("content", text))
         }
         messages.put(JSONObject().put("role", "user").put("content", userMessage))
 
         val payload = JSONObject()
             .put("model", model)
+            .put("max_tokens", 4096)
+            .put("system", systemPrompt)
             .put("messages", messages)
-            .put("tools", ToolSchema.forOpenAI())
 
         val request = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
+            .url("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", "2023-06-01")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         return client.newCall(request).execute().use { response ->
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                return@use Result.failure(Exception("$provider API error (HTTP ${response.code}): $bodyString"))
+                return@use Result.failure(Exception("Anthropic error (HTTP ${response.code}): ${bodyString.take(200)}"))
             }
-
             val json = JSONObject(bodyString)
-            val choices = json.optJSONArray("choices")
-            if (choices == null || choices.length() == 0) {
-                return@use Result.success(AiResponse(message = "I am standing by."))
-            }
+            val content = json.optJSONArray("content")
+            val text = if (content != null && content.length() > 0)
+                content.getJSONObject(0).optString("text").takeIf { it.isNotBlank() }
+            else null
+            Result.success(AiResponse(message = text))
+        }
+    }
 
-            val choice = choices.getJSONObject(0)
-            val message = choice.optJSONObject("message")
-            val content = message?.optString("content")?.takeIf { it.isNotBlank() }
-            val toolCallsArray = message?.optJSONArray("tool_calls")
+    // ── Helpers ───────────────────────────────────────────────────────────
 
-            val toolCalls = mutableListOf<ToolCallRequest>()
-            if (toolCallsArray != null) {
-                for (i in 0 until toolCallsArray.length()) {
-                    val tc = toolCallsArray.getJSONObject(i)
-                    val fn = tc.optJSONObject("function") ?: continue
-                    val fnName = fn.getString("name")
-                    val fnArgsStr = fn.optString("arguments", "{}")
-                    val fnArgsObj = runCatching { JSONObject(fnArgsStr) }.getOrDefault(JSONObject())
-                    val argsMap = mutableMapOf<String, Any?>()
-                    val keys = fnArgsObj.keys()
-                    while (keys.hasNext()) {
-                        val k = keys.next()
-                        argsMap[k] = fnArgsObj.get(k)
-                    }
-                    toolCalls.add(ToolCallRequest(toolName = fnName, arguments = argsMap, callId = tc.optString("id")))
-                }
-            }
+    private fun parseOpenAIToolCalls(toolCallsArray: JSONArray?): List<ToolCallRequest> {
+        if (toolCallsArray == null) return emptyList()
+        val result = mutableListOf<ToolCallRequest>()
+        for (i in 0 until toolCallsArray.length()) {
+            val tc = toolCallsArray.getJSONObject(i)
+            val fn = tc.optJSONObject("function") ?: continue
+            val fnName = fn.getString("name")
+            val fnArgsStr = fn.optString("arguments", "{}")
+            val fnArgsObj = runCatching { JSONObject(fnArgsStr) }.getOrDefault(JSONObject())
+            val argsMap = mutableMapOf<String, Any?>()
+            fnArgsObj.keys().forEach { k -> argsMap[k] = fnArgsObj.get(k) }
+            result.add(ToolCallRequest(fnName, argsMap, tc.optString("id")))
+        }
+        return result
+    }
 
-            Result.success(AiResponse(message = content, toolCalls = toolCalls))
+    companion object {
+        fun resolveModel(provider: String): String = when (provider) {
+            "xai"        -> ApiConfig.XAI_MODEL
+            "gemini"     -> ApiConfig.GEMINI_MODEL
+            "openai"     -> ApiConfig.OPENAI_MODEL
+            "groq"       -> ApiConfig.GROQ_MODEL
+            "cerebras"   -> ApiConfig.CEREBRAS_MODEL
+            "mistral"    -> ApiConfig.MISTRAL_MODEL
+            "openrouter" -> ApiConfig.OPENROUTER_MODEL
+            "anthropic"  -> ApiConfig.ANTHROPIC_MODEL
+            else         -> ApiConfig.XAI_MODEL
         }
     }
 }

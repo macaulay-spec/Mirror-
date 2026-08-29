@@ -9,8 +9,9 @@ plugins {
 
 // API keys live in local.properties (gitignored) or in the environment.
 // Copy local.properties.example -> local.properties and paste your keys there.
-//   GEMINI_API_KEY=AIza...
-//   ELEVENLABS_API_KEY=sk_...
+//   XAI_API_KEY=AQ....        (xAI Grok — starts with AQ.)
+//   GEMINI_API_KEY=AIza...    (Google Gemini)
+//   ELEVENLABS_API_KEY=sk_... (ElevenLabs TTS)
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -27,10 +28,13 @@ android {
         applicationId = "com.jarvis.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
-        buildConfigField("String", "GEMINI_API_KEY", "\"${secretKey("GEMINI_API_KEY")}\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${secretKey("ELEVENLABS_API_KEY")}\"")
+        versionCode = 2
+        versionName = "1.1.0"
+
+        // All AI provider keys — loaded from local.properties (never committed to git)
+        buildConfigField("String", "XAI_API_KEY",       "\"${secretKey("XAI_API_KEY")}\"")
+        buildConfigField("String", "GEMINI_API_KEY",    "\"${secretKey("GEMINI_API_KEY")}\"")
+        buildConfigField("String", "ELEVENLABS_API_KEY","\"${secretKey("ELEVENLABS_API_KEY")}\"")
     }
 
     buildTypes {

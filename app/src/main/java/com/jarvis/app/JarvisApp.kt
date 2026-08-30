@@ -4,13 +4,18 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.agent.tool.ToolRegistration
+import com.jarvis.android.voice.JarvisVoiceEngine
+import com.jarvis.android.voice.VoiceOrchestratorBridge
 import com.jarvis.app.proactive.ProactiveScheduler
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.app.config.AssistantPrefs
+import com.jarvis.app.memory.AppDatabase
 import com.jarvis.app.people.PeopleGraph
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class JarvisApp : Application() {
@@ -19,6 +24,33 @@ class JarvisApp : Application() {
         const val CHANNEL_LISTENING = "jarvis_listening"
         const val CHANNEL_BRIEFING  = "jarvis_briefing"
     }
+
+    // CHANGED (real-device report): orchestrator/voiceEngine/voiceBridge used to
+    // be created inside MainActivity.onCreate(), which means they died with the
+    // Activity -- including whenever Android reclaims a backgrounded Activity,
+    // which is routine, not an edge case. WakeWordForegroundService and
+    // JarvisFloatingOrbService are separate components with their own
+    // lifecycles, so the wake-word listener could still fire and the Orb could
+    // still be drawn on screen with NOTHING behind them to actually process a
+    // command or speak a reply -- which matches "the Orb is there, but it
+    // doesn't answer, and the voice doesn't even work" exactly. Owning these
+    // here means they live as long as the process does, which the foreground
+    // wake-word service already protects.
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    val voiceEngine: JarvisVoiceEngine? by lazy {
+        runCatching { JarvisVoiceEngine(applicationContext) }.getOrNull()
+    }
+
+    val orchestrator: AssistantOrchestrator by lazy {
+        AssistantOrchestrator(
+            context = applicationContext,
+            database = AppDatabase.get(applicationContext),
+            voiceEngine = voiceEngine
+        )
+    }
+
+    private var voiceBridge: VoiceOrchestratorBridge? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -45,6 +77,12 @@ class JarvisApp : Application() {
 
         // Start the floating Orb if overlay permission is granted
         startOrbIfAllowed()
+
+        // Wire the wake-word bus to the (now process-lifetime) orchestrator
+        // once here, instead of every time MainActivity happens to be created.
+        voiceEngine?.let { engine ->
+            voiceBridge = VoiceOrchestratorBridge(engine, orchestrator, appScope)
+        }
     }
 
     private fun startOrbIfAllowed() {

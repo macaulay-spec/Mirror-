@@ -14,6 +14,7 @@ import com.jarvis.agent.tool.ToolDefinition
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionResult
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,6 +103,19 @@ class JarvisAccessibilityService : AccessibilityService() {
         collectText(root, sb, 0)
         return sb.toString().trim()
     }
+
+    /**
+     * ADDED (forensic audit, Task 8 / K): a cheap fingerprint of "what's on
+     * screen right now" -- current package plus a hash of visible text, reusing
+     * getScreenText() above. Not a perfect ground truth (a click that changes
+     * only an icon or a checkbox state with no text change won't register as a
+     * change here), but it's enough to tell the difference between "the screen
+     * actually responded" and "nothing happened," which this service reported
+     * on for nothing before this fix -- every click/type/scroll trusted
+     * performAction()'s return value alone, which only confirms Android
+     * accepted the request, not that it did anything.
+     */
+    fun screenSignature(): String = "${currentPackageName ?: "?"}:${getScreenText().hashCode()}"
 
     private fun collectText(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
         if (depth > 40) return
@@ -342,15 +356,38 @@ class JarvisAccessibilityService : AccessibilityService() {
                             error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
+                        // CHANGED (forensic audit, Task 8 / K): previously this
+                        // reported success purely from performAction()'s return
+                        // value, which only confirms Android accepted the click
+                        // request -- not that clicking this node did anything.
+                        // Now it compares a screen fingerprint from just before
+                        // and just after, and says so plainly when nothing
+                        // visibly changed, instead of assuming the click worked.
+                        val before = service.screenSignature()
                         val clickedText = service.clickText(target)
                         val clickedDesc = if (!clickedText) service.clickElementByDescription(target) else true
-                        val success = clickedText || clickedDesc
-                        ToolExecutionResult(
-                            toolId = "click_element",
-                            success = success,
-                            data = mapOf("target" to target),
-                            verificationDetails = if (success) "SUCCESS: Clicked element '$target'." else "NOT_FOUND: Element '$target' could not be clicked."
-                        )
+                        val dispatched = clickedText || clickedDesc
+
+                        if (!dispatched) {
+                            ToolExecutionResult(
+                                toolId = "click_element",
+                                success = false,
+                                data = mapOf("target" to target),
+                                error = "NOT_FOUND: Element '$target' could not be clicked."
+                            )
+                        } else {
+                            delay(400)
+                            val screenChanged = before != service.screenSignature()
+                            ToolExecutionResult(
+                                toolId = "click_element",
+                                success = dispatched,
+                                data = mapOf("target" to target, "screenChanged" to screenChanged),
+                                verificationDetails = if (screenChanged)
+                                    "SUCCESS: Clicked '$target' and the screen changed."
+                                else
+                                    "Tapped '$target', but the screen looks the same afterward -- it may not have registered, or the change wasn't visible in on-screen text. Worth checking before assuming it worked."
+                            )
+                        }
                     }
                 }
             )

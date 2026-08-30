@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -21,9 +20,7 @@ import com.jarvis.android.permissions.PermissionAndSetupHelper
 import com.jarvis.android.voice.JarvisSoundManager
 import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.android.voice.SoundEvent
-import com.jarvis.android.voice.VoiceOrchestratorBridge
 import com.jarvis.app.config.ApiConfig
-import com.jarvis.app.memory.AppDatabase
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisTheme
 import com.jarvis.feature.home.DualModeHost
@@ -36,49 +33,46 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
 
-    private var voiceEngine: JarvisVoiceEngine? = null
-    private var voiceBridge: VoiceOrchestratorBridge? = null
-    private lateinit var orchestrator: AssistantOrchestrator
+    // CHANGED (real-device report — "the Orb shows but nothing happens in the
+    // background"): orchestrator/voiceEngine used to be created fresh in this
+    // Activity's onCreate(), so they were destroyed along with it -- which
+    // Android does routinely for a backgrounded Activity, not just on rare
+    // low-memory kills. WakeWordForegroundService and JarvisFloatingOrbService
+    // are separate components that keep running on their own, so the Orb could
+    // stay visible and the wake word could still fire with nothing left alive
+    // to actually process a command or speak a reply. Both now live on the
+    // Application (JarvisApp), which survives independent of this Activity;
+    // this Activity just reads them. Everything below that referenced
+    // `orchestrator` / `voiceEngine` by name needs no other changes.
+    private val app: JarvisApp get() = application as JarvisApp
+    private val orchestrator: AssistantOrchestrator get() = app.orchestrator
+    private val voiceEngine: JarvisVoiceEngine? get() = app.voiceEngine
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        ApiConfig.load(applicationContext)
-
-        try {
-            ToolRegistration.registerAll(applicationContext)
-        } catch (_: Exception) { }
+        // CHANGED: ApiConfig.load() and ToolRegistration.registerAll() moved to
+        // JarvisApp.onCreate(). Running them here too re-registered every tool a
+        // second time each time this Activity was created (the "overwriting
+        // existing tool" warnings in logcat), and re-read the config on every
+        // screen rotation. Application startup owns one-time init; Activities
+        // must not repeat it.
 
         // The always-on "Hey JARVIS" service existed but nothing ever started it,
         // so hands-free never worked. Start it here when the mic is available.
         startWakeWordServiceIfAllowed()
 
-        try {
-            voiceEngine = JarvisVoiceEngine(applicationContext)
-        } catch (_: Exception) { }
-
-        orchestrator = AssistantOrchestrator(
-            context = applicationContext,
-            database = AppDatabase.get(applicationContext),
-            voiceEngine = voiceEngine
-        )
-
         setContent {
-            val scope = rememberCoroutineScope()
             var isOnboarding by remember { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
             var showSettings by remember { mutableStateOf(false) }
 
             LaunchedEffect(Unit) {
-                voiceEngine?.let { vm ->
-                    voiceBridge = VoiceOrchestratorBridge(vm, orchestrator, scope)
-                }
-                
                 if (intent?.getBooleanExtra("WAKE_WORD_ACTIVATED", false) == true) {
                     handleVoiceToggle()
                     intent?.removeExtra("WAKE_WORD_ACTIVATED")
                 }
             }
-            
+
             JarvisTheme {
                 if (isOnboarding) {
                     OnboardingScreen(
@@ -169,10 +163,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        try {
-            voiceEngine?.destroy()
-        } catch (_: Exception) { }
-        super.onDestroy()
-    }
+    // CHANGED: voiceEngine is no longer this Activity's to destroy -- it
+    // belongs to JarvisApp now and should keep running after this Activity
+    // goes away (that's the entire point of the fix above). onDestroy() used
+    // to tear it down here, which would have undone the fix by destroying the
+    // engine the moment you left the screen, wake word or not.
 }

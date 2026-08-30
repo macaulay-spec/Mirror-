@@ -3,7 +3,6 @@ package com.jarvis.android.device
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
-import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.VibrationEffect
@@ -17,77 +16,14 @@ import com.jarvis.core.model.ToolExecutionResult
 object DeviceToolExecutors {
 
     fun registerAll() {
-        // Flashlight Tool
-        ToolRegistry.register(
-            ToolDefinition(
-                id = "device_flashlight",
-                name = "Toggle Flashlight",
-                description = "Turns the device flashlight/torch on or off.",
-                category = "DEVICE",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val enable = args["enable"]?.toString()?.toBooleanStrictOrNull() ?: true
-                val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
-                try {
-                    val cameraId = cameraManager?.cameraIdList?.firstOrNull()
-                    if (cameraId != null) {
-                        cameraManager.setTorchMode(cameraId, enable)
-                        ToolExecutionResult(
-                            toolId = "device_flashlight",
-                            success = true,
-                            data = mapOf("enabled" to enable),
-                            verificationDetails = "Flashlight set to ${if (enable) "ON" else "OFF"}"
-                        )
-                    } else {
-                        ToolExecutionResult(
-                            toolId = "device_flashlight",
-                            success = false,
-                            data = null,
-                            error = "No camera with flashlight found."
-                        )
-                    }
-                } catch (e: Exception) {
-                    ToolExecutionResult(
-                        toolId = "device_flashlight",
-                        success = false,
-                        data = null,
-                        error = "Flashlight error: ${e.localizedMessage}"
-                    )
-                }
-            }
-        )
-
-        // Volume Adjuster Tool
-        ToolRegistry.register(
-            ToolDefinition(
-                id = "device_volume",
-                name = "Adjust Media Volume",
-                description = "Changes media playback volume (up, down, mute, unmute).",
-                category = "DEVICE",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val action = args["action"]?.toString()?.lowercase() ?: "up"
-                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                if (audioManager != null) {
-                    when (action) {
-                        "up" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                        "down" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                        "mute" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
-                        "unmute" -> audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, AudioManager.FLAG_SHOW_UI)
-                    }
-                    val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    ToolExecutionResult(
-                        toolId = "device_volume",
-                        success = true,
-                        data = mapOf("volume" to current, "max" to max),
-                        verificationDetails = "Media volume adjusted: $current/$max"
-                    )
-                } else {
-                    ToolExecutionResult(toolId = "device_volume", success = false, data = null, error = "Audio service unavailable")
-                }
-            }
-        )
+        // CHANGED (forensic audit): removed the duplicate "device_flashlight"
+        // and "device_volume" registrations that used to live here. ToolRegistry.kt
+        // defines the canonical versions of both (correct argument keys, volume
+        // level/direction/max support); because ToolRegistration.registerAll()
+        // calls DeviceToolExecutors.registerAll() AFTER ToolRegistry's init, the
+        // copies here silently overwrote the good ones -- which is why "turn the
+        // torch off" did nothing (this copy read args["enable"] while the model
+        // sends "enabled") and "set volume to 50%" ignored the number entirely.
 
         // Haptic Vibrate Tool
         ToolRegistry.register(
@@ -313,36 +249,11 @@ object DeviceToolExecutors {
             }
         )
 
-        // Battery Info Tool
-        ToolRegistry.register(
-            ToolDefinition(
-                id = "battery_info",
-                name = "Get Battery Status",
-                description = "Returns current battery percentage, charging state, and temperature.",
-                category = "DEVICE",
-                riskLevel = RiskLevel.LEVEL_0
-            ) { context, _ ->
-                val batteryFilter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
-                val batteryStatus = context.registerReceiver(null, batteryFilter)
-                val level = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
-                val scale = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
-                val batteryPct = if (level >= 0 && scale > 0) (level * 100 / scale) else 0
-                val status = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
-                val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL
-                val temp = (batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
-
-                ToolExecutionResult(
-                    toolId = "battery_info",
-                    success = true,
-                    data = mapOf(
-                        "percentage" to batteryPct,
-                        "charging" to isCharging,
-                        "temperature_c" to temp
-                    ),
-                    verificationDetails = "Battery is at $batteryPct% (${if (isCharging) "Charging" else "Discharging"}), Temp: ${temp}°C"
-                )
-            }
-        )
+        // CHANGED (forensic audit): removed the duplicate "battery_info" tool
+        // that used to be registered here -- it did the same job as
+        // "device_battery" in ToolRegistry.kt under a different id, and both
+        // were visible to the AI simultaneously. Temperature reporting was
+        // merged into device_battery instead of being lost.
 
         // Smart TV Cast / Remote Tool
         ToolRegistry.register(

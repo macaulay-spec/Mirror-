@@ -32,6 +32,23 @@ object ToolRegistry {
     }
 
     fun register(tool: ToolDefinition) {
+        // ADDED (forensic audit): this used to silently overwrite on a
+        // duplicate id with no signal at all -- that's exactly how
+        // device_battery/battery_info ended up as two indistinguishable tools,
+        // and how device_volume, device_flashlight, call_contact,
+        // calendar_create, set_alarm, set_timer, and navigate_to are each
+        // *still* registered twice under the same id right now (see
+        // JARVIS_MIRROR_FORENSIC_AUDIT.md, section G) -- whichever registrar
+        // happens to run last silently wins with no warning either way. This
+        // won't stop a collision, but it makes the next one impossible to miss
+        // in Logcat instead of showing up as "why did the wrong thing happen."
+        if (tools.containsKey(tool.id)) {
+            android.util.Log.w(
+                "ToolRegistry",
+                "Duplicate tool id '${tool.id}' -- overwriting the previous registration. " +
+                    "This is almost certainly a bug: two different files registered the same id."
+            )
+        }
         tools[tool.id] = tool
     }
 
@@ -86,11 +103,21 @@ object ToolRegistry {
                 val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
                 val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
                 val isCharging = bm?.isCharging ?: false
+                // CHANGED (forensic audit): merged in from the duplicate
+                // "battery_info" tool in DeviceToolExecutors.kt, which reported
+                // the same thing under a different id with near-identical
+                // wording -- both were "DEVICE" category and visible to the AI
+                // at once, so the model had two indistinguishable tools to pick
+                // between for the same request. This is now the one canonical
+                // battery tool; the duplicate registration has been removed.
+                val tempFilter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+                val tempStatus = context.registerReceiver(null, tempFilter)
+                val tempC = (tempStatus?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
                 ToolExecutionResult(
                     toolId = "device_battery",
                     success = true,
-                    data = mapOf("level" to level, "charging" to isCharging),
-                    verificationDetails = "Battery is at $level%, charging: $isCharging"
+                    data = mapOf("level" to level, "charging" to isCharging, "temperature_c" to tempC),
+                    verificationDetails = "Battery is at $level% (${if (isCharging) "charging" else "discharging"}), ${tempC}°C"
                 )
             }
         )

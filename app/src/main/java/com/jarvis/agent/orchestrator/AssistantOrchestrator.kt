@@ -150,12 +150,24 @@ class AssistantOrchestrator(
                         addMessage(AssistantMessage(
                             role = MessageRole.JARVIS,
                             text = engineResult.reply,
-                            toolResult = engineResult.toolResult
+                            toolResult = engineResult.toolResult,
+                            toolCall = engineResult.pendingConfirmation
                         ))
-                        setVisualState(engineResult.state)
                         speak(engineResult.reply)
-                        delay(300)
-                        setVisualState(JarvisVisualState.IDLE)
+
+                        // ADDED (forensic audit): a high-risk tool call the
+                        // model itself chose to make now surfaces through the
+                        // same confirm/reject flow the DialogueResult.Confirm
+                        // branch above already uses, instead of running
+                        // unconditionally. See AgentExecutor.kt.
+                        if (engineResult.pendingConfirmation != null) {
+                            _pendingConfirmation.value = engineResult.pendingConfirmation
+                            setVisualState(JarvisVisualState.IDLE)
+                        } else {
+                            setVisualState(engineResult.state)
+                            delay(300)
+                            setVisualState(JarvisVisualState.IDLE)
+                        }
                     } else {
                         // Dialogue resolved to a direct tool call
                         setVisualState(JarvisVisualState.EXECUTING)

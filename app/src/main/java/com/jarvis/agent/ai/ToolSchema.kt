@@ -74,7 +74,11 @@ object ToolSchema {
     private val EXPOSED_CATEGORIES = setOf(
         "PHONE", "MESSAGING", "APPS", "DEVICE", "SCREEN", "NOTIFICATIONS", "WEB",
         "CALENDAR", "MEMORY", "MEDIA", "COMMUNICATION", "INTEGRATION", "USAGE",
-        "LOCATION", "ASSISTANT"
+        "LOCATION", "ASSISTANT",
+        // CHANGED (forensic audit): NAVIGATION was missing from this set, which
+        // meant navigate_to had no way to reach the model at all, on top of the
+        // separate dead-end in DialogueManager.processIntent(). Both are fixed now.
+        "NAVIGATION"
     )
 
     fun exportedTools(): List<ToolDefinition> =

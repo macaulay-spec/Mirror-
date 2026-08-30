@@ -16,7 +16,10 @@ import kotlinx.coroutines.withContext
 data class JarvisEngineResult(
     val reply: String,
     val state: JarvisVisualState = JarvisVisualState.SUCCESS,
-    val toolResult: ToolExecutionResult? = null
+    val toolResult: ToolExecutionResult? = null,
+    // ADDED: lets AgentExecutor hand a high-risk, model-issued tool call back up
+    // to AssistantOrchestrator for confirmation instead of firing it unconditionally.
+    val pendingConfirmation: ToolExecutionRequest? = null
 )
 
 /**
@@ -108,12 +111,18 @@ Rules:
             // All other commands → LLM with real function calling
             val agentResult = agentExecutor.executeTask(systemPrompt, history, input, null, onChunk)
 
-            // If AI key is invalid, fall back to a local conversational reply
+            // ADDED (forensic audit): only use the canned local fallback when
+            // there's genuinely no key configured -- that's the documented
+            // no-AI mode. If a key IS configured and the call still failed
+            // (bad key, rate limit, network), JarvisApiClient already built a
+            // specific, actionable message for exactly that -- show it instead
+            // of masking a real problem with a cheerful generic line.
             val finalResult = if (agentResult.state == JarvisVisualState.ERROR) {
-                JarvisEngineResult(
-                    reply = localFallback(input),
-                    state = JarvisVisualState.SUCCESS
-                )
+                if (!ApiConfig.hasAI) {
+                    JarvisEngineResult(reply = localFallback(input), state = JarvisVisualState.SUCCESS)
+                } else {
+                    agentResult.copy(reply = ReplySanitizer.sanitize(agentResult.reply))
+                }
             } else {
                 agentResult.copy(reply = ReplySanitizer.sanitize(agentResult.reply))
             }

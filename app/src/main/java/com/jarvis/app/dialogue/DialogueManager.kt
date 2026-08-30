@@ -131,6 +131,21 @@ class DialogueManager(
                 return DialogueResult.ToolCall("set_volume", mapOf("direction" to (intent.direction ?: "up")))
             }
 
+            // CHANGED (forensic audit, D.2): Navigate and ReadMessages used to
+            // have no branch here, so they fell to the `else` below and always
+            // got "I'm not sure how to do that yet." -- even though
+            // IntentRouter correctly recognized both, and (for ReadMessages)
+            // JarvisAIEngine already had a working handler that this dead end
+            // prevented from ever being reached. Route both to the model,
+            // same as Unknown does.
+            is Intent.Navigate -> {
+                return DialogueResult.ToolCall("llm_fallback", mapOf("utterance" to utterance))
+            }
+
+            is Intent.ReadMessages -> {
+                return DialogueResult.ToolCall("llm_fallback", mapOf("utterance" to utterance))
+            }
+
             is Intent.Unknown -> {
                 // LLM Fallback
                 return DialogueResult.ToolCall("llm_fallback", mapOf("utterance" to intent.raw))
@@ -196,8 +211,12 @@ class DialogueManager(
     }
 
     private suspend fun resolvePerson(name: String): PersonEntity? {
-        // If pronoun, check entity memory
-        val lower = name.lowercase()
+        // If pronoun, check entity memory. CHANGED (forensic audit, D.1): strip
+        // a trailing " back" first (the redial/reply case -- "call her back",
+        // "text him back") so it's compared as "her"/"him" instead of the
+        // literal "her back", which never matched and sent this down the
+        // "I don't know who that is" new-contact flow instead of redialing.
+        val lower = name.lowercase().removeSuffix(" back").trim()
         if (lower == "him" || lower == "her" || lower == "them") {
             return entities.lastContact
         }

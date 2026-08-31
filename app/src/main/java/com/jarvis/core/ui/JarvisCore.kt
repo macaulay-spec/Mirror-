@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -133,10 +134,11 @@ fun JarvisCore(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
+            val canvasSize = this.size
+            val cx = canvasSize.width / 2f
+            val cy = canvasSize.height / 2f
             val center = Offset(cx, cy)
-            val baseRadius = size.minDimension / 2f
+            val baseRadius = canvasSize.minDimension / 2f
             val coreRadius = baseRadius * 0.35f
             val ringRadius = coreRadius * 1.3f
 
@@ -409,24 +411,4 @@ private fun DrawScope.drawThinkingParticles(
     }
 }
 
-/**
- * Returns the Orb's accent color for a given visual state.
- * Each state gets its OWN hue — not brightness steps of cyan.
- */
-fun JarvisVisualState.orbColor(): Color = when (this) {
-    JarvisVisualState.IDLE -> JarvisColors.StateIdle
-    JarvisVisualState.WAKING -> JarvisColors.Presence.copy(alpha = 0.70f)
-    JarvisVisualState.LISTENING -> JarvisColors.StateListening
-    JarvisVisualState.THINKING -> JarvisColors.StateThinking
-    JarvisVisualState.EXECUTING -> JarvisColors.StateExecuting
-    JarvisVisualState.SPEAKING -> JarvisColors.StateSpeaking
-    JarvisVisualState.SUCCESS -> JarvisColors.StateSuccess
-    JarvisVisualState.ERROR -> JarvisColors.StateError
-    JarvisVisualState.OFFLINE -> JarvisColors.TextMuted.copy(alpha = 0.5f)
-}
-
-/**
- * Legacy accent accessor — delegates to orbColor().
- * Kept for backwards compatibility with code that calls state.accent().
- */
-fun JarvisVisualState.accent(): Color = orbColor()
+// orbColor() and accent() are defined on JarvisVisualState in AssistantModels.kt

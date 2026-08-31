@@ -27,6 +27,7 @@ object JarvisColors {
     val VoidBlack = Color(0xFF0B0F17)       // root background
     val DarkSpace = Color(0xFF121826)       // cards, sheets
     val SurfaceCard = Color(0xFF1A2232)     // raised/hover surface
+    val SurfaceDark = Color(0xFF121826)      // alias for legacy code
     val SurfaceGlass = Color(0x8C121826)    // glass panels (rgba 18,24,38,0.55)
     val SurfaceGlassElevated = Color(0xA3121826) // elevated glass
 

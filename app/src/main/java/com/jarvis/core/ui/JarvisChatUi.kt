@@ -64,9 +64,7 @@ fun JarvisChatHeader(
     GlassCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        backgroundColor = Color(0x1200E5FF),
-        borderColor = JarvisColors.BorderCyan.copy(alpha = 0.3f)
+            .padding(vertical = 4.dp)
     ) {
         Row(
             modifier = Modifier

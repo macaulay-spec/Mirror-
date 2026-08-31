@@ -32,7 +32,13 @@ enum class JarvisVisualState(val label: String) {
         val PROCESSING = THINKING
     }
 
-    fun accent(): Color = when (this) {
+    fun accent(): Color = orbColor()
+
+    /**
+     * Returns the Orb's accent color for a given visual state.
+     * Each state gets its OWN hue — not brightness steps of cyan.
+     */
+    fun orbColor(): Color = when (this) {
         IDLE -> Color(0x666FD3FF)       // Dim presence (40%)
         WAKING -> Color(0xFF6FD3FF)     // Presence, partial
         LISTENING -> Color(0xFF6FD3FF)  // Bright presence

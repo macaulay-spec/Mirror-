@@ -298,66 +298,9 @@ fun SetupScreen(
                     }
                 }
 
-                // AI Neural Core & API Key Configuration Card
-                item {
-                    var apiKeyInput by remember { mutableStateOf(ApiConfig.customApiKey ?: "") }
-                    var showKey by remember { mutableStateOf(false) }
-                    var savedKey by remember { mutableStateOf(false) }
-                    val activeProvider = ApiConfig.getProviderLabel()
-
-                    PermissionCard(
-                        title = "NEURAL AI CORE & API KEY",
-                        subtitle = "Provider: $activeProvider · Direct Gemini 2.5 Flash Function Calling",
-                        icon = Icons.Default.Key,
-                        isGranted = ApiConfig.hasAI,
-                        actionLabel = if (savedKey) "SAVED ✓" else "SAVE KEY",
-                        onAction = {
-                            ApiConfig.saveCustomApiKey(context, apiKeyInput.trim())
-                            savedKey = true
-                            android.widget.Toast.makeText(context, "API Key updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = apiKeyInput,
-                                onValueChange = {
-                                    apiKeyInput = it
-                                    savedKey = false
-                                },
-                                label = { Text("Gemini / OpenAI API Key", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    IconButton(onClick = { showKey = !showKey }) {
-                                        Icon(
-                                            imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = if (showKey) "Hide key" else "Show key",
-                                            tint = JarvisColors.CyanBright
-                                        )
-                                    }
-                                },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = JarvisColors.CyanBright,
-                                    unfocusedBorderColor = JarvisColors.BorderCyan,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                )
-                            )
-
-                            Text(
-                                text = "Auto-detects Gemini (AIza...), OpenAI (sk-...), Groq (gsk_...), Cerebras (csk-...). All actions & tools execute on-device.",
-                                color = JarvisColors.TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp
-                            )
-                        }
-                    }
-                }
-
                 // Voice & Persona Customization Card
                 item {
-                    var engineType by remember { mutableStateOf(ApiConfig.voiceEngineType) }
+                    val engineType = "elevenlabs"
                     var selectedVoice by remember { mutableStateOf(ApiConfig.selectedVoiceId) }
                     var savedVoice by remember { mutableStateOf(false) }
 
@@ -374,61 +317,29 @@ fun SetupScreen(
                         }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        engineType = "elevenlabs"
-                                        savedVoice = false
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (engineType == "elevenlabs") JarvisColors.CyanPrimary else JarvisColors.SurfaceCard,
-                                        contentColor = if (engineType == "elevenlabs") Color.Black else JarvisColors.TextPrimary
-                                    )
-                                ) {
-                                    Text("ElevenLabs HD", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                                }
-                                Button(
-                                    onClick = {
-                                        engineType = "native"
-                                        savedVoice = false
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (engineType == "native") JarvisColors.CyanPrimary else JarvisColors.SurfaceCard,
-                                        contentColor = if (engineType == "native") Color.Black else JarvisColors.TextPrimary
-                                    )
-                                ) {
-                                    Text("Native Android TTS", fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                                }
-                            }
+                            Text(
+                                text = "Select Voice Profile:",
+                                color = JarvisColors.TextSecondary,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
 
-                            if (engineType == "elevenlabs") {
-                                Text(
-                                    text = "Select Voice Profile:",
-                                    color = JarvisColors.TextSecondary,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ApiConfig.PRESET_VOICES.forEach { preset ->
+                                    val isSelected = selectedVoice == preset.id
+                                    Card(
+                                        onClick = {
+                                            selectedVoice = preset.id
+                                            savedVoice = false
+                                        },
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) JarvisColors.CyanPrimary.copy(alpha = 0.15f) else JarvisColors.SurfaceCard
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, JarvisColors.CyanBright) else null,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
 
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    ApiConfig.PRESET_VOICES.forEach { preset ->
-                                        val isSelected = selectedVoice == preset.id
-                                        Card(
-                                            onClick = {
-                                                selectedVoice = preset.id
-                                                savedVoice = false
-                                            },
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = if (isSelected) JarvisColors.CyanPrimary.copy(alpha = 0.15f) else JarvisColors.SurfaceCard
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, JarvisColors.CyanBright) else null,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -462,17 +373,22 @@ fun SetupScreen(
                                         }
                                     }
                                 }
-                            }
 
                             OutlinedButton(
                                 onClick = {
                                     ApiConfig.saveVoicePreferences(context, engineType, selectedVoice)
-                                    try {
-                                        val speech = com.jarvis.app.voice.SpeechOutput(context)
-                                        val name = ApiConfig.userName
-                                        speech.speak("Greetings $name. Systems operational. How may I assist you today?")
-                                    } catch (_: Exception) {}
-                                    android.widget.Toast.makeText(context, "Playing audio sample...", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Streaming ElevenLabs preview...", android.widget.Toast.LENGTH_SHORT).show()
+                                    coroutineScope.launch {
+                                        try {
+                                            com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(
+                                                context, 
+                                                "Greetings ${ApiConfig.userName}. Systems operational. How may I assist you today?", 
+                                                selectedVoice
+                                            )
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),

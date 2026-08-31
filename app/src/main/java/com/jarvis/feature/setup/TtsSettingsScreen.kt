@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.theme.JarvisColors
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,7 +28,7 @@ fun TtsSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var engineType by remember { mutableStateOf(ApiConfig.voiceEngineType) }
+    val engineType = "elevenlabs"
     var voiceId by remember { mutableStateOf(ApiConfig.selectedVoiceId) }
     var savedStatus by remember { mutableStateOf(false) }
 
@@ -68,61 +69,27 @@ fun TtsSettingsScreen(
                     ) {
                         Icon(Icons.Default.Mic, contentDescription = null, tint = JarvisColors.CyanBright)
                         Column {
-                            Text("Text-to-Speech Engine", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("Choose between ElevenLabs HD and Native Android TTS", color = JarvisColors.TextSecondary, fontSize = 12.sp)
+                            Text("ElevenLabs Synthesis", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Configure high-fidelity AI voice parameters.", color = JarvisColors.TextSecondary, fontSize = 12.sp)
                         }
                     }
 
-                    Row(
+                    OutlinedTextField(
+                        value = voiceId,
+                        onValueChange = {
+                            voiceId = it
+                            savedStatus = false
+                        },
+                        label = { Text("ElevenLabs Voice ID / Profile", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                engineType = "elevenlabs"
-                                savedStatus = false
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (engineType == "elevenlabs") JarvisColors.CyanPrimary else JarvisColors.VoidBlack,
-                                contentColor = if (engineType == "elevenlabs") Color.Black else JarvisColors.TextPrimary
-                            )
-                        ) {
-                            Text("ElevenLabs HD", fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = {
-                                engineType = "native"
-                                savedStatus = false
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (engineType == "native") JarvisColors.CyanPrimary else JarvisColors.VoidBlack,
-                                contentColor = if (engineType == "native") Color.Black else JarvisColors.TextPrimary
-                            )
-                        ) {
-                            Text("Native Android", fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (engineType == "elevenlabs") {
-                        OutlinedTextField(
-                            value = voiceId,
-                            onValueChange = {
-                                voiceId = it
-                                savedStatus = false
-                            },
-                            label = { Text("ElevenLabs Voice ID / Profile", color = JarvisColors.TextSecondary, fontSize = 12.sp) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = JarvisColors.CyanBright,
-                                unfocusedBorderColor = JarvisColors.BorderCyan,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            )
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = JarvisColors.CyanBright,
+                            unfocusedBorderColor = JarvisColors.BorderCyan,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
                         )
-                    }
+                    )
 
                     Button(
                         onClick = {
@@ -136,14 +103,23 @@ fun TtsSettingsScreen(
                         Text(if (savedStatus) "SAVED ✓" else "SAVE PREFERENCES", color = Color.Black, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                     }
 
+                    val scope = rememberCoroutineScope()
+
                     OutlinedButton(
                         onClick = {
                             ApiConfig.saveVoicePreferences(context, engineType, voiceId)
-                            try {
-                                val speech = com.jarvis.app.voice.SpeechOutput(context)
-                                speech.speak("Voice output test. JARVIS audio profile updated.")
-                            } catch (_: Exception) {}
-                            android.widget.Toast.makeText(context, "Testing voice output...", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, "Streaming ElevenLabs preview...", android.widget.Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                try {
+                                    com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(
+                                        context, 
+                                        "Voice output test. Eleven labs audio profile updated.", 
+                                        voiceId
+                                    )
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright)

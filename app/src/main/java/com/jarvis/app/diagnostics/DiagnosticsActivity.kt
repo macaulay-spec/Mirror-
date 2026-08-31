@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jarvis.agent.ai.ProviderRouter
+import com.jarvis.app.assistant.JarvisApiClient
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.app.assist.AssistantRoleManager
 import com.jarvis.app.config.ApiConfig
@@ -42,10 +42,6 @@ import kotlinx.coroutines.launch
 
 /**
  * Settings → "Diagnostics".
- *
- * Answers, in a few seconds, the questions that used to be unanswerable: is the AI key
- * alive, which providers are dead, why is the robot voice speaking, are my contacts
- * imported, is JARVIS my default assistant.
  */
 class DiagnosticsActivity : ComponentActivity() {
 
@@ -69,6 +65,14 @@ class DiagnosticsActivity : ComponentActivity() {
     }
 }
 
+data class ProviderStatus(
+    val provider: String,
+    val model: String,
+    val ok: Boolean,
+    val message: String,
+    val latencyMs: Long
+)
+
 @Composable
 private fun DiagnosticsScreen(
     onTestVoice: suspend (String) -> Boolean,
@@ -77,7 +81,7 @@ private fun DiagnosticsScreen(
 ) {
     val scope = rememberCoroutineScope()
 
-    var providerResults by remember { mutableStateOf<List<ProviderRouter.ProviderStatus>?>(null) }
+    var providerResults by remember { mutableStateOf<List<ProviderStatus>?>(null) }
     var testing by remember { mutableStateOf(false) }
     var voiceStatus by remember { mutableStateOf(VoiceDiagnostics.summary) }
     var peopleCount by remember { mutableStateOf<Int?>(null) }
@@ -122,8 +126,27 @@ private fun DiagnosticsScreen(
                 onClick = {
                     testing = true
                     scope.launch {
-                        providerResults = runCatching { ProviderRouter().diagnostics() }
-                            .getOrDefault(emptyList())
+                        val client = JarvisApiClient()
+                        val results = mutableListOf<ProviderStatus>()
+                        val providersToTest = listOf("gemini", "xai", "openai", "groq", "anthropic")
+                        
+                        for (p in providersToTest) {
+                            val start = System.currentTimeMillis()
+                            val res = client.chat(
+                                systemPrompt = "You are JARVIS.",
+                                history = emptyList(),
+                                userMessage = "Test connection.",
+                                provider = p,
+                                model = JarvisApiClient.resolveModel(p)
+                            )
+                            val elapsed = System.currentTimeMillis() - start
+                            if (res.isSuccess) {
+                                results.add(ProviderStatus(p, JarvisApiClient.resolveModel(p), true, "OK - ${res.getOrNull()?.message?.take(30) ?: "No msg"}", elapsed))
+                            } else {
+                                results.add(ProviderStatus(p, JarvisApiClient.resolveModel(p), false, res.exceptionOrNull()?.message ?: "Failed", elapsed))
+                            }
+                        }
+                        providerResults = results
                         testing = false
                     }
                 },

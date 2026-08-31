@@ -180,7 +180,7 @@ fun DualModeHost(
                             fadeOut(animationSpec = tween(400)) + slideOutVertically()
                         )
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).fillMaxSize(),
                     label = "mode_transition"
                 ) { mode ->
                     when (mode) {

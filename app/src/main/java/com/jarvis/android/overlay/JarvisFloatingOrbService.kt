@@ -49,6 +49,25 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -108,9 +127,9 @@ class JarvisFloatingOrbService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        val sizePx = (130 * resources.displayMetrics.density).toInt()
         params = WindowManager.LayoutParams(
-            sizePx, sizePx,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
@@ -131,40 +150,71 @@ class JarvisFloatingOrbService : Service() {
         composeView.setViewTreeViewModelStoreOwner(null)
         composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
+        val isExpandedFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+
         composeView.setContent {
             val state by VoiceBus.engineState.collectAsState()
             val audioLevel by VoiceBus.audioLevel.collectAsState()
-            JarvisOrbContent(state = state, audioLevel = audioLevel, onTap = {
-                startActivity(
-                    Intent(this@JarvisFloatingOrbService, com.jarvis.app.MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        putExtra("WAKE_WORD_ACTIVATED", true)
+            val isExpanded by isExpandedFlow.collectAsState()
+            
+            // Expanded Strip or Compact Orb
+            if (isExpanded) {
+                ExpandedOrbStrip(
+                    state = state,
+                    audioLevel = audioLevel,
+                    onCollapse = { isExpandedFlow.value = false },
+                    onOpenApp = {
+                        startActivity(
+                            Intent(this@JarvisFloatingOrbService, com.jarvis.app.MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            }
+                        )
                     }
                 )
-            })
+            } else {
+                JarvisOrbContent(state = state, audioLevel = audioLevel, onTap = {
+                    isExpandedFlow.value = true
+                })
+            }
         }
 
         var startX = 0; var startY = 0
         var touchStartX = 0f; var touchStartY = 0f
-        var lastTouchTime = 0L
+        var isDragging = false
 
         composeView.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = params.x; startY = params.y
                     touchStartX = event.rawX; touchStartY = event.rawY
-                    lastTouchTime = System.currentTimeMillis()
-                    true
+                    isDragging = false
+                    false // Let Compose handle taps if not dragged
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - touchStartX).toInt()
                     val dy = (event.rawY - touchStartY).toInt()
-                    if (dx * dx + dy * dy > 25) {
+                    if (dx * dx + dy * dy > 100) { // Drag threshold
+                        isDragging = true
                         params.x = startX + dx
                         params.y = startY + dy
                         windowManager?.updateViewLayout(composeView, params)
                     }
-                    true
+                    isDragging
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        // Snap to nearest edge
+                        val metrics = resources.displayMetrics
+                        val screenWidth = metrics.widthPixels
+                        val snapX = if (params.x + (composeView.width / 2) > screenWidth / 2) screenWidth else 0
+                        
+                        // Simple snap animation using a thread or coroutine (here just immediate)
+                        params.x = snapX
+                        windowManager?.updateViewLayout(composeView, params)
+                        true // Consume so tap isn't fired
+                    } else {
+                        false // Pass tap to compose
+                    }
                 }
                 else -> false
             }
@@ -235,6 +285,57 @@ class JarvisFloatingOrbService : Service() {
         const val ACTION_STOP = "com.jarvis.android.overlay.ACTION_STOP_ORB"
         var isRunning: Boolean = false
             private set
+    }
+}
+
+@Composable
+private fun ExpandedOrbStrip(
+    state: JarvisVisualState,
+    audioLevel: Float,
+    onCollapse: () -> Unit,
+    onOpenApp: () -> Unit
+) {
+    val palette = orbPalette(state)
+    androidx.compose.foundation.layout.Row(
+        modifier = androidx.compose.ui.Modifier
+            .padding(4.dp)
+            .clip(RoundedCornerShape(32.dp))
+            .background(Color(0xD90E1626))
+            .border(1.dp, palette.coreOuter.copy(alpha = 0.5f), RoundedCornerShape(32.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Mini Orb
+        Box(modifier = Modifier.size(48.dp)) {
+            JarvisOrbContent(state = state, audioLevel = audioLevel, onTap = onCollapse)
+        }
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Status text
+        Column(modifier = Modifier.width(120.dp)) {
+            Text(
+                text = "JARVIS",
+                color = palette.coreOuter,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = state.name,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        
+        // Actions
+        IconButton(onClick = onOpenApp, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.OpenInFull, contentDescription = "Open App", tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+        IconButton(onClick = onCollapse, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Close Strip", tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+        }
     }
 }
 

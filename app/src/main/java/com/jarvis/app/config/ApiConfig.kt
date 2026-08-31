@@ -59,8 +59,8 @@ object ApiConfig {
         private set   // jarvis_protocol | conversational | executive
     var isOnboardingCompleted: Boolean = false
         private set
-    var voiceEngineType: String = "native"
-        private set      // "elevenlabs" | "native"
+    var voiceEngineType: String = "elevenlabs"
+        private set      // always "elevenlabs"
     var selectedVoiceId: String = "JBFqnCBsd6RMkjVDRZzb"
         private set
 
@@ -200,7 +200,7 @@ object ApiConfig {
         userName              = p.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         personalityTone       = p.getString(PREF_KEY_AI_TONE, "jarvis_protocol") ?: "jarvis_protocol"
         isOnboardingCompleted = p.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
-        voiceEngineType       = p.getString(PREF_KEY_VOICE_ENGINE, "native") ?: "native"
+        voiceEngineType       = p.getString(PREF_KEY_VOICE_ENGINE, "elevenlabs") ?: "elevenlabs"
         selectedVoiceId       = p.getString(PREF_KEY_VOICE_ID, "JBFqnCBsd6RMkjVDRZzb") ?: "JBFqnCBsd6RMkjVDRZzb"
         customApiKey          = p.getString(PREF_KEY_CUSTOM_API_KEY, null)?.takeIf { it.isNotBlank() }
         customProvider        = p.getString(PREF_KEY_CUSTOM_PROVIDER, null)?.takeIf { it.isNotBlank() }

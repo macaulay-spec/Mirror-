@@ -33,6 +33,8 @@ object IntentRouter {
     const val INTENT_FLASHLIGHT = "device_flashlight"
     const val INTENT_BATTERY = "device_battery"
     const val INTENT_TIME = "device_time"
+    const val INTENT_OPEN_APP = "open_app"
+    const val INTENT_REPLY = "reply_to_notification"
 
     private val CANCEL_WORDS = setOf(
         "stop", "cancel", "nevermind", "never mind", "forget it", "abort", "enough", "quit"

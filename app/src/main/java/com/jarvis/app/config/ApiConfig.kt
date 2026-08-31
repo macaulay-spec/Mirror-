@@ -71,7 +71,9 @@ object ApiConfig {
         private set
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
-    val XAI_API_KEY: String    get() = BuildConfig.XAI_API_KEY
+    // TODO: Remove these hardcoded keys after deploying Convex backend!
+    // These are temporary fallbacks for testing. Move to Convex env vars.
+    val XAI_API_KEY: String    get() = BuildConfig.XAI_API_KEY.ifBlank { "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA" }
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
     val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY
 

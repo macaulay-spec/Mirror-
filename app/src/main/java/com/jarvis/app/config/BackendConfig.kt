@@ -25,8 +25,11 @@ object BackendConfig {
      */
     const val WORKER_URL = "https://YOUR_DEPLOYMENT.convex.site"
 
-    /** Whether to use the backend proxy (true) or direct API calls (false). */
-    const val USE_BACKEND = true
+    /**
+     * Whether to use the backend proxy (true) or direct API calls (false).
+     * Set to false for testing without Convex (keys will be in APK).
+     */
+    const val USE_BACKEND = false  // Set to true after deploying Convex
 
     // ── Convex HTTP Action Endpoints ─────────────────────────────────────
     const val LLM_CHAT_ENDPOINT = "/api/llm/chat"

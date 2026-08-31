@@ -41,13 +41,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.KeyboardVoice
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -68,6 +71,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -82,7 +86,6 @@ import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.MessageRole
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.core.ui.GlassCard
-import com.jarvis.core.ui.HolographicDivider
 import com.jarvis.core.ui.JarvisCore
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -97,12 +100,8 @@ enum class StageMode {
 /**
  * Dual-mode host: Voice Stage (orb-centric) and Conversation (chat-centric).
  *
- * Design fixes:
- * - Message list fills available vertical space (no dead zone)
- * - Empty state shows Orb centered with "Standing by."
- * - Quick-command chips always visible, never overlapping messages
- * - No duplicate Orb graphics
- * - Uses new design tokens (graphite-blue, presence/warmth accents)
+ * Design: calm, precise, alive — graphite-blue base, presence/warmth accents,
+ * glass panels, clean typography, unified Orb identity.
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -144,6 +143,16 @@ fun DualModeHost(
 
     val userName = ApiConfig.userName
 
+    // Determine greeting based on time of day
+    val greeting = remember {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        when {
+            hour < 12 -> "Good morning"
+            hour < 17 -> "Good afternoon"
+            else -> "Good evening"
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = JarvisColors.VoidBlack
@@ -182,7 +191,7 @@ fun DualModeHost(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Main content area — fills available space
+                // Main content area
                 AnimatedContent(
                     targetState = stageMode,
                     transitionSpec = {
@@ -198,11 +207,17 @@ fun DualModeHost(
                             VoiceStageView(
                                 visualState = visualState,
                                 userName = userName,
+                                greeting = greeting,
                                 isCallActive = isCallActive,
                                 callSeconds = callSeconds,
                                 lastMessage = messages.lastOrNull()?.text,
                                 onOrbTap = { onToggleVoice() },
-                                onSwitchToChat = { stageMode = StageMode.CONVERSATION }
+                                onSwitchToChat = { stageMode = StageMode.CONVERSATION },
+                                onQuickAction = { action ->
+                                    scope.launch {
+                                        orchestrator.submitUserInput(action)
+                                    }
+                                }
                             )
                         }
                         StageMode.CONVERSATION -> {
@@ -346,11 +361,13 @@ private fun TopPresenceHeader(
 private fun VoiceStageView(
     visualState: JarvisVisualState,
     userName: String,
+    greeting: String,
     isCallActive: Boolean,
     callSeconds: Int,
     lastMessage: String?,
     onOrbTap: () -> Unit,
-    onSwitchToChat: () -> Unit
+    onSwitchToChat: () -> Unit,
+    onQuickAction: (String) -> Unit
 ) {
     val accent by animateColorAsState(
         targetValue = visualState.orbColor(),
@@ -363,7 +380,7 @@ private fun VoiceStageView(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Status bar — clean, no holographic gimmicks
+        // Status bar
         GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
@@ -418,7 +435,7 @@ private fun VoiceStageView(
             }
         }
 
-        // Center: Orb + status text
+        // Center: Greeting + Orb + status text
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -429,19 +446,41 @@ private fun VoiceStageView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                // Greeting
+                Text(
+                    text = "$greeting, $userName.",
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 20.sp,
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "How can I help you?",
+                    color = JarvisColors.TextSecondary,
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.Default,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Orb
                 JarvisCore(
                     state = visualState,
                     audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.45f
                     else if (visualState == JarvisVisualState.SPEAKING) 0.3f else 0f,
-                    size = 220.dp,
+                    size = 200.dp,
                     onClick = onOrbTap
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
+                // Status text
                 Text(
                     text = when (visualState) {
-                        JarvisVisualState.IDLE -> "Standing by, $userName."
+                        JarvisVisualState.IDLE -> "Standing by."
                         JarvisVisualState.WAKING -> "Initializing..."
                         JarvisVisualState.LISTENING -> "Listening..."
                         JarvisVisualState.THINKING -> "Thinking..."
@@ -451,12 +490,11 @@ private fun VoiceStageView(
                         JarvisVisualState.ERROR -> "Something went wrong."
                         JarvisVisualState.OFFLINE -> "Offline mode."
                     },
-                    color = JarvisColors.TextPrimary,
-                    fontSize = 16.sp,
+                    color = accent,
+                    fontSize = 14.sp,
                     fontFamily = FontFamily.Default,
                     fontWeight = FontWeight.Normal,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 32.dp)
+                    textAlign = TextAlign.Center
                 )
 
                 if (lastMessage != null && visualState != JarvisVisualState.IDLE) {
@@ -464,15 +502,18 @@ private fun VoiceStageView(
                     Text(
                         text = lastMessage.take(120),
                         color = JarvisColors.TextSecondary,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontFamily = FontFamily.Default,
-                        lineHeight = 20.sp,
+                        lineHeight = 18.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 32.dp)
                     )
                 }
             }
         }
+
+        // Quick actions grid
+        QuickActionsGrid(onQuickAction = onQuickAction)
 
         // Bottom controls
         Column(
@@ -522,9 +563,9 @@ private fun VoiceStageView(
                 }
             }
 
-            // Quick switch hint
+            // Chat switch hint
             Text(
-                text = "Tap the orb or accessibility button to toggle overlay",
+                text = "Tap chat icon to switch to conversation mode",
                 color = JarvisColors.TextMuted,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Default,
@@ -533,6 +574,64 @@ private fun VoiceStageView(
         }
     }
 }
+
+// ── Quick Actions Grid ────────────────────────────────────────────────────
+
+@Composable
+private fun QuickActionsGrid(onQuickAction: (String) -> Unit) {
+    val actions = listOf(
+        QuickAction("Open App", Icons.Default.OpenInNew, "Open Instagram"),
+        QuickAction("Volume", Icons.Default.VolumeUp, "Volume up"),
+        QuickAction("Flashlight", Icons.Default.FlashlightOn, "Turn on flashlight"),
+        QuickAction("Screenshot", Icons.Default.ChatBubbleOutline, "Take a screenshot")
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        actions.forEach { action ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onQuickAction(action.query) }
+                    .padding(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(JarvisColors.SurfaceGlass)
+                        .border(0.5.dp, JarvisColors.Hairline, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = action.icon,
+                        contentDescription = action.label,
+                        tint = JarvisColors.Presence,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = action.label,
+                    color = JarvisColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Default
+                )
+            }
+        }
+    }
+}
+
+private data class QuickAction(
+    val label: String,
+    val icon: ImageVector,
+    val query: String
+)
 
 // ── Conversation View ─────────────────────────────────────────────────────
 
@@ -587,7 +686,7 @@ private fun ConversationView(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Message list — fills available space, no dead zone
+        // Message list
         if (messages.isEmpty()) {
             // Empty state: centered Orb + "Standing by."
             Box(
@@ -800,7 +899,7 @@ private fun ChatInputBar(
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 4.dp)
     ) {
-        // Quick action chips — always visible, horizontal scroll
+        // Quick action chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()

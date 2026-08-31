@@ -2,40 +2,29 @@ package com.jarvis.app.contextgraph
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import androidx.room.TypeConverter
-import androidx.room.TypeConverters
 
 @Entity(tableName = "places")
 data class PlaceEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val label: String, // e.g. "home", "work", "gym"
-    val address: String? = null,
-    val latitude: Double? = null,
-    val longitude: Double? = null
+    val label: String,
+    val address: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val nicknames: String = "[]"
 )
 
 @Entity(tableName = "app_aliases")
-@TypeConverters(StringListConverter::class)
 data class AppAliasEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val packageName: String,
     val defaultLabel: String,
-    val nicknames: List<String> = emptyList() // e.g. "the bank app"
+    val nicknames: String = "[]"
 )
 
 @Entity(tableName = "habits")
 data class HabitEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val description: String,
-    val frequency: Int = 0,
-    val timeOfDay: String? = null
+    val pattern: String,
+    val action: String,
+    val description: String = ""
 )
-
-class StringListConverter {
-    @TypeConverter
-    fun fromList(list: List<String>): String = list.joinToString("|")
-
-    @TypeConverter
-    fun toList(string: String): List<String> = if (string.isEmpty()) emptyList() else string.split("|")
-}
-

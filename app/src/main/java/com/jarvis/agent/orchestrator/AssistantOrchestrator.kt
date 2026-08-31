@@ -2,11 +2,10 @@ package com.jarvis.agent.orchestrator
 
 import android.content.Context
 import com.jarvis.agent.ai.JarvisAIEngine
+import com.jarvis.agent.dialogue.DialogueManager
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.app.config.ApiConfig
-import com.jarvis.app.dialogue.DialogueManager
-import com.jarvis.app.dialogue.DialogueResult
 import com.jarvis.app.memory.AppDatabase
 import com.jarvis.core.model.AssistantMessage
 import com.jarvis.core.model.JarvisVisualState
@@ -28,15 +27,10 @@ import kotlinx.coroutines.launch
  *
  * Pipeline:
  *   USER INPUT
- *     → DialogueManager  (fast local intents: flash, volume, open app, etc.)
- *       → Reply immediately if handled
- *       → Ask/disambiguate if needed
- *       → Confirm before risky actions
- *       → Falls through to LLM if no local handler
- *     → JarvisAIEngine  (Grok/Gemini with real function calling)
- *     → ToolRegistry    (executes the chosen tool)
+ *     → DialogueManager  (fast local intents + slot filling + confirmation)
+ *     → JarvisAIEngine   (Grok/Gemini with real function calling)
+ *     → ToolRegistry     (executes the chosen tool)
  *     → VoiceEngine.speak()  (speaks the reply)
- *     → VoiceBus.setEngineState()  (drives the Orb)
  */
 class AssistantOrchestrator(
     private val context: Context,
@@ -44,7 +38,7 @@ class AssistantOrchestrator(
     var voiceEngine: JarvisVoiceEngine? = null
 ) {
     private val aiEngine = JarvisAIEngine(context)
-    private val dialogueManager = DialogueManager(context, database.contextGraphDao())
+    private val dialogueManager = DialogueManager(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _visualState = MutableStateFlow(JarvisVisualState.IDLE)
@@ -80,6 +74,7 @@ class AssistantOrchestrator(
 
     fun rejectToolExecution() {
         _pendingConfirmation.value = null
+        dialogueManager.cancel()
         setVisualState(JarvisVisualState.IDLE)
         val msg = "Understood. Action cancelled."
         addMessage(AssistantMessage(role = MessageRole.JARVIS, text = msg))
@@ -89,6 +84,7 @@ class AssistantOrchestrator(
     suspend fun clearHistory() {
         _messages.value = emptyList()
         _pendingConfirmation.value = null
+        dialogueManager.cancel()
         runCatching { database.memoryDao().clear() }
         runCatching { database.conversationDao().clear() }
         runCatching { aiEngine.memoryManager.clearAllMemories() }
@@ -101,6 +97,7 @@ class AssistantOrchestrator(
         voiceEngine?.stopListening()
         setVisualState(JarvisVisualState.IDLE)
         _pendingConfirmation.value = null
+        dialogueManager.cancel()
         addMessage(AssistantMessage(role = MessageRole.SYSTEM, text = "All active tasks halted."))
     }
 
@@ -113,73 +110,54 @@ class AssistantOrchestrator(
         setVisualState(JarvisVisualState.THINKING)
 
         try {
-            when (val dialogueResult = dialogueManager.handle(userInput)) {
+            val turnResult = dialogueManager.handle(userInput)
 
-                is DialogueResult.Reply -> {
-                    // Dialogue handled it locally — fast path
-                    respondWith(dialogueResult.message)
+            if (turnResult.handled) {
+                // Dialogue manager handled it (local intent, slot filling, confirmation)
+                turnResult.spoken?.let { text ->
+                    val clean = com.jarvis.agent.ai.ReplySanitizer.sanitize(text)
+                    addMessage(AssistantMessage(role = MessageRole.JARVIS, text = clean))
+                    speak(clean)
                 }
 
-                is DialogueResult.Ask -> {
-                    // Needs clarification before proceeding
-                    addMessage(AssistantMessage(role = MessageRole.JARVIS, text = dialogueResult.question))
-                    setVisualState(JarvisVisualState.LISTENING)
-                    speak(dialogueResult.question)
-                }
-
-                is DialogueResult.Confirm -> {
-                    // High-risk action — surface confirmation card to the user
-                    val req = ToolExecutionRequest(
-                        toolId = dialogueResult.tool,
-                        name = dialogueResult.tool.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                        arguments = dialogueResult.arguments,
-                        riskLevel = if (dialogueResult.risk >= 2) RiskLevel.LEVEL_2 else RiskLevel.LEVEL_1,
-                        requiresConfirmation = true
-                    )
+                // High-risk action needs UI confirmation
+                turnResult.confirmRequest?.let { req ->
                     _pendingConfirmation.value = req
-                    addMessage(AssistantMessage(role = MessageRole.JARVIS, text = dialogueResult.prompt, toolCall = req))
                     setVisualState(JarvisVisualState.IDLE)
-                    speak(dialogueResult.prompt)
+                    val prompt = describeRequest(req)
+                    addMessage(AssistantMessage(role = MessageRole.JARVIS, text = prompt, toolCall = req))
+                    speak(prompt)
+                    return
                 }
 
-                is DialogueResult.ToolCall -> {
-                    if (dialogueResult.tool == "llm_fallback") {
-                        // Dialogue couldn't handle it — send to LLM with full function calling
-                        val utterance = (dialogueResult.arguments["utterance"] as? String) ?: userInput
-                        val engineResult = aiEngine.processCommand(utterance)
-                        addMessage(AssistantMessage(
-                            role = MessageRole.JARVIS,
-                            text = engineResult.reply,
-                            toolResult = engineResult.toolResult,
-                            toolCall = engineResult.pendingConfirmation
-                        ))
-                        speak(engineResult.reply)
+                // Tool was executed directly
+                turnResult.toolResult?.let { result ->
+                    handleExecutionResult(result)
+                    return
+                }
 
-                        // ADDED (forensic audit): a high-risk tool call the
-                        // model itself chose to make now surfaces through the
-                        // same confirm/reject flow the DialogueResult.Confirm
-                        // branch above already uses, instead of running
-                        // unconditionally. See AgentExecutor.kt.
-                        if (engineResult.pendingConfirmation != null) {
-                            _pendingConfirmation.value = engineResult.pendingConfirmation
-                            setVisualState(JarvisVisualState.IDLE)
-                        } else {
-                            setVisualState(engineResult.state)
-                            delay(300)
-                            setVisualState(JarvisVisualState.IDLE)
-                        }
-                    } else {
-                        // Dialogue resolved to a direct tool call
-                        setVisualState(JarvisVisualState.EXECUTING)
-                        val req = ToolExecutionRequest(
-                            toolId = dialogueResult.tool,
-                            name = dialogueResult.tool.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                            arguments = dialogueResult.arguments,
-                            riskLevel = RiskLevel.LEVEL_1,
-                            requiresConfirmation = false
-                        )
-                        handleExecutionResult(ToolRegistry.execute(context, req))
-                    }
+                // Just spoken a reply, settle to idle
+                setVisualState(JarvisVisualState.SUCCESS)
+                delay(400)
+                setVisualState(JarvisVisualState.IDLE)
+            } else {
+                // Dialogue couldn't handle it — send to LLM with full function calling
+                val engineResult = aiEngine.processCommand(userInput)
+                addMessage(AssistantMessage(
+                    role = MessageRole.JARVIS,
+                    text = engineResult.reply,
+                    toolResult = engineResult.toolResult,
+                    toolCall = engineResult.pendingConfirmation
+                ))
+                speak(engineResult.reply)
+
+                if (engineResult.pendingConfirmation != null) {
+                    _pendingConfirmation.value = engineResult.pendingConfirmation
+                    setVisualState(JarvisVisualState.IDLE)
+                } else {
+                    setVisualState(engineResult.state)
+                    delay(300)
+                    setVisualState(JarvisVisualState.IDLE)
                 }
             }
         } catch (e: Exception) {
@@ -192,17 +170,6 @@ class AssistantOrchestrator(
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
-
-    private fun respondWith(text: String) {
-        val clean = com.jarvis.agent.ai.ReplySanitizer.sanitize(text)
-        addMessage(AssistantMessage(role = MessageRole.JARVIS, text = clean))
-        setVisualState(JarvisVisualState.SUCCESS)
-        speak(clean)
-        scope.launch {
-            delay(400)
-            setVisualState(JarvisVisualState.IDLE)
-        }
-    }
 
     private fun handleExecutionResult(result: ToolExecutionResult) {
         val text = com.jarvis.agent.ai.ReplySanitizer.sanitize(
@@ -226,5 +193,16 @@ class AssistantOrchestrator(
 
     private fun addMessage(msg: AssistantMessage) {
         _messages.value = _messages.value + msg
+    }
+
+    private fun describeRequest(request: ToolExecutionRequest): String {
+        val who = request.arguments["contact"]?.toString()
+            ?: request.arguments["app"]?.toString()
+            ?: request.arguments["package"]?.toString()
+        return when (request.toolId) {
+            "call_contact" -> "Call $who. Shall I?"
+            "send_sms" -> "Send to $who: \"${request.arguments["message"]}\". Shall I?"
+            else -> "${request.name} — shall I go ahead?"
+        }
     }
 }

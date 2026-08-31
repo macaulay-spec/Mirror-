@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -191,10 +192,16 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- System-level floating Orb service -->
+        <!-- System-level floating Orb service (foreground: overlay UI has no
+             narrower type, so specialUse with a declared justification) -->
         <service
             android:name="com.jarvis.android.overlay.JarvisFloatingOrbService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent floating assistant orb shown over other apps via SYSTEM_ALERT_WINDOW; must stay alive to remain visible and responsive while the user is in other apps." />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

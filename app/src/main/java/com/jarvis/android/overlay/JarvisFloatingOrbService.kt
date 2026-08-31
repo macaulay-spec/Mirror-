@@ -1,5 +1,9 @@
 package com.jarvis.android.overlay
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -54,6 +58,9 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.core.app.NotificationCompat
+import com.jarvis.app.MainActivity
+import com.jarvis.app.R
 import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.JarvisVisualState
 import kotlin.math.PI
@@ -83,6 +90,13 @@ import kotlin.math.sqrt
  */
 class JarvisFloatingOrbService : Service() {
 
+    // CHANGED (mirror fix pass, item 10): this used to be a plain background
+    // Service -- no startForeground(), no foregroundServiceType in the
+    // manifest -- so Android was free to kill it minutes after the user left
+    // the app, taking the Orb with it. It now runs as a foreground service
+    // (specialUse type, low-priority ongoing notification, START_STICKY),
+    // mirroring how WakeWordForegroundService already does it.
+
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private lateinit var params: WindowManager.LayoutParams
@@ -90,6 +104,8 @@ class JarvisFloatingOrbService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildNotification())
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         val sizePx = (130 * resources.displayMetrics.density).toInt()
@@ -158,6 +174,52 @@ class JarvisFloatingOrbService : Service() {
         try { windowManager?.addView(floatingView, params) } catch (_: Exception) {}
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        // Restart if the system kills us anyway -- the Orb is JARVIS's
+        // visible presence and should come back on its own.
+        return START_STICKY
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "JARVIS Orb",
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "Keeps the floating JARVIS orb available over other apps"
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun buildNotification(): Notification {
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stop = PendingIntent.getService(
+            this, 1,
+            Intent(this, JarvisFloatingOrbService::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("JARVIS orb is active")
+            .setContentText("Tap to open JARVIS")
+            .setSmallIcon(R.drawable.ic_launcher)
+            .setContentIntent(open)
+            .addAction(0, "Hide orb", stop)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
@@ -168,6 +230,9 @@ class JarvisFloatingOrbService : Service() {
     }
 
     companion object {
+        private const val CHANNEL_ID = "jarvis_orb"
+        private const val NOTIFICATION_ID = 1002
+        const val ACTION_STOP = "com.jarvis.android.overlay.ACTION_STOP_ORB"
         var isRunning: Boolean = false
             private set
     }

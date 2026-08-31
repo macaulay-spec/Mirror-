@@ -676,7 +676,8 @@ fun SetupScreen(
                                         if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) {
                                             context.stopService(android.content.Intent(context, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java))
                                         } else {
-                                            context.startService(android.content.Intent(context, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java))
+                                            // CHANGED (item 10): foreground service requires startForegroundService on API 26+.
+                                            androidx.core.content.ContextCompat.startForegroundService(context, android.content.Intent(context, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java))
                                         }
                                     } catch (_: Exception) {
                                         PermissionAndSetupHelper.openOverlaySettings(context)

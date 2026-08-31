@@ -90,7 +90,10 @@ class JarvisApp : Application() {
             android.provider.Settings.canDrawOverlays(this)
         ) {
             runCatching {
-                startService(
+                // CHANGED (item 10): foreground service requires
+                // startForegroundService on API 26+.
+                androidx.core.content.ContextCompat.startForegroundService(
+                    this,
                     android.content.Intent(this, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java)
                 )
             }

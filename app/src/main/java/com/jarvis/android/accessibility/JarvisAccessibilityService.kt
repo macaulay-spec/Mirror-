@@ -60,7 +60,9 @@ class JarvisAccessibilityService : AccessibilityService() {
                 stopService(stopIntent)
             } else {
                 val startIntent = Intent(this, com.jarvis.android.overlay.JarvisFloatingOrbService::class.java)
-                startService(startIntent)
+                // CHANGED (item 10): Orb is now a foreground service; must use
+                // startForegroundService on API 26+ or the start throws.
+                androidx.core.content.ContextCompat.startForegroundService(this, startIntent)
             }
         } catch (_: Exception) {}
     }

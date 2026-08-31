@@ -85,8 +85,8 @@ fun ScreenAwarenessScreen(
         
         // Orb in thinking state
         JarvisCore(
-            state = if (isComplete) JarvisVisualState.Listening else JarvisVisualState.Thinking,
-            size = 100
+            state = if (isComplete) JarvisVisualState.LISTENING else JarvisVisualState.THINKING,
+            size = 100.dp
         )
         
         Spacer(modifier = Modifier.height(24.dp))
@@ -199,8 +199,8 @@ fun ScreenAwarenessScreen(
                     )
                     
                     JarvisCore(
-                        state = JarvisVisualState.Idle,
-                        size = 32
+                        state = JarvisVisualState.IDLE,
+                        size = 32.dp
                     )
                 }
             }

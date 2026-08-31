@@ -90,8 +90,8 @@ fun TaskExecutionScreen(
         
         // Orb in executing state
         JarvisCore(
-            state = if (isComplete) JarvisVisualState.Success else JarvisVisualState.Executing,
-            size = 80
+            state = if (isComplete) JarvisVisualState.SUCCESS else JarvisVisualState.EXECUTING,
+            size = 80.dp
         )
         
         Spacer(modifier = Modifier.height(16.dp))

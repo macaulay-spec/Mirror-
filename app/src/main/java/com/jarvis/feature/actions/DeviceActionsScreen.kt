@@ -72,8 +72,8 @@ fun DeviceActionsScreen(
         
         // Orb in executing state
         JarvisCore(
-            state = if (isComplete) JarvisVisualState.Success else JarvisVisualState.Executing,
-            size = 120
+            state = if (isComplete) JarvisVisualState.SUCCESS else JarvisVisualState.EXECUTING,
+            size = 120.dp
         )
         
         Spacer(modifier = Modifier.height(24.dp))

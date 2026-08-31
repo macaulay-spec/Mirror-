@@ -92,8 +92,8 @@ fun WebSearchScreen(
         
         // Orb in searching state
         JarvisCore(
-            state = if (isSearching) JarvisVisualState.Thinking else JarvisVisualState.Idle,
-            size = 80
+            state = if (isSearching) JarvisVisualState.THINKING else JarvisVisualState.IDLE,
+            size = 80.dp
         )
         
         Spacer(modifier = Modifier.height(16.dp))

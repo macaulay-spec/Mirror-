@@ -9,8 +9,8 @@ read the screen and tap/type inside other apps.
 
 ## What it does right now
 
-- **Voice-first input:** foreground microphone service + notification, device STT
-  (speech recognition) wake phrase, TTS replies. Text input too.
+- **Voice-first input:** foreground microphone service + notification, wake phrase
+  ("Hey JARVIS"), TTS replies. Text input too.
 - **Read + reply to messages anywhere**: SMS (full), WhatsApp / Telegram / Instagram via
   Notification reply first, then Accessibility screen typing, then deep-link/open draft.
 - **Full device control:** open apps (fuzzy), battery, storage, connectivity/Wi‑Fi,
@@ -25,17 +25,66 @@ read the screen and tap/type inside other apps.
 - **Permissions dashboard** in Settings: request all runtime permissions and open every
   special Settings page (notification access, accessibility, overlay, write-settings,
   usage stats, battery exemptions, location, files, install unknown apps).
+- **ElevenLabs TTS** with voice selection — choose from dozens of premium voices.
 
-## AI Provider Model
+---
 
-**API keys live on your device, not in a cloud backend.** JARVIS calls AI providers
-(Google Gemini, xAI Grok, OpenAI, Anthropic, etc.) directly from the phone. Your
-keys are stored in `local.properties` (gitignored) or in SharedPreferences and
-never leave your device.
+## Architecture
 
-This is the honest, working model. The app is fully functional without any API keys
-(zero-key mode uses on-device STT + TTS + local rule engine). Adding a key unlocks
-smarter AI conversations via real function calling.
+### Backend Proxy (Cloudflare Worker)
+
+**API keys live on the server, not in the app.** JARVIS uses a Cloudflare Worker backend
+that holds all API keys as encrypted secrets and proxies requests. The Android app
+never sees or embeds any API keys.
+
+```
+┌──────────────────┐     HTTPS      ┌──────────────────────┐     HTTPS     ┌─────────────┐
+│  Android App     │ ──────────────→ │  Cloudflare Worker   │ ────────────→ │  AI APIs    │
+│  (no API keys)   │                 │  (holds all keys)    │               │  Gemini     │
+│                  │ ←────────────── │                      │ ←──────────── │  xAI Grok   │
+│  Calls proxy URL │                 │  /api/llm/chat       │               │  OpenAI     │
+│                  │                 │  /api/tts/speak      │               │  ElevenLabs │
+│                  │                 │  /api/tts/voices     │               │  Anthropic  │
+│                  │                 │  /api/stt/transcribe │               │  Groq       │
+└──────────────────┘                 └──────────────────────┘               └─────────────┘
+```
+
+**Backend endpoints:**
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/llm/chat` | POST | Proxies LLM requests to Gemini, xAI, OpenAI, Anthropic, etc. |
+| `/api/tts/speak` | POST | ElevenLabs TTS — returns audio MP3 |
+| `/api/tts/voices` | GET | Lists available ElevenLabs voices |
+| `/api/stt/transcribe` | POST | Speech-to-text via ElevenLabs |
+| `/api/health` | GET | Health check |
+
+**Deploy the backend:**
+
+```bash
+cd backend
+npm install
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put XAI_API_KEY
+npx wrangler secret put ELEVENLABS_API_KEY
+npx wrangler deploy
+```
+
+Then update `BackendConfig.WORKER_URL` in the Android app with your worker URL.
+
+### AI Provider Model
+
+The app supports multiple AI providers through the backend proxy:
+
+| Provider | Use case |
+|---|---|
+| **Gemini** (default) | Best free tier, great function calling |
+| **xAI Grok** | Fast, good reasoning |
+| **OpenAI GPT-4o** | Most capable, paid |
+| **Anthropic Claude** | Best at following instructions |
+| **Groq** | Fastest inference, free |
+| **ElevenLabs** | Premium TTS with voice selection |
+| **Zero-key mode** | On-device STT + TTS + local rule engine |
 
 ---
 
@@ -45,7 +94,7 @@ You need:
 - Android Studio (Hedgehog or newer), or Android SDK + JDK 17 + Gradle 8.5+
 - `local.properties` with `sdk.dir=...` pointing to your SDK (Android Studio makes it for you)
 
-From the `jarvis-android` folder:
+From the project root:
 
 ```bash
 # Command line
@@ -54,7 +103,7 @@ From the `jarvis-android` folder:
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-In Android Studio: open `jarvis-android` as a project, wait for sync, then
+In Android Studio: open the project root, wait for sync, then
 **Build > Build APK(s)**.
 
 > Note: Gradle needs internet once to download dependencies. Build on your own machine —
@@ -99,29 +148,18 @@ You can build, install, and use JARVIS exactly as-is.
 
 ---
 
-## What you'll need to add (optional — add these at the very end)
+## Voice Selection (ElevenLabs)
 
-All of these are **optional** and all go in one file:
+JARVIS supports ElevenLabs premium TTS with dozens of voices:
 
-```
-app/src/main/java/com/jarvis/app/config/ApiConfig.kt
-```
+1. Deploy the backend proxy with your ElevenLabs API key
+2. In Settings → Voice, tap "Load voices" to fetch available voices
+3. Tap a voice name to hear a preview
+4. Select your preferred voice — it persists across sessions
+5. All TTS responses will use your selected voice
 
-| What it unlocks | Where to get it | Fill in |
-|---|---|---|
-| **Smarter AI conversations** | Google AI Studio → `https://aistudio.google.com/apikey` | `GEMINI_API_KEY`, `GEMINI_MODEL` |
-| AI fallback (GPT) | OpenAI → `https://platform.openai.com/api-keys` | `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| AI fallback (Claude) | Anthropic → `https://console.anthropic.com/` | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
-| Better cloud STT | Google Cloud Speech → `https://console.cloud.google.com/apis/library/speech.googleapis.com` | `GOOGLE_STT_API_KEY` |
-| Natural cloud TTS | Google Cloud TTS → same console | `GOOGLE_TTS_API_KEY` |
-| Premium voices | ElevenLabs → `https://elevenlabs.io/api` | `ELEVENLABS_API_KEY` |
-| Home Assistant | Your Home Assistant instance | `HOME_ASSISTANT_URL`, `HOME_ASSISTANT_TOKEN` |
-
-Rules:
-- **Leave them empty and JARVIS uses the local engine.** Nothing breaks.
-- Only add what you actually use. The app is already fully functional without them.
-- Never put real keys in a public repo. Use `local.properties` or environment var if you ever share the code.
-- We will wire the AI gateway (`AiGateway.kt`) to actually **call these** once you paste them in — the hooks are already built, so it's a fill-in, not a redo.
+Voice categories include: premade, cloned, and generated voices with
+labels for gender, accent, and use case.
 
 ---
 
@@ -146,5 +184,8 @@ JARVIS uses a calm, precise visual identity:
   notification is the legitimate always-listen path; some OEMs may kill it.
 - Blindly automating arbitrary in-game controls is fragile: it needs Accessibility, apps
   update, and it can break or be detected. That part is optional and off by default.
+- **Wake word reliability varies by device.** The current implementation uses Android's
+  built-in SpeechRecognizer, which works well on Pixel/Nexus but may be unreliable on
+  Samsung/other OEMs. For production use, upgrade to Vosk (offline) or Picovoice Porcupine.
 
 Everything else is within "what a person can do with a phone, through the legitimate doors."

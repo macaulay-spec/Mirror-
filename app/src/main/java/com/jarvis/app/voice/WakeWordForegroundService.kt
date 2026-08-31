@@ -9,10 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.content.IntentFilter
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jarvis.app.MainActivity
@@ -24,42 +21,47 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Continuous foreground listening.
+ * Continuous foreground listening for the "Hey JARVIS" wake word.
  *
- * Fallback wake-word path: uses the device speech recognizer in offline mode and looks for
- * "jarvis". This is the zero-cost, no-native-lib path. The clean upgrade for real always-available
- * on-device detection is OpenWakeWord / microWakeWord — swap `detectWakeWord()` for that model.
+ * Current implementation: Android SpeechRecognizer in continuous mode,
+ * scanning for "jarvis" in partial results.
+ *
+ * Production upgrade path:
+ *   1. Vosk (offline, no account needed) — see docs/VOSK_SETUP.md
+ *   2. Picovoice Porcupine (most accurate, requires license)
+ *   3. microWakeWord (lightweight, TFLite-based)
+ *
+ * The service runs as a foreground service with a persistent notification.
+ * It automatically pauses when the engine is active (processing a command)
+ * and resumes when idle.
  */
-class WakeWordForegroundService : Service(), RecognitionListener {
+class WakeWordForegroundService : Service() {
 
     companion object {
         const val CHANNEL_ID = "jarvis_listening"
         private const val NOTIF_ID = 1001
         private const val WAKE_WORDS = "jarvis"
+        private const val RESTART_DELAY_MS = 800L
+        private const val COOLDOWN_MS = 6000L
+        private const val MAX_CONSECUTIVE_ERRORS = 5
+        private const val ERROR_RESET_DELAY_MS = 30000L
+
         var running = false
             private set
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var recognizer: SpeechRecognizer? = null
-    private var buffered = StringBuilder()
+    private var engine: WakeWordEngine? = null
     private var lastWake = 0L
+    private var consecutiveErrors = 0
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         running = true
         createChannel()
         startForeground(NOTIF_ID, buildNotification())
-        
-        scope.launch {
-            com.jarvis.app.voice.VoiceBus.engineState.collect { state ->
-                if (state == com.jarvis.core.model.JarvisVisualState.IDLE && running) {
-                    startListening()
-                } else {
-                    stopEngine()
-                }
-            }
-        }
+        acquireWakeLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,99 +73,93 @@ class WakeWordForegroundService : Service(), RecognitionListener {
         return START_STICKY
     }
 
-    private var _isListening = false
-
-    /**
-     * Swap this one line for `VoskWakeWordEngine(this)` after following docs/VOSK_SETUP.md
-     * to get a fully offline wake word with no account and no key.
-     */
-    private val engine: WakeWordEngine = SystemSpeechRecognizerEngine(this)
-
     private fun startListening() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
-        ) return
-        if (_isListening) return
+        ) {
+            // Can't listen without permission — will retry when permission is granted
+            return
+        }
+
+        stopEngine()
+
+        engine = SystemSpeechRecognizerEngine(this)
+
         try {
-            engine.start(
+            engine!!.start(
                 onPartial = { text ->
+                    consecutiveErrors = 0 // Reset on successful recognition
                     VoiceBus.onPartial(text)
-                    if (text.contains(WAKE_WORDS, ignoreCase = true)) tryWake()
+                    if (text.contains(WAKE_WORDS, ignoreCase = true)) {
+                        tryWake()
+                    }
                 },
-                onDetected = { tryWake() },
-                onError = { restartSoon() }
+                onDetected = {
+                    tryWake()
+                },
+                onError = {
+                    consecutiveErrors++
+                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                        // Too many errors — back off
+                        scope.launch {
+                            delay(ERROR_RESET_DELAY_MS)
+                            consecutiveErrors = 0
+                            if (running) startListening()
+                        }
+                    } else {
+                        restartSoon()
+                    }
+                }
             )
-            _isListening = true
         } catch (_: Exception) {
-            _isListening = false
+            consecutiveErrors++
+            restartSoon()
         }
     }
 
     private fun stopEngine() {
         try {
-            engine.stop()
-        } catch (_: Exception) { }
-        _isListening = false
-    }
-
-    override fun onResults(results: android.os.Bundle?) {
-        process(results)
-        restartSoon()
-    }
-
-    override fun onPartialResults(partialResults: android.os.Bundle?) {
-        process(partialResults)
-    }
-
-    override fun onError(error: Int) {
-        restartSoon()
-    }
-
-    override fun onEndOfSpeech() {
-        restartSoon()
-    }
-
-    override fun onReadyForSpeech(params: android.os.Bundle?) {}
-    override fun onBeginningOfSpeech() {}
-    override fun onRmsChanged(rmsdB: Float) {}
-    override fun onBufferReceived(buffer: ByteArray?) {}
-    override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
-
-    private fun process(bundle: android.os.Bundle?) {
-        val text = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            ?.firstOrNull() ?: return
-        val lower = text.lowercase()
-        VoiceBus.onPartial(text)
-        if (lower.contains(WAKE_WORDS)) {
-            buffered = StringBuilder(text)
-            tryWake()
-        }
+            engine?.stop()
+            engine?.release()
+        } catch (_: Exception) {}
+        engine = null
     }
 
     private fun tryWake() {
         val now = System.currentTimeMillis()
-        if (now - lastWake < 6000) return
+        if (now - lastWake < COOLDOWN_MS) return
         lastWake = now
-        
-        // Bring MainActivity to the front so it can handle the voice command via VoiceOrchestratorBridge
+
+        // Bring MainActivity to the front
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra("WAKE_WORD_ACTIVATED", true)
         }
         startActivity(intent)
-        
+
         VoiceBus.onWakeWord()
         VoiceBus.clearTranscript()
-        // Stop our own background listener so the foreground engine can take the mic
+
+        // Stop background listening — the foreground engine takes the mic
         stopEngine()
     }
 
     private fun restartSoon() {
         scope.launch {
-            delay(600)
-            if (running && com.jarvis.app.voice.VoiceBus.engineState.value == com.jarvis.core.model.JarvisVisualState.IDLE) {
+            delay(RESTART_DELAY_MS)
+            if (running && VoiceBus.engineState.value == com.jarvis.core.model.JarvisVisualState.IDLE) {
                 startListening()
             }
+        }
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "jarvis:wakeword"
+        ).apply {
+            acquire(10 * 60 * 1000L) // 10 minutes, auto-releases
         }
     }
 
@@ -173,7 +169,8 @@ class WakeWordForegroundService : Service(), RecognitionListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stop = PendingIntent.getService(
-            this, 1, Intent(this, WakeWordForegroundService::class.java).apply { action = "stop" },
+            this, 1,
+            Intent(this, WakeWordForegroundService::class.java).apply { action = "stop" },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -189,21 +186,24 @@ class WakeWordForegroundService : Service(), RecognitionListener {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(CHANNEL_ID, "JARVIS Listening", NotificationManager.IMPORTANCE_LOW)
-            channel.description = "Always-available wake word listening"
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "JARVIS Listening",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Always-available wake word listening"
+            }
             manager.createNotificationChannel(channel)
         }
     }
 
     override fun onDestroy() {
         running = false
+        stopEngine()
         try {
-            engine.release()
-        } catch (_: Exception) { }
-        try {
-            recognizer?.destroy()
-        } catch (_: Exception) { }
-        recognizer = null
+            wakeLock?.release()
+        } catch (_: Exception) {}
+        wakeLock = null
         super.onDestroy()
     }
 

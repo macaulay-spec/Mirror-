@@ -2,6 +2,7 @@ package com.jarvis.app.assistant
 
 import com.jarvis.agent.ai.ToolSchema
 import com.jarvis.app.config.ApiConfig
+import com.jarvis.app.config.BackendConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -24,17 +25,18 @@ data class AiResponse(
 )
 
 /**
- * JARVIS AI Client — routes requests to the correct provider based on ApiConfig.activeProvider.
+ * JARVIS AI Client — routes requests through the backend proxy.
+ *
+ * When BackendConfig.USE_BACKEND is true (default):
+ *   All API calls go through the Cloudflare Worker proxy.
+ *   API keys are stored server-side — the app never sees them.
+ *
+ * When BackendConfig.USE_BACKEND is false:
+ *   Direct API calls (for development/testing without a backend).
+ *   API keys must be in local.properties → BuildConfig.
  *
  * Supported providers:
- *   xai       → https://api.x.ai/v1  (Grok — xAI's OpenAI-compatible endpoint)
- *   gemini    → Google Generative Language API  (native Gemini format)
- *   openai    → api.openai.com
- *   groq      → api.groq.com/openai
- *   cerebras  → api.cerebras.ai
- *   openrouter→ openrouter.ai
- *   mistral   → api.mistral.ai
- *   anthropic → api.anthropic.com (Claude — special format)
+ *   xai, gemini, openai, groq, cerebras, openrouter, mistral, anthropic
  */
 class JarvisApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -49,14 +51,99 @@ class JarvisApiClient(
         provider: String = ApiConfig.activeProvider,
         model: String = resolveModel(provider)
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
+        if (BackendConfig.USE_BACKEND) {
+            chatViaProxy(systemPrompt, history, userMessage, provider, model)
+        } else {
+            chatDirect(systemPrompt, history, userMessage, provider, model)
+        }
+    }
+
+    // ─── Backend Proxy Path (production) ───────────────────────────────
+
+    private suspend fun chatViaProxy(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        provider: String,
+        model: String
+    ): Result<AiResponse> = withContext(Dispatchers.IO) {
+        try {
+            val messagesArray = JSONArray()
+            for ((role, text) in history) {
+                if (text.isBlank()) continue
+                messagesArray.put(JSONObject().put("role", role).put("content", text))
+            }
+            messagesArray.put(JSONObject().put("role", "user").put("content", userMessage))
+
+            val payload = JSONObject()
+                .put("provider", provider)
+                .put("model", model)
+                .put("systemPrompt", systemPrompt)
+                .put("messages", messagesArray)
+
+            // Add tool schemas if available
+            val tools = ToolSchema.forOpenAI()
+            if (tools.length() > 0) {
+                payload.put("tools", tools)
+            }
+
+            val request = Request.Builder()
+                .url("${BackendConfig.WORKER_URL}${BackendConfig.LLM_CHAT_ENDPOINT}")
+                .header("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string() ?: ""
+                if (!response.isSuccessful) {
+                    val msg = when (response.code) {
+                        503 -> "AI service not configured on the backend. Check deployment."
+                        429 -> "Rate limit reached. Please wait a moment and try again."
+                        else -> "Backend error (HTTP ${response.code}): ${bodyString.take(200)}"
+                    }
+                    return@use Result.failure(Exception(msg))
+                }
+
+                val json = JSONObject(bodyString)
+                val message = json.optString("message").takeIf { it.isNotBlank() }
+                val toolCallsArray = json.optJSONArray("toolCalls")
+
+                val toolCalls = mutableListOf<ToolCallRequest>()
+                if (toolCallsArray != null) {
+                    for (i in 0 until toolCallsArray.length()) {
+                        val tc = toolCallsArray.getJSONObject(i)
+                        val argsMap = mutableMapOf<String, Any?>()
+                        tc.optJSONObject("arguments")?.let { args ->
+                            args.keys().forEach { k -> argsMap[k] = args.get(k) }
+                        }
+                        toolCalls.add(ToolCallRequest(tc.getString("toolName"), argsMap))
+                    }
+                }
+
+                Result.success(AiResponse(message = message, toolCalls = toolCalls))
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Backend connection failed: ${e.localizedMessage}"))
+        }
+    }
+
+    // ─── Direct Path (development/testing only) ────────────────────────
+
+    private fun chatDirect(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        provider: String,
+        model: String
+    ): Result<AiResponse> {
         val apiKey = ApiConfig.activeApiKey
         if (apiKey.isBlank()) {
-            return@withContext Result.failure(
+            return Result.failure(
                 Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
             )
         }
 
-        try {
+        return try {
             when (provider) {
                 "gemini" -> executeGemini(apiKey, model, systemPrompt, history, userMessage)
                 "anthropic" -> executeAnthropic(apiKey, model, systemPrompt, history, userMessage)
@@ -67,7 +154,7 @@ class JarvisApiClient(
         }
     }
 
-    // ── xAI Grok + OpenAI-compatible providers ────────────────────────────
+    // ─── xAI Grok + OpenAI-compatible providers ────────────────────────
 
     private fun executeOpenAICompatible(
         apiKey: String,
@@ -99,7 +186,6 @@ class JarvisApiClient(
             .put("model", model)
             .put("messages", messages)
 
-        // Add tool / function calling schemas
         val tools = ToolSchema.forOpenAI()
         if (tools.length() > 0) {
             payload.put("tools", tools)
@@ -110,7 +196,6 @@ class JarvisApiClient(
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
 
-        // OpenRouter wants these headers for usage tracking
         if (provider == "openrouter") {
             requestBuilder.header("HTTP-Referer", "https://github.com/macaulay-spec/Mirror-")
             requestBuilder.header("X-Title", "JARVIS")
@@ -147,7 +232,7 @@ class JarvisApiClient(
         }
     }
 
-    // ── Google Gemini (native format) ─────────────────────────────────────
+    // ─── Google Gemini (native format) ─────────────────────────────────
 
     private fun executeGemini(
         apiKey: String,
@@ -224,7 +309,7 @@ class JarvisApiClient(
         }
     }
 
-    // ── Anthropic Claude (unique format) ─────────────────────────────────
+    // ─── Anthropic Claude (unique format) ─────────────────────────────
 
     private fun executeAnthropic(
         apiKey: String,
@@ -268,7 +353,7 @@ class JarvisApiClient(
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    // ─── Helpers ───────────────────────────────────────────────────────
 
     private fun parseOpenAIToolCalls(toolCallsArray: JSONArray?): List<ToolCallRequest> {
         if (toolCallsArray == null) return emptyList()

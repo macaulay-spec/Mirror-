@@ -1,0 +1,16 @@
+{
+  "name": "jarvis-proxy",
+  "version": "1.0.0",
+  "description": "JARVIS backend proxy — holds API keys server-side, proxies AI/TTS/STT requests",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0",
+    "@cloudflare/workers-types": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

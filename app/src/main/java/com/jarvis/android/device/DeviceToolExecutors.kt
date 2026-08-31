@@ -73,8 +73,10 @@ object DeviceToolExecutors {
                 try {
                     val aliases = db.contextGraphDao().getAllAppAliasesSync()
                     val matchedAlias = aliases.firstOrNull { alias ->
-                        alias.defaultLabel.equals(appQuery, ignoreCase = true) ||
-                        alias.nicknames.any { nick -> nick.equals(appQuery, ignoreCase = true) || appQuery.contains(nick, ignoreCase = true) }
+                        alias.defaultLabel.equals(appQuery, ignoreCase = true) || run {
+                            val nickList = try { org.json.JSONArray(alias.nicknames).let { arr -> (0 until arr.length()).map { arr.getString(it) } } catch (_: Exception) { emptyList() }
+                            nickList.any { nick -> nick.equals(appQuery, ignoreCase = true) || appQuery.contains(nick, ignoreCase = true) }
+                        }
                     }
                     resolvedPackage = matchedAlias?.packageName
                 } catch (_: Exception) {}

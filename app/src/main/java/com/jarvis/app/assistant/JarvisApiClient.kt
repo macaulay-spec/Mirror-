@@ -252,7 +252,7 @@ class JarvisApiClient(
         provider: String,
         model: String
     ): Result<AiResponse> {
-        val apiKey = ApiConfig.activeApiKey
+        val apiKey = if (provider == "rork") ApiConfig.rorkApiKey else ApiConfig.activeApiKey
         if (apiKey.isBlank()) {
             return Result.failure(
                 Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
@@ -281,6 +281,7 @@ class JarvisApiClient(
         userMessage: String
     ): Result<AiResponse> {
         val endpoint = when (provider) {
+            "rork"       -> ApiConfig.RORK_GATEWAY_URL
             "xai"        -> "https://api.x.ai/v1/chat/completions"
             "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
             "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
@@ -489,6 +490,7 @@ class JarvisApiClient(
 
     companion object {
         fun resolveModel(provider: String): String = when (provider) {
+            "rork"       -> ApiConfig.RORK_MODEL
             "xai"        -> ApiConfig.XAI_MODEL
             "gemini"     -> ApiConfig.GEMINI_MODEL
             "openai"     -> ApiConfig.OPENAI_MODEL

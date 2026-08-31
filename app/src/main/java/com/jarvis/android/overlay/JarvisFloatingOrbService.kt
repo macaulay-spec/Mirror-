@@ -56,7 +56,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.jarvis.app.MainActivity
-import com.jarvis.app.R
+import com.rork.jarvisaiassistant.R
 import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors

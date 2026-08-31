@@ -13,7 +13,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jarvis.app.MainActivity
-import com.jarvis.app.R
+import com.rork.jarvisaiassistant.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

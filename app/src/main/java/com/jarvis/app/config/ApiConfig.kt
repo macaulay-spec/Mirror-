@@ -2,7 +2,7 @@ package com.jarvis.app.config
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.jarvis.app.BuildConfig
+import com.rork.jarvisaiassistant.BuildConfig
 
 /**
  * Central JARVIS Neural Configuration.
@@ -96,13 +96,10 @@ object ApiConfig {
     /** The provider JARVIS uses for all AI calls right now. */
     val activeProvider: String
         get() {
-            // 1. User's custom key
+            // 1. User's custom key (entered in Settings — auto-detected provider)
             customProvider?.takeIf { it.isNotBlank() }?.let { return it }
-            // 2. Gemini (primary — the AQ.* key is Gemini)
-            if (GEMINI_API_KEY.isNotBlank()) return "gemini"
-            // 3. xAI (only if user has a real xai-* key)
-            if (XAI_API_KEY.isNotBlank()) return "xai"
-            return "gemini"
+            // 2. Claude via the Rork AI gateway — zero-setup default brain.
+            return "rork"
         }
 
     /** The API key that matches `activeProvider`. */
@@ -111,11 +108,8 @@ object ApiConfig {
             // 1. User's custom key
             val custom = customApiKey?.trim()
             if (!custom.isNullOrBlank()) return custom
-            // 2. Gemini (primary)
-            if (GEMINI_API_KEY.isNotBlank()) return GEMINI_API_KEY
-            // 3. xAI (only if user has a real xai-* key)
-            if (XAI_API_KEY.isNotBlank()) return XAI_API_KEY
-            return ""
+            // 2. Rork gateway (Claude) — key is injected at build time.
+            return rorkApiKey
         }
 
     val hasAI: Boolean get() = activeApiKey.isNotBlank()
@@ -123,6 +117,7 @@ object ApiConfig {
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
+        "rork"       -> "Claude (Rork Gateway)"
         "xai"        -> "xAI Grok (Grok-3)"
         "gemini"     -> "Google Gemini"
         "openai"     -> "OpenAI"
@@ -136,6 +131,7 @@ object ApiConfig {
     }
 
     // ── Model IDs ─────────────────────────────────────────────────────────
+    const val RORK_MODEL      = "anthropic/claude-haiku-4.5"  // Claude via Rork AI gateway
     const val XAI_MODEL       = "grok-3-mini"        // fast, cheap, great for tool-calling
     const val XAI_MODEL_FULL  = "grok-3"             // highest quality
     const val GEMINI_MODEL    = "gemini-2.5-flash"
@@ -147,6 +143,15 @@ object ApiConfig {
     const val ANTHROPIC_MODEL = "claude-3-5-sonnet-latest"
     const val GROQ_MODEL      = "llama-3.3-70b-versatile"
     const val OPENROUTER_MODEL= "openai/gpt-4o-mini"
+
+    // ── Rork AI gateway (Claude) ──────────────────────────────────────────
+    const val RORK_GATEWAY_URL = "https://toolkit.rork.com/v2/vercel/v1/chat/completions"
+
+    /** Build-time injected gateway key; literal fallback keeps local runs alive. */
+    val rorkApiKey: String
+        get() = BuildConfig.RORK_TOOLKIT_KEY.ifBlank { RORK_KEY_FALLBACK }
+
+    private const val RORK_KEY_FALLBACK = "rork_sk_ied1mfj2qty7j0sg0dm7mgca520gkg71"
 
     // ── Optional connectors ───────────────────────────────────────────────
     const val GOOGLE_STT_API_KEY  = ""

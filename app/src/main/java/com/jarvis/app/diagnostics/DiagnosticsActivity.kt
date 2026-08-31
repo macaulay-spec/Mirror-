@@ -102,7 +102,7 @@ private fun DiagnosticsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("DIAGNOSTICS", color = JarvisColors.CyanBright, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
+        Text("DIAGNOSTICS", color = JarvisColors.Presence, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
         Text(
             "Everything JARVIS needs, and whether it is actually working.",
             color = JarvisColors.TextSecondary, fontSize = 12.sp
@@ -118,7 +118,7 @@ private fun DiagnosticsScreen(
             )
             Text(
                 "Gemini key present: ${if (ApiConfig.activeApiKey.isBlank()) "NO — configure in Access Control settings" else "yes"}",
-                color = if (ApiConfig.activeApiKey.isBlank()) JarvisColors.AmberWarning else JarvisColors.TextPrimary,
+                color = if (ApiConfig.activeApiKey.isBlank()) JarvisColors.Warmth else JarvisColors.TextPrimary,
                 fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))
@@ -150,14 +150,14 @@ private fun DiagnosticsScreen(
                         testing = false
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.CyanPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Presence)
             ) { Text(if (testing) "TESTING..." else "TEST ALL PROVIDERS", color = androidx.compose.ui.graphics.Color.Black) }
 
             for (status in providerResults.orEmpty()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
                     Text(
                         if (status.ok) "OK " else "FAIL",
-                        color = if (status.ok) JarvisColors.TealSecondary else JarvisColors.CrimsonAlert,
+                        color = if (status.ok) JarvisColors.StateSuccess else JarvisColors.StateError,
                         fontSize = 11.sp, fontFamily = FontFamily.Monospace
                     )
                     Text(
@@ -184,7 +184,7 @@ private fun DiagnosticsScreen(
                         voiceStatus = VoiceDiagnostics.summary
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.CyanPrimary)
+                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Presence)
             ) { Text("TEST VOICE", color = androidx.compose.ui.graphics.Color.Black) }
         }
 
@@ -196,13 +196,13 @@ private fun DiagnosticsScreen(
             Text(
                 if (!granted) "Contacts permission: NOT granted — JARVIS cannot learn who anyone is."
                 else "Contacts imported: ${peopleCount ?: 0}",
-                color = if (!granted) JarvisColors.AmberWarning else JarvisColors.TextPrimary,
+                color = if (!granted) JarvisColors.Warmth else JarvisColors.TextPrimary,
                 fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))
             OutlinedButton(onClick = {
                 scope.launch { peopleCount = runCatching { onSyncContacts() }.getOrDefault(0) }
-            }) { Text("RE-SYNC CONTACTS", color = JarvisColors.CyanBright, fontSize = 11.sp) }
+            }) { Text("RE-SYNC CONTACTS", color = JarvisColors.Presence, fontSize = 11.sp) }
         }
 
         // ------------------------------------------------------- BACKGROUND
@@ -228,7 +228,7 @@ private fun DiagnosticsScreen(
             }) {
                 Text(
                     if (alwaysListening) "TURN OFF ALWAYS-ON" else "TURN ON ALWAYS-ON",
-                    color = JarvisColors.CyanBright, fontSize = 11.sp
+                    color = JarvisColors.Presence, fontSize = 11.sp
                 )
             }
         }
@@ -239,7 +239,7 @@ private fun DiagnosticsScreen(
             Spacer(Modifier.height(6.dp))
             OutlinedButton(onClick = {
                 if (!onRequestAssistantRole()) AssistantRoleManager.openSettings(context)
-            }) { Text("SET JARVIS AS DEFAULT", color = JarvisColors.CyanBright, fontSize = 11.sp) }
+            }) { Text("SET JARVIS AS DEFAULT", color = JarvisColors.Presence, fontSize = 11.sp) }
             Text(
                 "After this, long-press home or the gesture opens JARVIS from any screen.",
                 color = JarvisColors.TextSecondary, fontSize = 11.sp
@@ -263,8 +263,8 @@ private fun DiagnosticsScreen(
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(title, color = JarvisColors.CyanBright, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-        HorizontalDivider(color = JarvisColors.BorderCyan)
+        Text(title, color = JarvisColors.Presence, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        HorizontalDivider(color = JarvisColors.Hairline)
         Spacer(Modifier.height(6.dp))
         content()
     }

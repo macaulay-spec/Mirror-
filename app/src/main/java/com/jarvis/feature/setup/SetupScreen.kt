@@ -176,15 +176,15 @@ fun SetupScreen(
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = "Back to AI Interface",
-                                    tint = JarvisColors.CyanBright
+                                    tint = JarvisColors.Presence
                                 )
                             }
                             Column {
                                 Text(
                                     text = "JARVIS ACCESS CONTROL",
-                                    color = JarvisColors.CyanPrimary,
+                                    color = JarvisColors.Presence,
                                     fontSize = 17.sp,
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = FontFamily.Default,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp
                                 )
@@ -205,19 +205,19 @@ fun SetupScreen(
                                         )
                                     )
                                 },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.Presence),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("DIAGNOSTICS", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("DIAGNOSTICS", fontFamily = FontFamily.Default, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                             Button(
                                 onClick = onClose,
-                                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.CyanPrimary, contentColor = Color.Black),
+                                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Presence, contentColor = Color.Black),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("← AI INTERFACE", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("← AI INTERFACE", fontFamily = FontFamily.Default, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -254,8 +254,8 @@ fun SetupScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = JarvisColors.CyanBright,
-                                    unfocusedBorderColor = JarvisColors.BorderCyan,
+                                    focusedBorderColor = JarvisColors.Presence,
+                                    unfocusedBorderColor = JarvisColors.Hairline,
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.White
                                 )
@@ -265,7 +265,7 @@ fun SetupScreen(
                                 text = "AI Interaction Persona:",
                                 color = JarvisColors.TextSecondary,
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = FontFamily.Default
                             )
 
                             Row(
@@ -285,12 +285,12 @@ fun SetupScreen(
                                         },
                                         modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (currentTone == key) JarvisColors.CyanPrimary else JarvisColors.SurfaceCard,
+                                            containerColor = if (currentTone == key) JarvisColors.Presence else JarvisColors.SurfaceCard,
                                             contentColor = if (currentTone == key) Color.Black else JarvisColors.TextPrimary
                                         ),
                                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                     ) {
-                                        Text(label, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                        Text(label, fontSize = 10.sp, fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -321,7 +321,7 @@ fun SetupScreen(
                                 text = "Select Voice Profile:",
                                 color = JarvisColors.TextSecondary,
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = FontFamily.Default
                             )
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -333,10 +333,10 @@ fun SetupScreen(
                                             savedVoice = false
                                         },
                                         colors = CardDefaults.cardColors(
-                                            containerColor = if (isSelected) JarvisColors.CyanPrimary.copy(alpha = 0.15f) else JarvisColors.SurfaceCard
+                                            containerColor = if (isSelected) JarvisColors.Presence.copy(alpha = 0.15f) else JarvisColors.SurfaceCard
                                         ),
                                         shape = RoundedCornerShape(8.dp),
-                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, JarvisColors.CyanBright) else null,
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, JarvisColors.Presence) else null,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
 
@@ -350,10 +350,10 @@ fun SetupScreen(
                                                 Column {
                                                     Text(
                                                         text = "${preset.name} (${preset.accent} ${preset.gender})",
-                                                        color = if (isSelected) JarvisColors.CyanBright else Color.White,
+                                                        color = if (isSelected) JarvisColors.Presence else Color.White,
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 12.sp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontFamily = FontFamily.Default
                                                     )
                                                     Text(
                                                         text = preset.description,
@@ -365,7 +365,7 @@ fun SetupScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.CheckCircle,
                                                         contentDescription = "Selected",
-                                                        tint = JarvisColors.CyanBright,
+                                                        tint = JarvisColors.Presence,
                                                         modifier = Modifier.size(16.dp)
                                                     )
                                                 }
@@ -391,10 +391,10 @@ fun SetupScreen(
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.CyanBright),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.Presence),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
-                                Text("🔊 PREVIEW VOICE OUTPUT", fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("🔊 PREVIEW VOICE OUTPUT", fontFamily = FontFamily.Default, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -671,16 +671,16 @@ private fun SectionHeader(title: String, countGranted: Int, total: Int) {
     ) {
         Text(
             text = title,
-            color = JarvisColors.CyanBright,
-            fontFamily = FontFamily.Monospace,
+            color = JarvisColors.Presence,
+            fontFamily = FontFamily.Default,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.2.sp
         )
         Text(
             text = "$countGranted / $total ACTIVE",
-            color = if (countGranted == total) JarvisColors.TealSecondary else JarvisColors.AmberWarning,
-            fontFamily = FontFamily.Monospace,
+            color = if (countGranted == total) JarvisColors.StateSuccess else JarvisColors.Warmth,
+            fontFamily = FontFamily.Default,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -700,7 +700,7 @@ private fun PermissionCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = JarvisColors.SurfaceDark)
+        colors = CardDefaults.cardColors(containerColor = JarvisColors.DarkSpace)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -719,7 +719,7 @@ private fun PermissionCard(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = if (isGranted) JarvisColors.CyanPrimary else JarvisColors.TextSecondary,
+                        tint = if (isGranted) JarvisColors.Presence else JarvisColors.TextSecondary,
                         modifier = Modifier.size(24.dp)
                     )
                     Column(modifier = Modifier.weight(1f)) {
@@ -727,7 +727,7 @@ private fun PermissionCard(
                             text = title,
                             color = JarvisColors.TextPrimary,
                             fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = FontFamily.Default,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
@@ -749,13 +749,13 @@ private fun PermissionCard(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Granted",
-                            tint = JarvisColors.TealSecondary,
+                            tint = JarvisColors.StateSuccess,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "GRANTED",
-                            color = JarvisColors.TealSecondary,
-                            fontFamily = FontFamily.Monospace,
+                            color = JarvisColors.StateSuccess,
+                            fontFamily = FontFamily.Default,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -765,14 +765,14 @@ private fun PermissionCard(
                         onClick = onAction,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = JarvisColors.SurfaceCard,
-                            contentColor = JarvisColors.CyanBright
+                            contentColor = JarvisColors.Presence
                         ),
                         shape = RoundedCornerShape(6.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = actionLabel,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = FontFamily.Default,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )

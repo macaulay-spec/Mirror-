@@ -32,22 +32,14 @@ object ToolRegistry {
     }
 
     fun register(tool: ToolDefinition) {
-        // ADDED (forensic audit): this used to silently overwrite on a
-        // duplicate id with no signal at all -- that's exactly how
-        // device_battery/battery_info ended up as two indistinguishable tools,
-        // and how device_volume, device_flashlight, call_contact,
-        // calendar_create, set_alarm, set_timer, and navigate_to are each
-        // *still* registered twice under the same id right now (see
-        // JARVIS_MIRROR_FORENSIC_AUDIT.md, section G) -- whichever registrar
-        // happens to run last silently wins with no warning either way. This
-        // won't stop a collision, but it makes the next one impossible to miss
-        // in Logcat instead of showing up as "why did the wrong thing happen."
-        if (tools.containsKey(tool.id)) {
-            android.util.Log.w(
-                "ToolRegistry",
-                "Duplicate tool id '${tool.id}' -- overwriting the previous registration. " +
-                    "This is almost certainly a bug: two different files registered the same id."
-            )
+        // HARD FAIL on duplicate tool IDs — two different files registering the
+        // same id was the root cause of silent overwrites (battery, volume,
+        // flashlight, call_contact, calendar, alarm, timer, navigate_to all had
+        // duplicate registrations). A hard crash here is better than a silent
+        // wrong answer in production.
+        require(!tools.containsKey(tool.id)) {
+            "Duplicate tool id '${tool.id}' — this is a bug: two different files " +
+                "registered the same id. The previous registration must be removed."
         }
         tools[tool.id] = tool
     }

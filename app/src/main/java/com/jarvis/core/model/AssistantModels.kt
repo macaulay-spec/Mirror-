@@ -33,15 +33,15 @@ enum class JarvisVisualState(val label: String) {
     }
 
     fun accent(): Color = when (this) {
-        IDLE -> Color(0xFF00E5FF)       // Laser Cyan
-        WAKING -> Color(0xFF5CEBFF)     // Bright Cyan
-        LISTENING -> Color(0xFF00F5D4)  // Emerald Pulse
-        THINKING -> Color(0xFF9D4EDD)   // Purple Sync
-        EXECUTING -> Color(0xFFFFB703)  // Solar Gold
-        SPEAKING -> Color(0xFF00B4D8)   // Deep Aqua
-        SUCCESS -> Color(0xFF00F5D4)    // Emerald Success
-        ERROR -> Color(0xFFFF3366)      // Crimson Alert
-        OFFLINE -> Color(0xFF4D657C)    // Muted Gray
+        IDLE -> Color(0x666FD3FF)       // Dim presence (40%)
+        WAKING -> Color(0xFF6FD3FF)     // Presence, partial
+        LISTENING -> Color(0xFF6FD3FF)  // Bright presence
+        THINKING -> Color(0xFFB79CFF)   // Soft violet
+        EXECUTING -> Color(0xFFF5B87A)  // Warmth amber
+        SPEAKING -> Color(0xFF6FD3FF)   // Full presence
+        SUCCESS -> Color(0xFF7EE8B8)    // Soft green
+        ERROR -> Color(0xFFFF8A80)      // Warm coral
+        OFFLINE -> Color(0xFF4D5B6E)    // Muted text
     }
 }
 

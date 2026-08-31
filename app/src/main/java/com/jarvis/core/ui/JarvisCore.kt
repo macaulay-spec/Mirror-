@@ -1,10 +1,13 @@
 package com.jarvis.core.ui
 
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.EaseInOutSine
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -18,10 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -34,6 +35,19 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+/**
+ * JARVIS Orb — one identity, everywhere.
+ *
+ * Design spec: a luminous core (soft radial gradient) with a single thin outer ring
+ * at ~1.3x the core's radius. Complexity is added by STATE, not by default.
+ *
+ * - Idle: 40% brightness, slow breathing (4200ms), ring barely visible
+ * - Listening: 90% brightness, ring = real waveform from mic amplitude
+ * - Thinking: violet hue, inward particle gather (12-16 particles)
+ * - Executing: amber hue, single rotating arc segment
+ * - Speaking: blue, core pulses with TTS amplitude
+ * - Error: sharp contraction + flash (~180ms), settle to idle
+ */
 @Composable
 fun JarvisCore(
     state: JarvisVisualState,
@@ -42,49 +56,67 @@ fun JarvisCore(
     size: Dp = 320.dp,
     onClick: (() -> Unit)? = null
 ) {
-    val accentColor = state.accent()
+    val accentColor = state.orbColor()
+    val transition = rememberInfiniteTransition(label = "orb")
 
-    val transition = rememberInfiniteTransition(label = "jarvis_core_anim")
-
-    val baseRotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
+    // Idle breathing: 96% → 100% → 96%, 4200ms ease-in-out
+    val breathe by transition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 14000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "base_rotation"
-    )
-
-    val counterRotation by transition.animateFloat(
-        initialValue = 360f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "counter_rotation"
-    )
-
-    val fastSpin by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "fast_spin"
-    )
-
-    val pulseScale by transition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            animation = tween(4200, easing = EaseInOutSine),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "pulse_scale"
+        label = "breathe"
     )
+
+    // Thinking particle drift
+    val particleDrift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "particleDrift"
+    )
+
+    // Executing arc rotation
+    val arcRotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "arcRotation"
+    )
+
+    // Smooth state transitions
+    val targetBrightness = when (state) {
+        JarvisVisualState.IDLE -> 0.40f
+        JarvisVisualState.WAKING -> 0.65f
+        JarvisVisualState.LISTENING -> 0.90f
+        JarvisVisualState.THINKING -> 0.75f
+        JarvisVisualState.EXECUTING -> 0.80f
+        JarvisVisualState.SPEAKING -> 0.85f
+        JarvisVisualState.SUCCESS -> 0.95f
+        JarvisVisualState.ERROR -> 0.90f
+        JarvisVisualState.OFFLINE -> 0.25f
+    }
+    val brightness by animateFloatAsState(
+        targetValue = targetBrightness,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "brightness"
+    )
+
+    // Scale: breathing in idle, contracted in error
+    val baseScale = when (state) {
+        JarvisVisualState.IDLE, JarvisVisualState.OFFLINE -> breathe
+        JarvisVisualState.ERROR -> 0.88f
+        JarvisVisualState.SUCCESS -> 1.06f
+        else -> 1.0f
+    }
 
     Box(
         modifier = modifier
@@ -101,212 +133,300 @@ fun JarvisCore(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(this.size.width / 2f, this.size.height / 2f)
-            val baseRadius = this.size.minDimension / 2f * 0.88f
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val center = Offset(cx, cy)
+            val baseRadius = size.minDimension / 2f
+            val coreRadius = baseRadius * 0.35f
+            val ringRadius = coreRadius * 1.3f
 
-            drawAmbientHalo(center, baseRadius, accentColor, pulseScale, audioLevel)
-            drawOuterHudRing(center, baseRadius * 0.98f, accentColor, baseRotation)
-            drawOrbitalRings(center, baseRadius * 0.82f, accentColor, counterRotation, baseRotation)
-            drawSphericalWireframe(center, baseRadius * 0.65f, accentColor, fastSpin, pulseScale)
-            drawQuantumCore(center, baseRadius * 0.32f, accentColor, state, audioLevel, pulseScale)
-            drawParticleCloud(center, baseRadius, accentColor, fastSpin, state, audioLevel)
-        }
-    }
-}
+            // ── Ambient glow ─────────────────────────────────────────
+            drawAmbientGlow(center, coreRadius * 3f, accentColor, brightness)
 
-private fun DrawScope.drawAmbientHalo(
-    center: Offset,
-    radius: Float,
-    accent: Color,
-    pulse: Float,
-    audioLevel: Float
-) {
-    val dynamicRadius = radius * pulse * (1f + audioLevel.coerceIn(0f, 1f) * 0.25f)
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(
-                accent.copy(alpha = 0.35f),
-                accent.copy(alpha = 0.12f),
-                Color.Transparent
-            ),
-            center = center,
-            radius = dynamicRadius
-        ),
-        radius = dynamicRadius,
-        center = center
-    )
-}
+            // ── Outer ring (state-dependent behavior) ────────────────
+            when (state) {
+                JarvisVisualState.LISTENING -> {
+                    // Ring = waveform driven by real mic amplitude
+                    drawWaveformRing(center, ringRadius, accentColor, audioLevel, brightness)
+                }
+                JarvisVisualState.THINKING -> {
+                    // Subtle static ring
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.15f * brightness),
+                        radius = ringRadius * baseScale,
+                        center = center,
+                        style = Stroke(width = 1.5f, cap = StrokeCap.Round)
+                    )
+                }
+                JarvisVisualState.EXECUTING -> {
+                    // Single rotating arc segment
+                    drawExecutingArc(center, ringRadius * baseScale, accentColor, arcRotation, brightness)
+                }
+                JarvisVisualState.ERROR -> {
+                    // Contracted ring with error color
+                    drawCircle(
+                        color = JarvisColors.StateError.copy(alpha = 0.6f),
+                        radius = ringRadius * 0.85f,
+                        center = center,
+                        style = Stroke(width = 2f, cap = StrokeCap.Round)
+                    )
+                }
+                else -> {
+                    // Idle / speaking / success: barely visible static ring
+                    drawCircle(
+                        color = accentColor.copy(alpha = 0.12f * brightness),
+                        radius = ringRadius * baseScale,
+                        center = center,
+                        style = Stroke(width = 1.2f, cap = StrokeCap.Round)
+                    )
+                }
+            }
 
-private fun DrawScope.drawOuterHudRing(
-    center: Offset,
-    radius: Float,
-    accent: Color,
-    rotation: Float
-) {
-    rotate(rotation, pivot = center) {
-        drawCircle(
-            color = accent.copy(alpha = 0.25f),
-            radius = radius,
-            center = center,
-            style = Stroke(
-                width = 1.5.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(40f, 25f, 10f, 25f), 0f)
-            )
-        )
-        val tickCount = 24
-        for (i in 0 until tickCount) {
-            val angle = (i * (360f / tickCount)) * (PI.toFloat() / 180f)
-            val outerX = center.x + cos(angle) * radius
-            val outerY = center.y + sin(angle) * radius
-            val innerX = center.x + cos(angle) * (radius - 8.dp.toPx())
-            val innerY = center.y + sin(angle) * (radius - 8.dp.toPx())
+            // ── Thinking particles (inward gather) ───────────────────
+            if (state == JarvisVisualState.THINKING) {
+                drawThinkingParticles(center, ringRadius * 1.8f, accentColor, particleDrift, brightness)
+            }
 
-            drawLine(
-                color = if (i % 4 == 0) accent.copy(alpha = 0.8f) else accent.copy(alpha = 0.35f),
-                start = Offset(innerX, innerY),
-                end = Offset(outerX, outerY),
-                strokeWidth = if (i % 4 == 0) 2.dp.toPx() else 1.dp.toPx(),
-                cap = StrokeCap.Round
-            )
-        }
-    }
-}
+            // ── Luminous core ────────────────────────────────────────
+            drawLuminousCore(center, coreRadius * baseScale, accentColor, brightness, audioLevel)
 
-private fun DrawScope.drawOrbitalRings(
-    center: Offset,
-    radius: Float,
-    accent: Color,
-    rot1: Float,
-    rot2: Float
-) {
-    rotate(rot1, pivot = center) {
-        drawOval(
-            color = accent.copy(alpha = 0.45f),
-            topLeft = Offset(center.x - radius, center.y - radius * 0.38f),
-            size = Size(radius * 2f, radius * 0.76f),
-            style = Stroke(
-                width = 1.8.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(60f, 30f), 0f)
-            )
-        )
-    }
-
-    rotate(rot2 + 60f, pivot = center) {
-        drawOval(
-            color = JarvisColors.TealSecondary.copy(alpha = 0.4f),
-            topLeft = Offset(center.x - radius * 0.9f, center.y - radius * 0.32f),
-            size = Size(radius * 1.8f, radius * 0.64f),
-            style = Stroke(
-                width = 1.2.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(30f, 15f), 0f)
-            )
-        )
-    }
-}
-
-private fun DrawScope.drawSphericalWireframe(
-    center: Offset,
-    radius: Float,
-    accent: Color,
-    spin: Float,
-    pulse: Float
-) {
-    val dynRadius = radius * pulse
-
-    rotate(spin, pivot = center) {
-        for (step in 1..3) {
-            val scale = step / 3.5f
-            drawOval(
-                color = accent.copy(alpha = 0.25f),
-                topLeft = Offset(center.x - dynRadius, center.y - dynRadius * scale),
-                size = Size(dynRadius * 2f, dynRadius * scale * 2f),
-                style = Stroke(width = 1.dp.toPx())
-            )
-        }
-
-        for (angle in listOf(0f, 45f, 90f, 135f)) {
-            rotate(angle, pivot = center) {
-                drawOval(
-                    color = accent.copy(alpha = 0.25f),
-                    topLeft = Offset(center.x - dynRadius * 0.35f, center.y - dynRadius),
-                    size = Size(dynRadius * 0.7f, dynRadius * 2f),
-                    style = Stroke(width = 1.dp.toPx())
+            // ── Error flash overlay ──────────────────────────────────
+            if (state == JarvisVisualState.ERROR) {
+                drawCircle(
+                    color = JarvisColors.StateError.copy(alpha = 0.3f),
+                    radius = coreRadius * 1.5f,
+                    center = center
                 )
             }
         }
     }
 }
 
-private fun DrawScope.drawQuantumCore(
-    center: Offset,
-    coreRadius: Float,
-    accent: Color,
-    state: JarvisVisualState,
-    audioLevel: Float,
-    pulse: Float
-) {
-    val dynamicRadius = coreRadius * (1f + (audioLevel.coerceIn(0f, 1f) * 0.4f) + (pulse * 0.08f))
+// ── Drawing functions ──────────────────────────────────────────────────────
 
+private fun DrawScope.drawAmbientGlow(
+    center: Offset,
+    radius: Float,
+    color: Color,
+    brightness: Float
+) {
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = 0.95f), accent.copy(alpha = 0.4f), Color.Transparent),
+            listOf(
+                color.copy(alpha = 0.20f * brightness),
+                color.copy(alpha = 0.06f * brightness),
+                Color.Transparent
+            ),
             center = center,
-            radius = dynamicRadius * 1.5f
+            radius = radius
         ),
-        radius = dynamicRadius * 1.5f,
-        center = center
-    )
-
-    drawCircle(
-        color = accent.copy(alpha = 0.9f),
-        radius = dynamicRadius * 0.75f,
-        center = center
-    )
-
-    drawCircle(
-        color = Color.White.copy(alpha = 0.95f),
-        radius = dynamicRadius * 0.45f,
-        center = center
-    )
-
-    drawCircle(
-        color = JarvisColors.VoidBlack,
-        radius = dynamicRadius * 0.28f,
-        center = center
-    )
-
-    drawCircle(
-        color = accent,
-        radius = dynamicRadius * 0.12f,
+        radius = radius,
         center = center
     )
 }
 
-private fun DrawScope.drawParticleCloud(
+private fun DrawScope.drawLuminousCore(
     center: Offset,
-    baseRadius: Float,
-    accent: Color,
-    spin: Float,
-    state: JarvisVisualState,
+    radius: Float,
+    color: Color,
+    brightness: Float,
     audioLevel: Float
 ) {
-    val count = when (state) {
-        JarvisVisualState.THINKING -> 36
-        JarvisVisualState.LISTENING, JarvisVisualState.SPEAKING -> 28
-        else -> 18
+    val dynamicR = radius * (1f + audioLevel * 0.15f)
+
+    // Outer volumetric glow
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                color.copy(alpha = 0.30f * brightness),
+                color.copy(alpha = 0.10f * brightness),
+                Color.Transparent
+            ),
+            center = center,
+            radius = dynamicR * 2.2f
+        ),
+        radius = dynamicR * 2.2f,
+        center = center
+    )
+
+    // Middle glow layer
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                color.copy(alpha = 0.65f * brightness),
+                color.copy(alpha = 0.30f * brightness),
+                Color.Transparent
+            ),
+            center = center,
+            radius = dynamicR * 1.4f
+        ),
+        radius = dynamicR * 1.4f,
+        center = center
+    )
+
+    // Solid core
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = 0.90f * brightness),
+                color.copy(alpha = 0.85f * brightness),
+                color.copy(alpha = 0.50f * brightness)
+            ),
+            center = center,
+            radius = dynamicR
+        ),
+        radius = dynamicR,
+        center = center
+    )
+
+    // Inner nucleus highlight
+    drawCircle(
+        color = Color.White.copy(alpha = 0.80f * brightness),
+        radius = dynamicR * 0.38f,
+        center = center
+    )
+
+    // Dark pupil
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                JarvisColors.VoidBlack.copy(alpha = 0.85f),
+                JarvisColors.VoidBlack.copy(alpha = 0.40f),
+                Color.Transparent
+            ),
+            center = center,
+            radius = dynamicR * 0.22f
+        ),
+        radius = dynamicR * 0.22f,
+        center = center
+    )
+
+    // Iris ring
+    drawCircle(
+        color = color.copy(alpha = 0.60f * brightness),
+        radius = dynamicR * 0.20f,
+        center = center,
+        style = Stroke(width = 1f)
+    )
+}
+
+private fun DrawScope.drawWaveformRing(
+    center: Offset,
+    radius: Float,
+    color: Color,
+    audioLevel: Float,
+    brightness: Float
+) {
+    val segments = 64
+    val angleStep = (2f * PI.toFloat()) / segments
+
+    for (i in 0 until segments) {
+        val angle = i * angleStep - PI.toFloat() / 2f
+        // Waveform: audio level drives amplitude, position in ring drives phase
+        val wave = sin(angle * 3f + audioLevel * 8f) * audioLevel * radius * 0.25f
+        val innerR = radius - wave.coerceAtLeast(0f)
+        val outerR = radius + wave.coerceAtMost(radius * 0.3f)
+
+        val innerX = center.x + cos(angle) * innerR
+        val innerY = center.y + sin(angle) * innerR
+        val outerX = center.x + cos(angle) * outerR
+        val outerY = center.y + sin(angle) * outerR
+
+        val segAlpha = (0.3f + audioLevel * 0.6f) * brightness
+        drawLine(
+            color = color.copy(alpha = segAlpha.coerceIn(0.1f, 1f)),
+            start = Offset(innerX, innerY),
+            end = Offset(outerX, outerY),
+            strokeWidth = 1.5f,
+            cap = StrokeCap.Round
+        )
     }
 
-    for (i in 0 until count) {
-        val phi = (i * 137.508f + spin * 0.4f) * (PI.toFloat() / 180f)
-        val spread = baseRadius * (0.55f + ((i % 7) * 0.08f)) + (audioLevel * 15f)
-        val px = center.x + cos(phi) * spread
-        val py = center.y + sin(phi) * spread
-        val pSize = 1.2f + (i % 4) * 0.8f
+    // Base ring (faint)
+    drawCircle(
+        color = color.copy(alpha = 0.10f * brightness),
+        radius = radius,
+        center = center,
+        style = Stroke(width = 1f)
+    )
+}
 
-        drawCircle(
-            color = if (i % 3 == 0) Color.White.copy(alpha = 0.8f) else accent.copy(alpha = 0.6f),
-            radius = pSize,
-            center = Offset(px, py)
+private fun DrawScope.drawExecutingArc(
+    center: Offset,
+    radius: Float,
+    color: Color,
+    rotation: Float,
+    brightness: Float
+) {
+    // Base faint ring
+    drawCircle(
+        color = color.copy(alpha = 0.10f * brightness),
+        radius = radius,
+        center = center,
+        style = Stroke(width = 1.2f)
+    )
+
+    // Rotating arc segment (determinate-ish progress)
+    rotate(rotation, pivot = center) {
+        drawArc(
+            color = color.copy(alpha = 0.80f * brightness),
+            startAngle = 0f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(center.x - radius, center.y - radius),
+            size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
+            style = Stroke(width = 2.5f, cap = StrokeCap.Round)
         )
     }
 }
+
+private fun DrawScope.drawThinkingParticles(
+    center: Offset,
+    outerRadius: Float,
+    color: Color,
+    drift: Float,
+    brightness: Float
+) {
+    val count = 14
+    for (i in 0 until count) {
+        val angle = (i * (360f / count) + drift) * (PI.toFloat() / 180f)
+        // Particles drift inward over their lifecycle
+        val progress = ((drift + i * 25f) % 360f) / 360f  // 0..1 lifecycle
+        val dist = outerRadius * (1f - progress * 0.7f)    // move inward
+        val alpha = (1f - progress) * 0.6f * brightness     // fade as they approach center
+
+        if (alpha > 0.02f) {
+            val px = center.x + cos(angle) * dist
+            val py = center.y + sin(angle) * dist
+            val pSize = 1.5f + (1f - progress) * 1.5f
+
+            drawCircle(
+                color = color.copy(alpha = alpha),
+                radius = pSize,
+                center = Offset(px, py)
+            )
+        }
+    }
+}
+
+/**
+ * Returns the Orb's accent color for a given visual state.
+ * Each state gets its OWN hue — not brightness steps of cyan.
+ */
+fun JarvisVisualState.orbColor(): Color = when (this) {
+    JarvisVisualState.IDLE -> JarvisColors.StateIdle
+    JarvisVisualState.WAKING -> JarvisColors.Presence.copy(alpha = 0.70f)
+    JarvisVisualState.LISTENING -> JarvisColors.StateListening
+    JarvisVisualState.THINKING -> JarvisColors.StateThinking
+    JarvisVisualState.EXECUTING -> JarvisColors.StateExecuting
+    JarvisVisualState.SPEAKING -> JarvisColors.StateSpeaking
+    JarvisVisualState.SUCCESS -> JarvisColors.StateSuccess
+    JarvisVisualState.ERROR -> JarvisColors.StateError
+    JarvisVisualState.OFFLINE -> JarvisColors.TextMuted.copy(alpha = 0.5f)
+}
+
+/**
+ * Legacy accent accessor — delegates to orbColor().
+ * Kept for backwards compatibility with code that calls state.accent().
+ */
+fun JarvisVisualState.accent(): Color = orbColor()

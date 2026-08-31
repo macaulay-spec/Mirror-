@@ -2,7 +2,6 @@ package com.jarvis.feature.onboarding
 
 import android.content.Context
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,7 +34,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -45,7 +43,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,7 +65,6 @@ import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.core.ui.GlassCard
 import com.jarvis.core.ui.JarvisCore
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -79,15 +75,9 @@ fun OnboardingScreen(
     onOpenNotificationListener: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var currentStep by remember { mutableIntStateOf(0) }
-    
     var userNameInput by remember { mutableStateOf(ApiConfig.userName) }
-    var apiKeyInput by remember { mutableStateOf(ApiConfig.customApiKey ?: "") }
-    var keyValidationStatus by remember { mutableStateOf<String?>(null) }
-    var isValidatingKey by remember { mutableStateOf(false) }
 
-    // Live permission pollers
     var hasMic by remember { mutableStateOf(PermissionAndSetupHelper.hasMicrophone(context)) }
     var hasA11y by remember { mutableStateOf(PermissionAndSetupHelper.hasAccessibilityService(context)) }
     var hasNotif by remember { mutableStateOf(PermissionAndSetupHelper.hasNotificationListener(context)) }
@@ -108,7 +98,6 @@ fun OnboardingScreen(
         4 -> if (hasA11y) JarvisVisualState.SUCCESS else JarvisVisualState.EXECUTING
         5 -> if (hasNotif) JarvisVisualState.SUCCESS else JarvisVisualState.THINKING
         6 -> JarvisVisualState.IDLE
-        7 -> if (isValidatingKey) JarvisVisualState.THINKING else JarvisVisualState.IDLE
         else -> JarvisVisualState.SUCCESS
     }
 
@@ -116,11 +105,11 @@ fun OnboardingScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                brush = Brush.verticalGradient(
+                Brush.verticalGradient(
                     listOf(
-                        Color(0xFF03060E),
-                        Color(0xFF060B16),
-                        Color(0xFF020408)
+                        Color(0xFF0B0F17),
+                        Color(0xFF0E1420),
+                        Color(0xFF0B0F17)
                     )
                 )
             )
@@ -131,7 +120,7 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header: Step indicators & Quick Launch
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -140,14 +129,14 @@ fun OnboardingScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "JARVIS PROTOCOL",
-                    color = JarvisColors.CyanPrimary,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp
+                    text = "Jarvis",
+                    color = JarvisColors.Presence,
+                    fontSize = 18.sp,
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 3.sp
                 )
-                
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -155,8 +144,8 @@ fun OnboardingScreen(
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(Color(0x1800E5FF))
-                            .border(1.dp, JarvisColors.BorderCyan.copy(alpha = 0.4f), CircleShape)
+                            .background(JarvisColors.SurfaceGlass)
+                            .border(0.5.dp, JarvisColors.Hairline, CircleShape)
                             .clickable {
                                 ApiConfig.setOnboardingCompleted(context, true)
                                 JarvisSoundManager.play(SoundEvent.ACTIVATE)
@@ -165,19 +154,18 @@ fun OnboardingScreen(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "SKIP TO CONSOLE ➔",
-                            color = JarvisColors.CyanBright,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                            text = "Skip to app \u2192",
+                            color = JarvisColors.TextSecondary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Default
                         )
                     }
 
                     Text(
-                        text = "PHASE ${currentStep + 1} / 7",
-                        color = JarvisColors.TextSecondary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        text = "Step ${currentStep + 1} of 7",
+                        color = JarvisColors.TextMuted,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
                     )
                 }
             }
@@ -192,11 +180,11 @@ fun OnboardingScreen(
                 JarvisCore(
                     state = visualState,
                     audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.35f else 0f,
-                    size = if (currentStep == 0) 260.dp else 190.dp
+                    size = if (currentStep == 0) 240.dp else 180.dp
                 )
             }
 
-            // Cinematic Content Box
+            // Content
             AnimatedContent(
                 targetState = currentStep,
                 transitionSpec = {
@@ -221,22 +209,15 @@ fun OnboardingScreen(
                         )
                         3 -> StepVoice(
                             hasMic = hasMic,
-                            onRequest = {
-                                onRequestMicrophone()
-                                hasMic = PermissionAndSetupHelper.hasMicrophone(context)
-                            }
+                            onRequest = { onRequestMicrophone() }
                         )
                         4 -> StepDeviceControl(
                             hasA11y = hasA11y,
-                            onOpen = {
-                                onOpenAccessibility()
-                            }
+                            onOpen = { onOpenAccessibility() }
                         )
                         5 -> StepNotifications(
                             hasNotif = hasNotif,
-                            onOpen = {
-                                onOpenNotificationListener()
-                            }
+                            onOpen = { onOpenNotificationListener() }
                         )
                         6 -> StepBattery(
                             hasBattery = hasBattery,
@@ -248,7 +229,7 @@ fun OnboardingScreen(
                 }
             }
 
-            // Bottom Navigation Actions
+            // Bottom navigation
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -261,7 +242,7 @@ fun OnboardingScreen(
                         onClick = { currentStep-- },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisColors.TextSecondary)
                     ) {
-                        Text("BACK", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                        Text("Back", fontSize = 13.sp)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
@@ -282,18 +263,16 @@ fun OnboardingScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = JarvisColors.CyanPrimary,
-                        contentColor = Color.Black
+                        containerColor = JarvisColors.Presence,
+                        contentColor = JarvisColors.VoidBlack
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.height(48.dp)
                 ) {
                     Text(
-                        text = if (currentStep == 6) "ACTIVATE JARVIS" else "CONTINUE",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        letterSpacing = 1.sp
+                        text = if (currentStep == 6) "Activate Jarvis" else "Continue",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
@@ -311,17 +290,16 @@ fun OnboardingScreen(
 private fun StepWelcome() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "JARVIS",
+            text = "Jarvis",
             color = JarvisColors.TextPrimary,
             fontSize = 28.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.Medium,
             letterSpacing = 3.sp
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = "Ready to become your operating layer on this phone.",
-            color = JarvisColors.CyanBright,
+            color = JarvisColors.TextSecondary,
             fontSize = 15.sp,
             textAlign = TextAlign.Center,
             lineHeight = 22.sp
@@ -333,24 +311,19 @@ private fun StepWelcome() {
 private fun StepThreeBeats() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "THE ARCHITECTURE",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            text = "How it works",
+            color = JarvisColors.Presence,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(16.dp))
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-            backgroundColor = Color(0x1400E5FF)
-        ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(18.dp)) {
-                BeatRow("VOICE", "Fluid, real-time auditory interaction and wake commands.")
+                BeatRow("Voice", "Speak naturally. Jarvis listens, understands, and acts.")
                 Spacer(modifier = Modifier.height(14.dp))
-                BeatRow("CONTROL", "Deep device automation and accessibility execution.")
+                BeatRow("Control", "Deep device automation — apps, settings, messages, calls.")
                 Spacer(modifier = Modifier.height(14.dp))
-                BeatRow("MEMORY", "Private, on-device contextual persistence.")
+                BeatRow("Memory", "Private, on-device context that improves over time.")
             }
         }
     }
@@ -364,22 +337,21 @@ private fun BeatRow(title: String, desc: String) {
                 .size(6.dp)
                 .padding(top = 6.dp)
                 .clip(CircleShape)
-                .background(JarvisColors.CyanPrimary)
+                .background(JarvisColors.Presence)
         )
         Spacer(modifier = Modifier.width(10.dp))
         Column {
             Text(
                 text = title,
                 color = JarvisColors.TextPrimary,
-                fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
             )
             Text(
                 text = desc,
                 color = JarvisColors.TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 16.sp
+                fontSize = 13.sp,
+                lineHeight = 18.sp
             )
         }
     }
@@ -392,29 +364,19 @@ private fun StepUserIdentity(
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "LOCAL IDENTITY",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "How should JARVIS address you?",
+            text = "What should I call you?",
             color = JarvisColors.TextPrimary,
             fontSize = 15.sp,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Custom name input field
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0x1A00E5FF))
-                .border(1.dp, JarvisColors.BorderCyan, RoundedCornerShape(12.dp))
+                .background(JarvisColors.DarkSpace)
+                .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(12.dp))
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
             BasicTextField(
@@ -423,30 +385,28 @@ private fun StepUserIdentity(
                 textStyle = TextStyle(
                     color = JarvisColors.TextPrimary,
                     fontSize = 16.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Default
                 ),
-                cursorBrush = SolidColor(JarvisColors.CyanPrimary),
+                cursorBrush = SolidColor(JarvisColors.Presence),
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        // Quick preset chips
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Macaulay", "Sir", "Boss", "Commander").forEach { preset ->
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(if (name == preset) JarvisColors.CyanPrimary.copy(alpha = 0.25f) else Color(0x10FFFFFF))
-                        .border(1.dp, if (name == preset) JarvisColors.CyanPrimary else Color(0x22FFFFFF), CircleShape)
+                        .background(if (name == preset) JarvisColors.Presence.copy(alpha = 0.15f) else JarvisColors.SurfaceGlass)
+                        .border(0.5.dp, if (name == preset) JarvisColors.Presence.copy(alpha = 0.4f) else JarvisColors.Hairline, CircleShape)
                         .clickable { onNameChange(preset) }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = preset,
-                        color = if (name == preset) JarvisColors.CyanBright else JarvisColors.TextSecondary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        color = if (name == preset) JarvisColors.Presence else JarvisColors.TextSecondary,
+                        fontSize = 13.sp
                     )
                 }
             }
@@ -455,18 +415,13 @@ private fun StepUserIdentity(
 }
 
 @Composable
-private fun StepVoice(
-    hasMic: Boolean,
-    onRequest: () -> Unit
-) {
+private fun StepVoice(hasMic: Boolean, onRequest: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "AUDIO SENSORY LAYER",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            text = "Voice input",
+            color = JarvisColors.TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -476,29 +431,23 @@ private fun StepVoice(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-        StatusActionCard(
-            title = "Microphone Permission",
+        PermissionActionCard(
+            title = "Microphone",
             isGranted = hasMic,
-            actionLabel = if (hasMic) "Calibrated" else "Grant Access",
+            actionLabel = if (hasMic) "Granted" else "Grant access",
             onAction = onRequest
         )
     }
 }
 
 @Composable
-private fun StepDeviceControl(
-    hasA11y: Boolean,
-    onOpen: () -> Unit
-) {
+private fun StepDeviceControl(hasA11y: Boolean, onOpen: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "DEVICE CONTROL MATRIX",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            text = "Device control",
+            color = JarvisColors.TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -508,92 +457,75 @@ private fun StepDeviceControl(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-        StatusActionCard(
-            title = "Jarvis Accessibility Service",
+        PermissionActionCard(
+            title = "Accessibility service",
             isGranted = hasA11y,
-            actionLabel = if (hasA11y) "Active" else "Open Settings",
+            actionLabel = if (hasA11y) "Active" else "Open settings",
             onAction = onOpen
         )
     }
 }
 
 @Composable
-private fun StepNotifications(
-    hasNotif: Boolean,
-    onOpen: () -> Unit
-) {
+private fun StepNotifications(hasNotif: Boolean, onOpen: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "NOTIFICATION STREAM",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            text = "Notifications",
+            color = JarvisColors.TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Permit JARVIS to read incoming messages and draft intelligent replies.",
+            text = "Read incoming messages and draft intelligent replies.",
             color = JarvisColors.TextSecondary,
             fontSize = 13.sp,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-        StatusActionCard(
-            title = "Notification Listener",
+        PermissionActionCard(
+            title = "Notification listener",
             isGranted = hasNotif,
-            actionLabel = if (hasNotif) "Active" else "Enable Listener",
+            actionLabel = if (hasNotif) "Active" else "Enable listener",
             onAction = onOpen
         )
     }
 }
 
 @Composable
-private fun StepBattery(
-    hasBattery: Boolean,
-    onOpen: () -> Unit
-) {
+private fun StepBattery(hasBattery: Boolean, onOpen: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            text = "BACKGROUND RESILIENCE",
-            color = JarvisColors.CyanPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 2.sp
+            text = "Background access",
+            color = JarvisColors.TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Disable battery restrictions so JARVIS remains responsive 24/7.",
+            text = "Disable battery restrictions so Jarvis stays responsive.",
             color = JarvisColors.TextSecondary,
             fontSize = 13.sp,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-        StatusActionCard(
-            title = "Unrestricted Battery Mode",
+        PermissionActionCard(
+            title = "Unrestricted battery",
             isGranted = hasBattery,
-            actionLabel = if (hasBattery) "Exempted" else "Request Exemption",
+            actionLabel = if (hasBattery) "Exempted" else "Request exemption",
             onAction = onOpen
         )
     }
 }
 
 @Composable
-private fun StatusActionCard(
+private fun PermissionActionCard(
     title: String,
     isGranted: Boolean,
     actionLabel: String,
     onAction: () -> Unit
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        backgroundColor = if (isGranted) Color(0x1800F5D4) else Color(0x1400E5FF),
-        borderColor = if (isGranted) Color(0x5500F5D4) else JarvisColors.BorderCyan
-    ) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -605,31 +537,30 @@ private fun StatusActionCard(
                 Icon(
                     imageVector = if (isGranted) Icons.Default.Check else Icons.Default.Security,
                     contentDescription = null,
-                    tint = if (isGranted) Color(0xFF00F5D4) else JarvisColors.CyanPrimary,
+                    tint = if (isGranted) JarvisColors.StateSuccess else JarvisColors.Presence,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = title,
                     color = JarvisColors.TextPrimary,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
 
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isGranted) Color(0x2200F5D4) else JarvisColors.CyanPrimary)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isGranted) JarvisColors.StateSuccess.copy(alpha = 0.10f) else JarvisColors.Presence)
                     .clickable(enabled = !isGranted) { onAction() }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
                 Text(
-                    text = actionLabel.uppercase(),
-                    color = if (isGranted) Color(0xFF00F5D4) else Color.Black,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    text = actionLabel,
+                    color = if (isGranted) JarvisColors.StateSuccess else JarvisColors.VoidBlack,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }

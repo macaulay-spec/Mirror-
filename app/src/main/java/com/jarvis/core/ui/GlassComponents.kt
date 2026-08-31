@@ -7,7 +7,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,10 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -42,48 +43,69 @@ import androidx.compose.ui.unit.sp
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
 
+/**
+ * Glass card — translucent panel with soft inner highlight, not a flat border.
+ *
+ * Design spec: panels are translucent (--bg-glass) with soft definition from
+ * a 1px inner highlight (top edge) plus soft shadow. Color appears in a panel
+ * because something inside it is that color, not because the container is
+ * outlined in it.
+ */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(16.dp),
+    shape: Shape = RoundedCornerShape(20.dp),
     backgroundColor: Color = JarvisColors.SurfaceGlass,
-    borderColor: Color = JarvisColors.BorderCyan,
-    borderWidth: Dp = 1.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        backgroundColor,
-                        backgroundColor.copy(alpha = backgroundColor.alpha * 0.4f)
-                    )
-                )
+            .shadow(
+                elevation = 8.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.3f),
+                spotColor = Color.Black.copy(alpha = 0.15f)
             )
+            .clip(shape)
+            .background(backgroundColor)
+            // Soft inner highlight — top edge only, 1px
             .border(
-                border = BorderStroke(borderWidth, borderColor),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.06f),
+                            Color.Transparent
+                        )
+                    )
+                ),
                 shape = shape
             ),
         content = content
     )
 }
 
+/**
+ * Action pill — rounded chip with subtle glass background.
+ * Not flat black with cyan border.
+ */
 @Composable
 fun ActionPill(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    accentColor: Color = JarvisColors.CyanPrimary,
+    accentColor: Color = JarvisColors.Presence,
     leadingIcon: (@Composable () -> Unit)? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
-            .clip(CircleShape)
-            .background(JarColorsInternal.PillBg)
-            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)), CircleShape)
+            .clip(RoundedCornerShape(14.dp))
+            .background(JarvisColors.SurfaceGlass)
+            .border(
+                BorderStroke(0.8.dp, JarvisColors.Hairline),
+                RoundedCornerShape(14.dp)
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -99,21 +121,25 @@ fun ActionPill(
         Text(
             text = label,
             color = JarvisColors.TextPrimary,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Default,
+            fontWeight = FontWeight.Normal
         )
     }
 }
 
+/**
+ * Status beacon — small pulsing dot + label.
+ * Uses presence color, not monospace all-caps.
+ */
 @Composable
 fun StatusBeacon(
     state: JarvisVisualState,
     modifier: Modifier = Modifier,
     label: String? = null
 ) {
-    val accent = state.accent()
-    val transition = rememberInfiniteTransition(label = "beacon_pulse")
+    val accent = state.orbColor()
+    val transition = rememberInfiniteTransition(label = "beacon")
     val alpha by transition.animateFloat(
         initialValue = 0.4f,
         targetValue = 1.0f,
@@ -121,7 +147,7 @@ fun StatusBeacon(
             animation = tween(1200, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "beacon_alpha"
+        label = "beaconAlpha"
     )
 
     Row(
@@ -137,21 +163,23 @@ fun StatusBeacon(
         if (label != null) {
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = label.uppercase(),
+                text = label,
                 color = accent,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal
             )
         }
     }
 }
 
+/**
+ * Divider — subtle horizontal line, not holographic cyan.
+ */
 @Composable
 fun HolographicDivider(
     modifier: Modifier = Modifier,
-    color: Color = JarvisColors.CyanPrimary.copy(alpha = 0.2f)
+    color: Color = JarvisColors.Hairline
 ) {
     Box(
         modifier = modifier
@@ -159,93 +187,81 @@ fun HolographicDivider(
             .height(1.dp)
             .background(
                 brush = Brush.horizontalGradient(
-                    listOf(
-                        Color.Transparent,
-                        color,
-                        color,
-                        Color.Transparent
-                    )
+                    listOf(Color.Transparent, color, color, Color.Transparent)
                 )
             )
     )
 }
 
+/**
+ * Terminal badge — monospace badge for technical values only.
+ * Not used for regular UI labels.
+ */
 @Composable
 fun TerminalBadge(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = JarvisColors.CyanPrimary
+    color: Color = JarvisColors.Presence
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(color.copy(alpha = 0.12f))
-            .border(BorderStroke(0.8.dp, color.copy(alpha = 0.4f)), RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = 0.08f))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
         Text(
             text = text,
-            color = color,
-            fontSize = 9.sp,
+            color = color.copy(alpha = 0.8f),
+            fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.5.sp
+            fontWeight = FontWeight.Normal
         )
     }
 }
 
+/**
+ * Metric bar — progress indicator with label.
+ */
 @Composable
 fun MetricBar(
     label: String,
     value: Float, // 0f..1f
     modifier: Modifier = Modifier,
-    accentColor: Color = JarvisColors.CyanPrimary
+    accentColor: Color = JarvisColors.Presence
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = label.uppercase(),
+            text = label,
             color = JarvisColors.TextSecondary,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Default,
             modifier = Modifier.width(72.dp)
         )
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(6.dp)
-                .clip(CircleShape)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
                 .background(JarvisColors.SurfaceCard)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(value.coerceIn(0f, 1f))
-                    .height(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            listOf(
-                                accentColor.copy(alpha = 0.7f),
-                                accentColor
-                            )
-                        )
-                    )
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accentColor.copy(alpha = 0.7f))
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "${(value * 100).toInt()}%",
             color = JarvisColors.TextPrimary,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Default,
             modifier = Modifier.width(36.dp)
         )
     }
-}
-
-private object JarColorsInternal {
-    val PillBg = Color(0x1400E5FF)
 }

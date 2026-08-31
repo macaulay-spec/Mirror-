@@ -26,26 +26,16 @@ read the screen and tap/type inside other apps.
   special Settings page (notification access, accessibility, overlay, write-settings,
   usage stats, battery exemptions, location, files, install unknown apps).
 
-## Permissions this app can request
+## AI Provider Model
 
-The manifest declares the maximum an Android app can get, including:
+**API keys live on your device, not in a cloud backend.** JARVIS calls AI providers
+(Google Gemini, xAI Grok, OpenAI, Anthropic, etc.) directly from the phone. Your
+keys are stored in `local.properties` (gitignored) or in SharedPreferences and
+never leave your device.
 
-- Voice: `RECORD_AUDIO`, `FOREGROUND_SERVICE_MICROPHONE`
-- Messages: `SEND_SMS`, `RECEIVE_SMS`, `READ_SMS`, `READ_CONTACTS`, notification-listener
-- Full mode: accessibility service, `SYSTEM_ALERT_WINDOW`, `WRITE_SETTINGS`,
-  `PACKAGE_USAGE_STATS`, `QUERY_ALL_PACKAGES`, `SCHEDULE_EXACT_ALARM`
-- Location: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`
-- Calendar/contacts: read/write calendar, read/write contacts
-- Media/files: camera, read media (image/video/audio), manage external storage
-- Calls: `CALL_PHONE`, `READ_PHONE_STATE`, `READ_PHONE_NUMBERS`, `READ_CALL_LOG`,
-  `WRITE_CALL_LOG`, `ANSWER_PHONE_CALLS`
-- Sensors/activity: `BODY_SENSORS`, `ACTIVITY_RECOGNITION`
-- Connectivity: Wi-Fi state/change, Bluetooth, NFC, internet
-- Other: `BATTERY_STATS`, `VIBRATE`, `WAKE_LOCK`, biometric
-
-Some of these (usage stats, overlay, write-settings, install unknown apps, battery
-exemption, accessibility, notification access) can't be granted with a runtime dialog —
-they open their respective Settings page, and the Settings screen has buttons for each.
+This is the honest, working model. The app is fully functional without any API keys
+(zero-key mode uses on-device STT + TTS + local rule engine). Adding a key unlocks
+smarter AI conversations via real function calling.
 
 ---
 
@@ -130,8 +120,20 @@ app/src/main/java/com/jarvis/app/config/ApiConfig.kt
 Rules:
 - **Leave them empty and JARVIS uses the local engine.** Nothing breaks.
 - Only add what you actually use. The app is already fully functional without them.
-- Never put real keys in a public repo. Use a `local.properties` or environment var if you ever share the code.
+- Never put real keys in a public repo. Use `local.properties` or environment var if you ever share the code.
 - We will wire the AI gateway (`AiGateway.kt`) to actually **call these** once you paste them in — the hooks are already built, so it's a fill-in, not a redo.
+
+---
+
+## Design System
+
+JARVIS uses a calm, precise visual identity:
+
+- **Base**: deep graphite-blue (#0B0F17), not true black
+- **Accents**: ice-blue (#6FD3FF) for presence + soft amber (#F5B87A) for warmth
+- **Orb**: one unified visual everywhere — luminous core + single thin ring, state-driven
+- **Typography**: clean sans-serif (Inter/system), monospace reserved for technical readouts only
+- **Materiality**: translucent glass panels with soft shadows, not flat cyan-bordered cards
 
 ---
 

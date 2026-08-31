@@ -1,10 +1,10 @@
 package com.jarvis.feature.home
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,20 +38,16 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ChatBubbleOutline
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardVoice
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -76,6 +72,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
@@ -97,6 +94,16 @@ enum class StageMode {
     CONVERSATION
 }
 
+/**
+ * Dual-mode host: Voice Stage (orb-centric) and Conversation (chat-centric).
+ *
+ * Design fixes:
+ * - Message list fills available vertical space (no dead zone)
+ * - Empty state shows Orb centered with "Standing by."
+ * - Quick-command chips always visible, never overlapping messages
+ * - No duplicate Orb graphics
+ * - Uses new design tokens (graphite-blue, presence/warmth accents)
+ */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun DualModeHost(
@@ -115,7 +122,9 @@ fun DualModeHost(
 
     // Call duration timer
     var callSeconds by remember { mutableIntStateOf(0) }
-    val isCallActive = visualState == JarvisVisualState.LISTENING || visualState == JarvisVisualState.SPEAKING || visualState == JarvisVisualState.THINKING
+    val isCallActive = visualState == JarvisVisualState.LISTENING ||
+            visualState == JarvisVisualState.SPEAKING ||
+            visualState == JarvisVisualState.THINKING
 
     LaunchedEffect(isCallActive) {
         if (isCallActive) {
@@ -146,9 +155,9 @@ fun DualModeHost(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xFF03060E),
-                            Color(0xFF070D18),
-                            Color(0xFF020408)
+                            Color(0xFF0B0F17),
+                            Color(0xFF0E1420),
+                            Color(0xFF0B0F17)
                         )
                     )
                 )
@@ -158,13 +167,14 @@ fun DualModeHost(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // Top Minimal HUD
+                // Top header
                 TopPresenceHeader(
                     mode = stageMode,
                     visualState = visualState,
                     callDurationSeconds = if (isCallActive) callSeconds else null,
                     onSwitchMode = {
-                        stageMode = if (stageMode == StageMode.VOICE_STAGE) StageMode.CONVERSATION else StageMode.VOICE_STAGE
+                        stageMode = if (stageMode == StageMode.VOICE_STAGE)
+                            StageMode.CONVERSATION else StageMode.VOICE_STAGE
                     },
                     onOpenSettings = onOpenSettings,
                     onEmergencyStop = { orchestrator.emergencyStop() }
@@ -172,12 +182,12 @@ fun DualModeHost(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Shared Living Orb Morphing Container
+                // Main content area — fills available space
                 AnimatedContent(
                     targetState = stageMode,
                     transitionSpec = {
-                        (fadeIn(animationSpec = tween(400)) + slideInVertically()).togetherWith(
-                            fadeOut(animationSpec = tween(400)) + slideOutVertically()
+                        (fadeIn(tween(300)) + slideInVertically()).togetherWith(
+                            fadeOut(tween(300)) + slideOutVertically()
                         )
                     },
                     modifier = Modifier.weight(1f).fillMaxSize(),
@@ -207,7 +217,7 @@ fun DualModeHost(
                     }
                 }
 
-                // Bottom Input & Controls
+                // Bottom input — only in conversation mode
                 if (stageMode == StageMode.CONVERSATION) {
                     ChatInputBar(
                         value = inputText,
@@ -230,6 +240,8 @@ fun DualModeHost(
     }
 }
 
+// ── Top Header ────────────────────────────────────────────────────────────
+
 @Composable
 private fun TopPresenceHeader(
     mode: StageMode,
@@ -239,7 +251,11 @@ private fun TopPresenceHeader(
     onOpenSettings: () -> Unit,
     onEmergencyStop: () -> Unit
 ) {
-    val accent = visualState.accent()
+    val accent by animateColorAsState(
+        targetValue = visualState.orbColor(),
+        animationSpec = spring(),
+        label = "headerAccent"
+    )
 
     Row(
         modifier = Modifier
@@ -255,12 +271,12 @@ private fun TopPresenceHeader(
             Text(
                 text = "JARVIS",
                 color = JarvisColors.TextPrimary,
-                fontSize = 15.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
+                fontSize = 18.sp,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 3.sp
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Box(
                 modifier = Modifier
                     .size(6.dp)
@@ -272,15 +288,14 @@ private fun TopPresenceHeader(
                 text = if (callDurationSeconds != null) {
                     val mins = callDurationSeconds / 60
                     val secs = callDurationSeconds % 60
-                    "LIVE %02d:%02d".format(mins, secs)
+                    "Live %02d:%02d".format(mins, secs)
                 } else {
-                    visualState.label.uppercase()
+                    visualState.label
                 },
                 color = accent,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal
             )
         }
 
@@ -290,7 +305,8 @@ private fun TopPresenceHeader(
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(
-                    imageVector = if (mode == StageMode.VOICE_STAGE) Icons.Default.ChatBubbleOutline else Icons.Default.KeyboardVoice,
+                    imageVector = if (mode == StageMode.VOICE_STAGE)
+                        Icons.Default.ChatBubbleOutline else Icons.Default.KeyboardVoice,
                     contentDescription = "Switch Mode",
                     tint = JarvisColors.TextSecondary,
                     modifier = Modifier.size(20.dp)
@@ -304,7 +320,7 @@ private fun TopPresenceHeader(
                 Icon(
                     imageVector = Icons.Default.PowerSettingsNew,
                     contentDescription = "Stop",
-                    tint = JarvisColors.CrimsonAlert.copy(alpha = 0.8f),
+                    tint = JarvisColors.StateError.copy(alpha = 0.8f),
                     modifier = Modifier.size(19.dp)
                 )
             }
@@ -324,6 +340,8 @@ private fun TopPresenceHeader(
     }
 }
 
+// ── Voice Stage View ──────────────────────────────────────────────────────
+
 @Composable
 private fun VoiceStageView(
     visualState: JarvisVisualState,
@@ -334,25 +352,27 @@ private fun VoiceStageView(
     onOrbTap: () -> Unit,
     onSwitchToChat: () -> Unit
 ) {
-    val accent = visualState.accent()
+    val accent by animateColorAsState(
+        targetValue = visualState.orbColor(),
+        animationSpec = spring(),
+        label = "voiceAccent"
+    )
 
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Holographic Telemetry Bar
+        // Status bar — clean, no holographic gimmicks
         GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            backgroundColor = Color(0x1000E5FF),
-            borderColor = JarvisColors.BorderCyan.copy(alpha = 0.35f)
+                .padding(vertical = 4.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -360,18 +380,18 @@ private fun VoiceStageView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Speed,
-                        contentDescription = null,
-                        tint = JarvisColors.CyanBright,
-                        modifier = Modifier.size(14.dp)
+                    Text(
+                        text = "Core",
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
                     )
                     Text(
-                        text = "CORE: GEMINI 2.5",
-                        color = JarvisColors.CyanBright,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                        text = ApiConfig.getProviderLabel(),
+                        color = JarvisColors.Presence,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
@@ -379,43 +399,26 @@ private fun VoiceStageView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = null,
-                        tint = JarvisColors.TealSecondary,
-                        modifier = Modifier.size(14.dp)
+                    Text(
+                        text = "Overlay",
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
                     )
                     Text(
-                        text = "AUDIO: ${ApiConfig.voiceEngineType.uppercase()}",
-                        color = JarvisColors.TealSecondary,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Layers,
-                        contentDescription = null,
-                        tint = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) JarvisColors.CyanBright else JarvisColors.TextMuted,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) "OVERLAY: ON" else "OVERLAY: READY",
-                        color = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning) JarvisColors.CyanBright else JarvisColors.TextMuted,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                        text = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning)
+                            "Active" else "Ready",
+                        color = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning)
+                            JarvisColors.Presence else JarvisColors.TextMuted,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
         }
 
-        // Center Hero Orb Area
+        // Center: Orb + status text
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -428,8 +431,9 @@ private fun VoiceStageView(
             ) {
                 JarvisCore(
                     state = visualState,
-                    audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.45f else if (visualState == JarvisVisualState.SPEAKING) 0.3f else 0f,
-                    size = 250.dp,
+                    audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.45f
+                    else if (visualState == JarvisVisualState.SPEAKING) 0.3f else 0f,
+                    size = 220.dp,
                     onClick = onOrbTap
                 )
 
@@ -438,20 +442,21 @@ private fun VoiceStageView(
                 Text(
                     text = when (visualState) {
                         JarvisVisualState.IDLE -> "Standing by, $userName."
-                        JarvisVisualState.WAKING -> "Initializing neural core..."
-                        JarvisVisualState.LISTENING -> "Listening to speech..."
-                        JarvisVisualState.THINKING -> "Processing neural intent..."
-                        JarvisVisualState.EXECUTING -> "Executing device tools..."
-                        JarvisVisualState.SPEAKING -> "Transmitting response..."
-                        JarvisVisualState.SUCCESS -> "Action completed."
-                        JarvisVisualState.ERROR -> "Subsystem notice."
-                        JarvisVisualState.OFFLINE -> "Local protocols active."
+                        JarvisVisualState.WAKING -> "Initializing..."
+                        JarvisVisualState.LISTENING -> "Listening..."
+                        JarvisVisualState.THINKING -> "Thinking..."
+                        JarvisVisualState.EXECUTING -> "Working on it..."
+                        JarvisVisualState.SPEAKING -> "Speaking..."
+                        JarvisVisualState.SUCCESS -> "Done."
+                        JarvisVisualState.ERROR -> "Something went wrong."
+                        JarvisVisualState.OFFLINE -> "Offline mode."
                     },
                     color = JarvisColors.TextPrimary,
                     fontSize = 16.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 0.5.sp
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Normal,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 32.dp)
                 )
 
                 if (lastMessage != null && visualState != JarvisVisualState.IDLE) {
@@ -459,16 +464,17 @@ private fun VoiceStageView(
                     Text(
                         text = lastMessage.take(120),
                         color = JarvisColors.TextSecondary,
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         fontFamily = FontFamily.Default,
-                        lineHeight = 16.sp,
+                        lineHeight = 20.sp,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 32.dp)
                     )
                 }
             }
         }
 
-        // Voice Stage Controls & Quick Mode
+        // Bottom controls
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -476,15 +482,20 @@ private fun VoiceStageView(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Mic button
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(
-                        if (visualState == JarvisVisualState.LISTENING) JarvisColors.CrimsonAlert.copy(alpha = 0.25f) else Color(0x1400E5FF)
+                        if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError.copy(alpha = 0.15f)
+                        else JarvisColors.SurfaceGlass
                     )
                     .border(
                         1.dp,
-                        if (visualState == JarvisVisualState.LISTENING) JarvisColors.CrimsonAlert else JarvisColors.BorderCyan,
+                        if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError.copy(alpha = 0.4f)
+                        else JarvisColors.Hairline,
                         CircleShape
                     )
                     .clickable { onOrbTap() }
@@ -492,33 +503,38 @@ private fun VoiceStageView(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (visualState == JarvisVisualState.LISTENING) Icons.Default.CallEnd else Icons.Default.Mic,
+                        imageVector = if (visualState == JarvisVisualState.LISTENING)
+                            Icons.Default.CallEnd else Icons.Default.Mic,
                         contentDescription = "Mic",
-                        tint = if (visualState == JarvisVisualState.LISTENING) JarvisColors.CrimsonAlert else JarvisColors.CyanPrimary,
+                        tint = if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError else JarvisColors.Presence,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = if (visualState == JarvisVisualState.LISTENING) "END VOICE SESSION" else "TAP TO SPEAK",
+                        text = if (visualState == JarvisVisualState.LISTENING)
+                            "End session" else "Tap to speak",
                         color = JarvisColors.TextPrimary,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
 
+            // Quick switch hint
             Text(
-                text = "⚡ Press Accessibility Button or swipe edge to toggle HUD overlay over any app",
+                text = "Tap the orb or accessibility button to toggle overlay",
                 color = JarvisColors.TextMuted,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Default,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
     }
 }
+
+// ── Conversation View ─────────────────────────────────────────────────────
 
 @Composable
 private fun ConversationView(
@@ -529,13 +545,11 @@ private fun ConversationView(
     onOrbTap: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Docked Mini Orb Status Bar
+        // Docked mini-orb status
         GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            backgroundColor = Color(0x1000E5FF),
-            borderColor = JarvisColors.BorderCyan.copy(alpha = 0.25f)
+                .padding(vertical = 4.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -548,23 +562,23 @@ private fun ConversationView(
                     JarvisCore(
                         state = visualState,
                         audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.35f else 0f,
-                        size = 44.dp,
+                        size = 36.dp,
                         onClick = onOrbTap
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "STATUS: ${visualState.label.uppercase()}",
-                            color = visualState.accent(),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                            text = visualState.label,
+                            color = visualState.orbColor(),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Default,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "Tap orb to toggle speech capture",
+                            text = "Tap orb for voice",
                             color = JarvisColors.TextMuted,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Default
                         )
                     }
                 }
@@ -573,47 +587,52 @@ private fun ConversationView(
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Transcript
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 6.dp)
-        ) {
-            if (messages.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Awaiting command. Speak or type below.",
-                            color = JarvisColors.TextMuted,
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+        // Message list — fills available space, no dead zone
+        if (messages.isEmpty()) {
+            // Empty state: centered Orb + "Standing by."
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    JarvisCore(
+                        state = JarvisVisualState.IDLE,
+                        size = 180.dp,
+                        onClick = onOrbTap
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Standing by.",
+                        color = JarvisColors.TextMuted,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Default
+                    )
                 }
             }
-
-            items(messages, key = { it.id }) { msg ->
-                ChatMessageItem(
-                    message = msg,
-                    onConfirmTool = { req ->
-                        orchestrator.confirmToolExecution(req)
-                    },
-                    onRejectTool = {
-                        orchestrator.rejectToolExecution()
-                    }
-                )
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 6.dp)
+            ) {
+                items(messages, key = { it.id }) { msg ->
+                    ChatMessageItem(
+                        message = msg,
+                        onConfirmTool = { req -> orchestrator.confirmToolExecution(req) },
+                        onRejectTool = { orchestrator.rejectToolExecution() }
+                    )
+                }
             }
         }
     }
 }
+
+// ── Chat Message Item ─────────────────────────────────────────────────────
 
 @Composable
 private fun ChatMessageItem(
@@ -636,21 +655,21 @@ private fun ChatMessageItem(
             modifier = Modifier
                 .clip(
                     RoundedCornerShape(
-                        topStart = 14.dp,
-                        topEnd = 14.dp,
-                        bottomStart = if (isUser) 14.dp else 2.dp,
-                        bottomEnd = if (isUser) 2.dp else 14.dp
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isUser) 16.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 16.dp
                     )
                 )
                 .background(
-                    if (isUser) Color(0x1F00E5FF)
-                    else if (isSystem) Color(0x18FFFFFF)
-                    else Color(0x180E1626)
+                    if (isUser) JarvisColors.Presence.copy(alpha = 0.08f)
+                    else if (isSystem) JarvisColors.SurfaceGlass
+                    else JarvisColors.DarkSpace
                 )
                 .border(
-                    0.8.dp,
-                    if (isUser) JarvisColors.CyanPrimary.copy(alpha = 0.35f) else JarvisColors.BorderCyan.copy(alpha = 0.2f),
-                    RoundedCornerShape(14.dp)
+                    0.5.dp,
+                    JarvisColors.Hairline,
+                    RoundedCornerShape(16.dp)
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
@@ -661,18 +680,19 @@ private fun ChatMessageItem(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (isUser) "YOU" else if (isSystem) "SYSTEM" else "JARVIS",
-                        color = if (isUser) JarvisColors.CyanBright else if (isSystem) Color.White else JarvisColors.TealSecondary,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        text = if (isUser) "You" else if (isSystem) "System" else "Jarvis",
+                        color = if (isUser) JarvisColors.Presence
+                        else if (isSystem) JarvisColors.TextMuted
+                        else JarvisColors.Warmth.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = timeStr,
                         color = JarvisColors.TextMuted,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Default
                     )
                 }
 
@@ -681,20 +701,20 @@ private fun ChatMessageItem(
                 Text(
                     text = message.text,
                     color = JarvisColors.TextPrimary,
-                    fontSize = 13.sp,
+                    fontSize = 15.sp,
                     fontFamily = FontFamily.Default,
-                    lineHeight = 18.sp
+                    lineHeight = 22.sp
                 )
 
-                // Tool Execution Confirmation Card (Risk Tier 2)
+                // Tool confirmation card
                 if (message.toolCall != null && message.toolCall.requiresConfirmation && message.toolResult == null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(JarvisColors.AmberWarning.copy(alpha = 0.15f))
-                            .border(1.dp, JarvisColors.AmberWarning.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(JarvisColors.Warmth.copy(alpha = 0.08f))
+                            .border(0.5.dp, JarvisColors.Warmth.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
                             .padding(12.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -705,18 +725,18 @@ private fun ChatMessageItem(
                                 Icon(
                                     imageVector = Icons.Default.Security,
                                     contentDescription = null,
-                                    tint = JarvisColors.AmberWarning,
+                                    tint = JarvisColors.Warmth,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "CONFIRMATION PROTOCOL: ${message.toolCall.name.uppercase()}",
-                                    color = JarvisColors.AmberWarning,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
+                                    text = message.toolCall.name,
+                                    color = JarvisColors.Warmth,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Default,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
-                            
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -724,36 +744,36 @@ private fun ChatMessageItem(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(JarvisColors.AmberWarning)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(JarvisColors.Warmth)
                                         .clickable { onConfirmTool(message.toolCall) }
                                         .padding(vertical = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "CONFIRM & EXECUTE",
-                                        color = Color.Black,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
+                                        text = "Confirm",
+                                        color = JarvisColors.VoidBlack,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Default,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
 
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x25FF0055))
-                                        .border(1.dp, Color(0x66FF0055), RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(JarvisColors.StateError.copy(alpha = 0.10f))
+                                        .border(0.5.dp, JarvisColors.StateError.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
                                         .clickable { onRejectTool?.invoke() }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "CANCEL",
-                                        color = Color(0xFFFF5588),
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
+                                        text = "Cancel",
+                                        color = JarvisColors.StateError,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Default,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
@@ -764,6 +784,8 @@ private fun ChatMessageItem(
         }
     }
 }
+
+// ── Chat Input Bar ────────────────────────────────────────────────────────
 
 @Composable
 private fun ChatInputBar(
@@ -778,7 +800,7 @@ private fun ChatInputBar(
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 4.dp)
     ) {
-        // Quick Action Pills
+        // Quick action chips — always visible, horizontal scroll
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -787,43 +809,40 @@ private fun ChatInputBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(
-                "Read Notifications",
+                "Read notifications",
                 "What's on screen?",
-                "Read my OTP code",
-                "Battery & Network",
-                "Flashlight Toggle",
-                "Volume 80%",
-                "Set alarm 7 AM",
+                "Battery status",
+                "Flashlight",
+                "Volume up",
+                "Set alarm",
                 "Open WhatsApp",
-                "Remember Mumsi is my Mom"
+                "Remember this"
             ).forEach { query ->
                 Box(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color(0x1400E5FF))
-                        .border(0.8.dp, JarvisColors.BorderCyan.copy(alpha = 0.3f), CircleShape)
-                        .clickable {
-                            onValueChange(query)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(JarvisColors.SurfaceGlass)
+                        .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(14.dp))
+                        .clickable { onValueChange(query) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = query,
-                        color = JarvisColors.CyanBright,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
                     )
                 }
             }
         }
 
-        // Input Field
+        // Input field
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(Color(0x180E1626))
-                .border(1.dp, JarvisColors.BorderCyan.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                .background(JarvisColors.DarkSpace)
+                .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(20.dp))
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Row(
@@ -837,7 +856,7 @@ private fun ChatInputBar(
                     Icon(
                         imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = "Voice",
-                        tint = if (isListening) JarvisColors.CrimsonAlert else JarvisColors.CyanPrimary,
+                        tint = if (isListening) JarvisColors.StateError else JarvisColors.Presence,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -847,38 +866,38 @@ private fun ChatInputBar(
                         .weight(1f)
                         .padding(horizontal = 6.dp)
                 ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = "Ask Jarvis anything...",
+                            color = JarvisColors.TextMuted,
+                            fontSize = 15.sp,
+                            fontFamily = FontFamily.Default
+                        )
+                    }
                     BasicTextField(
                         value = value,
                         onValueChange = onValueChange,
                         textStyle = TextStyle(
                             color = JarvisColors.TextPrimary,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Default
+                            fontSize = 15.sp,
+                            fontFamily = FontFamily.Default,
+                            lineHeight = 22.sp
                         ),
-                        cursorBrush = SolidColor(JarvisColors.CyanPrimary),
+                        cursorBrush = SolidColor(JarvisColors.Presence),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = { onSend() }),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    if (value.isEmpty()) {
-                        Text(
-                            text = "Command JARVIS...",
-                            color = JarvisColors.TextMuted,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Default
-                        )
-                    }
                 }
 
                 IconButton(
                     onClick = onSend,
-                    enabled = value.isNotBlank(),
                     modifier = Modifier.size(34.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = "Send",
-                        tint = if (value.isNotBlank()) JarvisColors.CyanPrimary else JarvisColors.TextMuted,
+                        tint = if (value.isNotBlank()) JarvisColors.Presence else JarvisColors.TextMuted,
                         modifier = Modifier.size(18.dp)
                     )
                 }

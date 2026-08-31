@@ -60,10 +60,10 @@ fun JarvisCore(
     val accentColor = state.orbColor()
     val transition = rememberInfiniteTransition(label = "orb")
 
-    // Idle breathing: 96% → 100% → 96%, 4200ms ease-in-out
+    // Idle breathing: 95% → 105% → 95%, 4200ms ease-in-out
     val breathe by transition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
+        initialValue = 0.95f,
+        targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
             animation = tween(4200, easing = EaseInOutSine),
             repeatMode = RepeatMode.Reverse
@@ -95,15 +95,15 @@ fun JarvisCore(
 
     // Smooth state transitions
     val targetBrightness = when (state) {
-        JarvisVisualState.IDLE -> 0.40f
-        JarvisVisualState.WAKING -> 0.65f
-        JarvisVisualState.LISTENING -> 0.90f
-        JarvisVisualState.THINKING -> 0.75f
-        JarvisVisualState.EXECUTING -> 0.80f
-        JarvisVisualState.SPEAKING -> 0.85f
+        JarvisVisualState.IDLE -> 0.60f       // bumped from 0.40 — design shows visible Orb at idle
+        JarvisVisualState.WAKING -> 0.75f
+        JarvisVisualState.LISTENING -> 0.95f
+        JarvisVisualState.THINKING -> 0.85f
+        JarvisVisualState.EXECUTING -> 0.90f
+        JarvisVisualState.SPEAKING -> 0.90f
         JarvisVisualState.SUCCESS -> 0.95f
         JarvisVisualState.ERROR -> 0.90f
-        JarvisVisualState.OFFLINE -> 0.25f
+        JarvisVisualState.OFFLINE -> 0.30f
     }
     val brightness by animateFloatAsState(
         targetValue = targetBrightness,
@@ -139,8 +139,8 @@ fun JarvisCore(
             val cy = canvasSize.height / 2f
             val center = Offset(cx, cy)
             val baseRadius = canvasSize.minDimension / 2f
-            val coreRadius = baseRadius * 0.35f
-            val ringRadius = coreRadius * 1.3f
+            val coreRadius = baseRadius * 0.30f
+            val ringRadius = coreRadius * 1.6f
 
             // ── Ambient glow ─────────────────────────────────────────
             drawAmbientGlow(center, coreRadius * 3f, accentColor, brightness)
@@ -212,10 +212,11 @@ private fun DrawScope.drawAmbientGlow(
     color: Color,
     brightness: Float
 ) {
+    // Outer diffuse glow
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.20f * brightness),
+                color.copy(alpha = 0.15f * brightness),
                 color.copy(alpha = 0.06f * brightness),
                 Color.Transparent
             ),
@@ -223,6 +224,20 @@ private fun DrawScope.drawAmbientGlow(
             radius = radius
         ),
         radius = radius,
+        center = center
+    )
+    // Inner brighter glow ring
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                color.copy(alpha = 0.25f * brightness),
+                color.copy(alpha = 0.08f * brightness),
+                Color.Transparent
+            ),
+            center = center,
+            radius = radius * 0.65f
+        ),
+        radius = radius * 0.65f,
         center = center
     )
 }
@@ -240,14 +255,14 @@ private fun DrawScope.drawLuminousCore(
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.30f * brightness),
-                color.copy(alpha = 0.10f * brightness),
+                color.copy(alpha = 0.35f * brightness),
+                color.copy(alpha = 0.12f * brightness),
                 Color.Transparent
             ),
             center = center,
-            radius = dynamicR * 2.2f
+            radius = dynamicR * 2.4f
         ),
-        radius = dynamicR * 2.2f,
+        radius = dynamicR * 2.4f,
         center = center
     )
 
@@ -255,24 +270,24 @@ private fun DrawScope.drawLuminousCore(
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.65f * brightness),
-                color.copy(alpha = 0.30f * brightness),
+                color.copy(alpha = 0.70f * brightness),
+                color.copy(alpha = 0.35f * brightness),
                 Color.Transparent
             ),
             center = center,
-            radius = dynamicR * 1.4f
+            radius = dynamicR * 1.5f
         ),
-        radius = dynamicR * 1.4f,
+        radius = dynamicR * 1.5f,
         center = center
     )
 
-    // Solid core
+    // Solid core — bright luminous sphere
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                Color.White.copy(alpha = 0.90f * brightness),
-                color.copy(alpha = 0.85f * brightness),
-                color.copy(alpha = 0.50f * brightness)
+                Color.White.copy(alpha = 0.95f * brightness),
+                color.copy(alpha = 0.90f * brightness),
+                color.copy(alpha = 0.55f * brightness)
             ),
             center = center,
             radius = dynamicR
@@ -281,34 +296,34 @@ private fun DrawScope.drawLuminousCore(
         center = center
     )
 
-    // Inner nucleus highlight
+    // Inner nucleus highlight (bright white center)
     drawCircle(
-        color = Color.White.copy(alpha = 0.80f * brightness),
-        radius = dynamicR * 0.38f,
+        color = Color.White.copy(alpha = 0.85f * brightness),
+        radius = dynamicR * 0.40f,
         center = center
     )
 
-    // Dark pupil
+    // Dark pupil (the eye-like center from the design)
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                JarvisColors.VoidBlack.copy(alpha = 0.85f),
-                JarvisColors.VoidBlack.copy(alpha = 0.40f),
+                JarvisColors.VoidBlack.copy(alpha = 0.90f),
+                JarvisColors.VoidBlack.copy(alpha = 0.50f),
                 Color.Transparent
             ),
             center = center,
-            radius = dynamicR * 0.22f
+            radius = dynamicR * 0.25f
         ),
-        radius = dynamicR * 0.22f,
+        radius = dynamicR * 0.25f,
         center = center
     )
 
-    // Iris ring
+    // Iris ring (glowing ring around the pupil)
     drawCircle(
-        color = color.copy(alpha = 0.60f * brightness),
-        radius = dynamicR * 0.20f,
+        color = color.copy(alpha = 0.70f * brightness),
+        radius = dynamicR * 0.22f,
         center = center,
-        style = Stroke(width = 1f)
+        style = Stroke(width = 1.5f)
     )
 }
 
@@ -360,24 +375,24 @@ private fun DrawScope.drawExecutingArc(
     rotation: Float,
     brightness: Float
 ) {
-    // Base faint ring
+    // Base ring (more visible)
     drawCircle(
-        color = color.copy(alpha = 0.10f * brightness),
+        color = color.copy(alpha = 0.15f * brightness),
         radius = radius,
         center = center,
-        style = Stroke(width = 1.2f)
+        style = Stroke(width = 1.5f)
     )
 
     // Rotating arc segment (determinate-ish progress)
     rotate(rotation, pivot = center) {
         drawArc(
-            color = color.copy(alpha = 0.80f * brightness),
+            color = color.copy(alpha = 0.85f * brightness),
             startAngle = 0f,
             sweepAngle = 90f,
             useCenter = false,
             topLeft = Offset(center.x - radius, center.y - radius),
             size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
-            style = Stroke(width = 2.5f, cap = StrokeCap.Round)
+            style = Stroke(width = 3f, cap = StrokeCap.Round)
         )
     }
 }

@@ -39,7 +39,7 @@ enum class JarvisVisualState(val label: String) {
      * Each state gets its OWN hue — not brightness steps of cyan.
      */
     fun orbColor(): Color = when (this) {
-        IDLE -> Color(0x666FD3FF)       // Dim presence (40%)
+        IDLE -> Color(0xAA6FD3FF)       // Visible presence (~67% alpha)
         WAKING -> Color(0xFF6FD3FF)     // Presence, partial
         LISTENING -> Color(0xFF6FD3FF)  // Bright presence
         THINKING -> Color(0xFFB79CFF)   // Soft violet

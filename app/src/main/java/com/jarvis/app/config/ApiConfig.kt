@@ -13,8 +13,9 @@ import com.jarvis.app.BuildConfig
  *   3. BuildConfig keys (injected from local.properties at compile time)
  *
  * Key auto-detection:
- *   AQ.*       → xAI Grok (grok-3-mini or grok-2)
+ *   xai-*      → xAI Grok (grok-3-mini or grok-2)
  *   AIzaSy*    → Google Gemini
+ *   AQ.*       → Google Gemini (service key format)
  *   sk-ant-*   → Anthropic Claude
  *   sk-*       → OpenAI
  *   gsk_*      → Groq
@@ -76,15 +77,16 @@ object ApiConfig {
 
     // ── API Keys (hardcoded for direct API mode) ──────────────────────────
     // Private repo — keys are safe here. The app routes directly to providers.
-    private const val HARDCODED_XAI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
+    // NOTE: AQ.Ab8... is a GEMINI key, not xAI. xAI keys start with xai-.
+    private const val HARDCODED_GEMINI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
     private const val HARDCODED_ELEVENLABS_KEY = "sk_d61e4d09ae895bb4d35669e1c9d10717aef92d3029db7332"
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String
-        get() = BuildConfig.XAI_API_KEY.ifBlank { HARDCODED_XAI_KEY }
+        get() = BuildConfig.XAI_API_KEY
 
     val GEMINI_API_KEY: String
-        get() = BuildConfig.GEMINI_API_KEY
+        get() = BuildConfig.GEMINI_API_KEY.ifBlank { HARDCODED_GEMINI_KEY }
 
     val ELEVENLABS_API_KEY: String
         get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
@@ -96,10 +98,10 @@ object ApiConfig {
         get() {
             // 1. User's custom key
             customProvider?.takeIf { it.isNotBlank() }?.let { return it }
-            // 2. xAI BuildConfig key
-            if (XAI_API_KEY.isNotBlank()) return "xai"
-            // 3. Gemini BuildConfig key
+            // 2. Gemini (primary — the AQ.* key is Gemini)
             if (GEMINI_API_KEY.isNotBlank()) return "gemini"
+            // 3. xAI (only if user has a real xai-* key)
+            if (XAI_API_KEY.isNotBlank()) return "xai"
             return "gemini"
         }
 
@@ -109,10 +111,10 @@ object ApiConfig {
             // 1. User's custom key
             val custom = customApiKey?.trim()
             if (!custom.isNullOrBlank()) return custom
-            // 2. xAI BuildConfig key
-            if (XAI_API_KEY.isNotBlank()) return XAI_API_KEY
-            // 3. Gemini BuildConfig key
+            // 2. Gemini (primary)
             if (GEMINI_API_KEY.isNotBlank()) return GEMINI_API_KEY
+            // 3. xAI (only if user has a real xai-* key)
+            if (XAI_API_KEY.isNotBlank()) return XAI_API_KEY
             return ""
         }
 
@@ -121,7 +123,7 @@ object ApiConfig {
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
-        "xai"        -> "xAI Grok"
+        "xai"        -> "xAI Grok (Grok-3)"
         "gemini"     -> "Google Gemini"
         "openai"     -> "OpenAI"
         "cerebras"   -> "Cerebras"
@@ -161,8 +163,8 @@ object ApiConfig {
 
     // ── Key auto-detection ────────────────────────────────────────────────
     fun autoDetectProvider(key: String): String = when {
-        key.startsWith("AQ.")          -> "xai"
         key.startsWith("AIzaSy")       -> "gemini"
+        key.startsWith("AQ.")          -> "gemini"   // AQ.* = Gemini service key
         key.startsWith("sk-ant-")      -> "anthropic"
         key.startsWith("sk-proj-") || (key.startsWith("sk-") && !key.startsWith("sk-ant-")) -> "openai"
         key.startsWith("gsk_")         -> "groq"

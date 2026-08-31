@@ -36,7 +36,7 @@ object JarvisColors {
     val Warmth = Color(0xFFF5B87A)          // soft amber — highlights, thinking accent
 
     // ── State Colors ─────────────────────────────────────────────────────
-    val StateIdle = Color(0x666FD3FF)       // dim presence (40% opacity)
+    val StateIdle = Color(0xAA6FD3FF)       // visible presence (~67% alpha)
     val StateListening = Color(0xE66FD3FF)  // bright presence (~90%)
     val StateThinking = Color(0xFFB79CFF)   // soft violet
     val StateExecuting = Color(0xFFF5B87A)  // warmth amber

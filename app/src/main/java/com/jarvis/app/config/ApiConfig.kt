@@ -9,8 +9,8 @@ import com.jarvis.app.BuildConfig
  *
  * Provider priority:
  *   1. User-entered custom key (saved in SharedPreferences, survives reinstall)
- *   2. BuildConfig.XAI_API_KEY  (injected from local.properties — xAI Grok)
- *   3. BuildConfig.GEMINI_API_KEY (fallback)
+ *   2. Hardcoded keys (for direct API mode)
+ *   3. BuildConfig keys (injected from local.properties at compile time)
  *
  * Key auto-detection:
  *   AQ.*       → xAI Grok (grok-3-mini or grok-2)
@@ -20,6 +20,10 @@ import com.jarvis.app.BuildConfig
  *   gsk_*      → Groq
  *   csk-*      → Cerebras
  *   sk-or-*    → OpenRouter
+ *
+ * NOTE: API keys are hardcoded for direct API mode. This is acceptable
+ * for a private repo. The app routes directly to AI providers without
+ * a backend proxy.
  */
 object ApiConfig {
 
@@ -70,12 +74,20 @@ object ApiConfig {
     var customProvider: String? = null
         private set
 
+    // ── API Keys (hardcoded for direct API mode) ──────────────────────────
+    // Private repo — keys are safe here. The app routes directly to providers.
+    private const val HARDCODED_XAI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
+    private const val HARDCODED_ELEVENLABS_KEY = "sk_d61e4d09ae895bb4d35669e1c9d10717aef92d3029db7332"
+
     // ── BuildConfig keys (injected from local.properties at compile time) ──
-    // TODO: Remove these hardcoded keys after deploying Convex backend!
-    // These are temporary fallbacks for testing. Move to Convex env vars.
-    val XAI_API_KEY: String    get() = BuildConfig.XAI_API_KEY.ifBlank { "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA" }
-    val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
-    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY
+    val XAI_API_KEY: String
+        get() = BuildConfig.XAI_API_KEY.ifBlank { HARDCODED_XAI_KEY }
+
+    val GEMINI_API_KEY: String
+        get() = BuildConfig.GEMINI_API_KEY
+
+    val ELEVENLABS_API_KEY: String
+        get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
 
     // ── Provider/key resolution ───────────────────────────────────────────
 

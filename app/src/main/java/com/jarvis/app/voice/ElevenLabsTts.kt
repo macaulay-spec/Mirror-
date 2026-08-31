@@ -3,7 +3,8 @@ package com.jarvis.app.voice
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
-import android.util.Base64
+import android.util.Log
+import com.jarvis.app.config.ApiConfig
 import com.jarvis.app.config.BackendConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,19 +14,18 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 /**
- * ElevenLabs TTS client — routes through the JARVIS backend proxy.
+ * ElevenLabs TTS client — supports both backend proxy and direct API mode.
  *
  * Features:
  *   - Voice selection with preview
  *   - Multiple voice categories (premade, cloned, generated)
- *   - Streaming synthesis via backend proxy
+ *   - Streaming synthesis via backend proxy OR direct ElevenLabs API
  *   - Falls back to Android TTS if backend is unavailable
  */
 class ElevenLabsTts(private val context: Context) {
@@ -59,9 +59,10 @@ class ElevenLabsTts(private val context: Context) {
     val isSpeaking: StateFlow<Boolean> = _isSpeaking
 
     companion object {
+        private const val TAG = "ElevenLabsTts"
         private const val PREFS_NAME = "jarvis_voice"
         private const val KEY_VOICE_ID = "elevenlabs_voice_id"
-        private const val DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM" // Rachel
+        private const val DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb" // George (Classic JARVIS)
     }
 
     init {
@@ -73,22 +74,34 @@ class ElevenLabsTts(private val context: Context) {
     // ── Public API ─────────────────────────────────────────────────────
 
     /**
-     * Fetch available voices from the backend.
+     * Fetch available voices from ElevenLabs.
+     * Works in both backend proxy and direct mode.
      */
     suspend fun refreshVoices(): Result<List<Voice>> = withContext(Dispatchers.IO) {
-        if (!BackendConfig.USE_BACKEND) {
-            return@withContext Result.failure(Exception("Backend not configured"))
-        }
-
         try {
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
-                .get()
-                .build()
+            val request = if (BackendConfig.USE_BACKEND) {
+                // Backend proxy mode
+                Request.Builder()
+                    .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
+                    .get()
+                    .build()
+            } else {
+                // Direct mode — call ElevenLabs API directly
+                val apiKey = ApiConfig.ELEVENLABS_API_KEY
+                if (apiKey.isBlank()) {
+                    return@withContext Result.failure(Exception("ElevenLabs API key not configured"))
+                }
+                Request.Builder()
+                    .url("https://api.elevenlabs.io/v1/voices")
+                    .header("xi-api-key", apiKey)
+                    .get()
+                    .build()
+            }
 
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed to fetch voices: ${response.code} - $body")
                     return@use Result.failure(Exception("Failed to fetch voices: ${response.code}"))
                 }
 
@@ -101,11 +114,11 @@ class ElevenLabsTts(private val context: Context) {
                     val labels = v.optJSONObject("labels")
                     voiceList.add(
                         Voice(
-                            voiceId = v.getString("voiceId"),
+                            voiceId = v.getString("voice_id"),  // Note: voice_id not voiceId in direct mode
                             name = v.getString("name"),
                             category = v.optString("category", "premade"),
                             description = v.optString("description"),
-                            previewUrl = v.optString("previewUrl"),
+                            previewUrl = v.optString("preview_url"),  // Note: preview_url not previewUrl
                             gender = labels?.optString("gender"),
                             accent = labels?.optString("accent")
                         )
@@ -113,9 +126,11 @@ class ElevenLabsTts(private val context: Context) {
                 }
 
                 _voices.value = voiceList
+                Log.d(TAG, "Loaded ${voiceList.size} voices")
                 return@use Result.success(voiceList)
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Error fetching voices", e)
             Result.failure(e)
         }
     }
@@ -127,33 +142,57 @@ class ElevenLabsTts(private val context: Context) {
         _selectedVoiceId.value = voiceId
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_VOICE_ID, voiceId).apply()
+        Log.d(TAG, "Selected voice: $voiceId")
     }
 
     /**
-     * Synthesize text to speech using ElevenLabs via the backend proxy.
+     * Synthesize text to speech using ElevenLabs.
+     * Works in both backend proxy and direct mode.
      * Returns the audio file path on success.
      */
     suspend fun speak(text: String): Result<String> = withContext(Dispatchers.IO) {
-        if (!BackendConfig.USE_BACKEND) {
-            return@withContext Result.failure(Exception("Backend not configured"))
-        }
-
         val voiceId = _selectedVoiceId.value ?: DEFAULT_VOICE_ID
+        Log.d(TAG, "Synthesizing with voice: $voiceId")
 
         try {
-            val payload = JSONObject()
-                .put("text", text)
-                .put("voiceId", voiceId)
+            val request = if (BackendConfig.USE_BACKEND) {
+                // Backend proxy mode
+                val payload = JSONObject()
+                    .put("text", text)
+                    .put("voiceId", voiceId)
+                Request.Builder()
+                    .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_SPEAK_ENDPOINT}")
+                    .header("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+            } else {
+                // Direct mode — call ElevenLabs API directly
+                val apiKey = ApiConfig.ELEVENLABS_API_KEY
+                if (apiKey.isBlank()) {
+                    return@withContext Result.failure(Exception("ElevenLabs API key not configured"))
+                }
 
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_SPEAK_ENDPOINT}")
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+                val payload = JSONObject()
+                    .put("text", text)
+                    .put("model_id", "eleven_multilingual_v2")
+                    .put("voice_settings", JSONObject()
+                        .put("stability", 0.5)
+                        .put("similarity_boost", 0.75)
+                        .put("style", 0))
+
+                Request.Builder()
+                    .url("https://api.elevenlabs.io/v1/text-to-speech/$voiceId")
+                    .header("xi-api-key", apiKey)
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "audio/mpeg")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+            }
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val err = response.body?.string() ?: ""
+                    Log.e(TAG, "TTS failed: ${response.code} - $err")
                     return@use Result.failure(Exception("TTS failed (${response.code}): ${err.take(200)}"))
                 }
 
@@ -164,9 +203,11 @@ class ElevenLabsTts(private val context: Context) {
                 val audioFile = File(context.cacheDir, "jarvis_tts_${System.currentTimeMillis()}.mp3")
                 FileOutputStream(audioFile).use { it.write(audioBytes) }
 
+                Log.d(TAG, "TTS audio saved: ${audioFile.absolutePath} (${audioBytes.size} bytes)")
                 return@use Result.success(audioFile.absolutePath)
             }
         } catch (e: Exception) {
+            Log.e(TAG, "TTS error", e)
             Result.failure(e)
         }
     }
@@ -190,7 +231,8 @@ class ElevenLabsTts(private val context: Context) {
                 _isSpeaking.value = false
                 it.release()
             }
-            setOnErrorListener { _, _, _ ->
+            setOnErrorListener { _, what, extra ->
+                Log.e(TAG, "MediaPlayer error: $what, $extra")
                 _isSpeaking.value = false
                 false
             }
@@ -233,6 +275,8 @@ class ElevenLabsTts(private val context: Context) {
         stopPlayback()
         _isSpeaking.value = true
 
+        Log.d(TAG, "Previewing voice: ${voice.name} ($previewUrl)")
+
         // Play the preview URL directly
         mediaPlayer = MediaPlayer().apply {
             setAudioAttributes(
@@ -245,6 +289,11 @@ class ElevenLabsTts(private val context: Context) {
             setOnCompletionListener {
                 _isSpeaking.value = false
                 it.release()
+            }
+            setOnErrorListener { _, what, extra ->
+                Log.e(TAG, "Preview error: $what, $extra")
+                _isSpeaking.value = false
+                false
             }
             prepareAsync()
             setOnPreparedListener { it.start() }

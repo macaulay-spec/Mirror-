@@ -24,7 +24,7 @@ object IntentRouter {
         val args: MutableMap<String, Any?> = mutableMapOf(),
         val confidence: Float = 1f
     ) {
-        val isUnknown: Boolean get() == INTENT_UNKNOWN
+        val isUnknown: Boolean get() = id == INTENT_UNKNOWN
     }
 
     const val INTENT_UNKNOWN = "unknown"

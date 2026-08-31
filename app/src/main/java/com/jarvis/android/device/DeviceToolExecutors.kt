@@ -15,6 +15,14 @@ import com.jarvis.core.model.ToolExecutionResult
 
 object DeviceToolExecutors {
 
+    /** Parse a JSON string array like "[\"Mum\",\"Mom\"]" into a List<String>. */
+    private fun parseNicknames(json: String): List<String> = try {
+        val arr = org.json.JSONArray(json)
+        (0 until arr.length()).map { arr.getString(it) }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     fun registerAll() {
         // CHANGED (forensic audit): removed the duplicate "device_flashlight"
         // and "device_volume" registrations that used to live here. ToolRegistry.kt
@@ -73,9 +81,8 @@ object DeviceToolExecutors {
                 try {
                     val aliases = db.contextGraphDao().getAllAppAliasesSync()
                     val matchedAlias = aliases.firstOrNull { alias ->
-                        alias.defaultLabel.equals(appQuery, ignoreCase = true) || run {
-                            val nickList = try { org.json.JSONArray(alias.nicknames).let { arr -> (0 until arr.length()).map { arr.getString(it) } } catch (_: Exception) { emptyList() }
-                            nickList.any { nick -> nick.equals(appQuery, ignoreCase = true) || appQuery.contains(nick, ignoreCase = true) }
+                        alias.defaultLabel.equals(appQuery, ignoreCase = true) || parseNicknames(alias.nicknames).any { nick ->
+                            nick.equals(appQuery, ignoreCase = true) || appQuery.contains(nick, ignoreCase = true)
                         }
                     }
                     resolvedPackage = matchedAlias?.packageName

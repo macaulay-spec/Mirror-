@@ -90,6 +90,17 @@ object ToolRegistry {
     }
 
     private fun registerDefaultTools() {
+        // CHANGED (mirror fix pass, item 9): the duplicate registrations of
+        // "calendar_create", "call_contact", "navigate_to", "set_alarm" and
+        // "set_timer" that used to live here have been removed. The canonical
+        // versions are registered by LifeTools.registerAll() and
+        // PhoneTools.registerAll() (called from ToolRegistration.registerAll()
+        // AFTER this init ran, so these older copies were always silently
+        // overwritten at runtime anyway -- dead weight that only existed to
+        // be picked up if registerAll() somehow didn't run, and to confuse
+        // anyone reading this file). LifeTools/PhoneTools' versions are the
+        // better implementations: real time parsing for calendar/alarm/timer,
+        // contact disambiguation for calls, proper permission checks.
         WebTools.register(this)
         // 1. Battery Status (Level 0)
         register(
@@ -393,27 +404,6 @@ object ToolRegistry {
             }
         )
 
-        // 11. Calendar Event Creator (Level 1)
-        register(
-            ToolDefinition(
-                id = "calendar_create",
-                name = "Create Calendar Event",
-                description = "Creates a calendar event. Pass 'title' and optional 'when' or 'notes'.",
-                category = "CALENDAR",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val title = args["title"]?.toString() ?: args["event"]?.toString() ?: "Meeting"
-                val resultMsg = com.jarvis.app.tools.CalendarToolkit(context).createEvent(title)
-                ToolExecutionResult(
-                    toolId = "calendar_create",
-                    success = !resultMsg.contains("failed", ignoreCase = true) && !resultMsg.contains("need", ignoreCase = true),
-                    data = mapOf("title" to title),
-                    verificationDetails = resultMsg,
-                    error = if (resultMsg.contains("failed", ignoreCase = true) || resultMsg.contains("need", ignoreCase = true)) resultMsg else null
-                )
-            }
-        )
-
         // 12. Memory Remember (Level 0)
         register(
             ToolDefinition(
@@ -531,43 +521,6 @@ object ToolRegistry {
             }
         )
 
-        // 17. Call Contact / Phone Dial (Level 2)
-        register(
-            ToolDefinition(
-                id = "call_contact",
-                name = "Call Contact",
-                description = "Places a call or opens the dialer for a given person or phone number.",
-                category = "COMMUNICATION",
-                riskLevel = RiskLevel.LEVEL_2
-            ) { context, args ->
-                val contactQuery = args["contact"]?.toString() ?: args["name"]?.toString() ?: args["number"]?.toString() ?: ""
-                if (contactQuery.isBlank()) {
-                    return@ToolDefinition ToolExecutionResult("call_contact", false, null, "Contact name or number not specified.")
-                }
-
-                // Check people graph first for relationships like mumsi / nicknames
-                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactQuery)
-                val topMatch = matches.firstOrNull()
-                val number = topMatch?.numbers?.firstOrNull()?.value ?: run {
-                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactQuery)
-                    phoneContact?.phone
-                } ?: contactQuery
-                val displayName = topMatch?.person?.displayName ?: contactQuery
-
-                val dialed = com.jarvis.app.tools.ContactsToolkit(context).dial(number)
-                if (dialed) {
-                    ToolExecutionResult(
-                        toolId = "call_contact",
-                        success = true,
-                        data = mapOf("target" to displayName, "number" to number),
-                        verificationDetails = "Initiating call to $displayName ($number)."
-                    )
-                } else {
-                    ToolExecutionResult("call_contact", false, null, "Could not open dialer for $contactQuery.")
-                }
-            }
-        )
-
         // 18. Send Message / SMS (Level 2)
         register(
             ToolDefinition(
@@ -639,49 +592,6 @@ object ToolRegistry {
             }
         )
 
-        // 20. Navigate To (Level 1)
-        register(
-            ToolDefinition(
-                id = "navigate_to",
-                name = "Navigate To Location",
-                description = "Opens turn-by-turn navigation or Google Maps for a destination.",
-                category = "NAVIGATION",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val destination = args["destination"]?.toString() ?: args["query"]?.toString() ?: ""
-                if (destination.isBlank()) {
-                    return@ToolDefinition ToolExecutionResult("navigate_to", false, null, "Destination not provided.")
-                }
-                val navUri = Uri.parse("google.navigation:q=${Uri.encode(destination)}")
-                val intent = Intent(Intent.ACTION_VIEW, navUri).apply {
-                    setPackage("com.google.android.apps.maps")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                try {
-                    context.startActivity(intent)
-                    ToolExecutionResult(
-                        toolId = "navigate_to",
-                        success = true,
-                        data = mapOf("destination" to destination),
-                        verificationDetails = "Starting navigation to $destination."
-                    )
-                } catch (_: Exception) {
-                    // Fallback to geo URI
-                    val geoUri = Uri.parse("geo:0,0?q=${Uri.encode(destination)}")
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(fallbackIntent)
-                    ToolExecutionResult(
-                        toolId = "navigate_to",
-                        success = true,
-                        data = mapOf("destination" to destination),
-                        verificationDetails = "Opened map search for $destination."
-                    )
-                }
-            }
-        )
-
         // 21. Send WhatsApp (Level 2)
         register(
             ToolDefinition(
@@ -734,73 +644,6 @@ object ToolRegistry {
                     } catch (e2: Exception) {
                         ToolExecutionResult("send_whatsapp", false, null, "Could not launch WhatsApp: ${e2.localizedMessage}")
                     }
-                }
-            }
-        )
-
-        // 22. Set Alarm (Level 1)
-        register(
-            ToolDefinition(
-                id = "set_alarm",
-                name = "Set Alarm",
-                description = "Sets an alarm on the device clock. Pass 'hour' (0-23), 'minute' (0-59), and optional 'message'.",
-                category = "CALENDAR",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val hour = (args["hour"] as? Number)?.toInt() ?: 7
-                val minute = (args["minute"] as? Number)?.toInt() ?: 0
-                val message = (args["message"] ?: args["label"] ?: "Alarm")?.toString() ?: "Alarm"
-                val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
-                    putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
-                    putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
-                    putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message)
-                    putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                try {
-                    context.startActivity(intent)
-                    val timeStr = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
-                    ToolExecutionResult(
-                        toolId = "set_alarm",
-                        success = true,
-                        data = mapOf("hour" to hour, "minute" to minute, "message" to message),
-                        verificationDetails = "Alarm set for $timeStr ($message)."
-                    )
-                } catch (e: Exception) {
-                    ToolExecutionResult("set_alarm", false, null, "Failed to set alarm: ${e.localizedMessage}")
-                }
-            }
-        )
-
-        // 23. Set Timer (Level 1)
-        register(
-            ToolDefinition(
-                id = "set_timer",
-                name = "Set Timer",
-                description = "Sets a countdown timer. Pass 'seconds' or 'minutes' and optional 'message'.",
-                category = "CALENDAR",
-                riskLevel = RiskLevel.LEVEL_1
-            ) { context, args ->
-                val secondsArg = (args["seconds"] as? Number)?.toInt()
-                val minutesArg = (args["minutes"] as? Number)?.toInt()
-                val totalSeconds = secondsArg ?: ((minutesArg ?: 1) * 60)
-                val message = (args["message"] ?: args["label"] ?: "Timer")?.toString() ?: "Timer"
-                val intent = Intent(android.provider.AlarmClock.ACTION_SET_TIMER).apply {
-                    putExtra(android.provider.AlarmClock.EXTRA_LENGTH, totalSeconds)
-                    putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message)
-                    putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                try {
-                    context.startActivity(intent)
-                    ToolExecutionResult(
-                        toolId = "set_timer",
-                        success = true,
-                        data = mapOf("seconds" to totalSeconds, "message" to message),
-                        verificationDetails = "Timer set for $totalSeconds seconds ($message)."
-                    )
-                } catch (e: Exception) {
-                    ToolExecutionResult("set_timer", false, null, "Failed to set timer: ${e.localizedMessage}")
                 }
             }
         )

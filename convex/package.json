@@ -1,0 +1,15 @@
+{
+  "name": "jarvis-backend",
+  "private": true,
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "codegen": "convex codegen"
+  },
+  "dependencies": {
+    "convex": "^1.17.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

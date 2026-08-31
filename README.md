@@ -31,25 +31,26 @@ read the screen and tap/type inside other apps.
 
 ## Architecture
 
-### Backend Proxy (Cloudflare Worker)
+### Backend (Convex)
 
-**API keys live on the server, not in the app.** JARVIS uses a Cloudflare Worker backend
-that holds all API keys as encrypted secrets and proxies requests. The Android app
-never sees or embeds any API keys.
+**API keys live on the server, not in the app.** JARVIS uses Convex as its backend —
+a serverless platform that holds all API keys as environment variables (secrets) and
+proxies requests through HTTP actions. The Android app never sees or embeds any API keys.
 
 ```
 ┌──────────────────┐     HTTPS      ┌──────────────────────┐     HTTPS     ┌─────────────┐
-│  Android App     │ ──────────────→ │  Cloudflare Worker   │ ────────────→ │  AI APIs    │
+│  Android App     │ ──────────────→ │  Convex Backend      │ ────────────→ │  AI APIs    │
 │  (no API keys)   │                 │  (holds all keys)    │               │  Gemini     │
 │                  │ ←────────────── │                      │ ←──────────── │  xAI Grok   │
 │  Calls proxy URL │                 │  /api/llm/chat       │               │  OpenAI     │
 │                  │                 │  /api/tts/speak      │               │  ElevenLabs │
 │                  │                 │  /api/tts/voices     │               │  Anthropic  │
 │                  │                 │  /api/stt/transcribe │               │  Groq       │
+│                  │                 │  /api/preferences    │               │             │
 └──────────────────┘                 └──────────────────────┘               └─────────────┘
 ```
 
-**Backend endpoints:**
+**Backend endpoints (Convex HTTP actions):**
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -57,24 +58,36 @@ never sees or embeds any API keys.
 | `/api/tts/speak` | POST | ElevenLabs TTS — returns audio MP3 |
 | `/api/tts/voices` | GET | Lists available ElevenLabs voices |
 | `/api/stt/transcribe` | POST | Speech-to-text via ElevenLabs |
+| `/api/preferences` | GET/POST | Load/save user voice preferences |
 | `/api/health` | GET | Health check |
 
-**Deploy the backend:**
+### Deploy the backend
 
 ```bash
-cd backend
+cd convex
 npm install
-npx wrangler secret put GEMINI_API_KEY
-npx wrangler secret put XAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
-npx wrangler deploy
+
+# Initialize Convex project
+npx convex init
+
+# Set your API keys as Convex environment variables (secrets)
+npx convex env set GEMINI_API_KEY <your-key>
+npx convex env set XAI_API_KEY <your-key>
+npx convex env set ELEVENLABS_API_KEY <your-key>
+npx convex env set OPENAI_API_KEY <your-key>        # optional
+npx convex env set ANTHROPIC_API_KEY <your-key>      # optional
+npx convex env set GROQ_API_KEY <your-key>           # optional
+
+# Deploy
+npx convex deploy
 ```
 
-Then update `BackendConfig.WORKER_URL` in the Android app with your worker URL.
+Then update `BackendConfig.WORKER_URL` in `app/src/main/java/com/jarvis/app/config/BackendConfig.kt`
+with your Convex deployment URL (e.g., `https://your-deployment.convex.site`).
 
 ### AI Provider Model
 
-The app supports multiple AI providers through the backend proxy:
+The app supports multiple AI providers through the Convex backend proxy:
 
 | Provider | Use case |
 |---|---|
@@ -152,10 +165,10 @@ You can build, install, and use JARVIS exactly as-is.
 
 JARVIS supports ElevenLabs premium TTS with dozens of voices:
 
-1. Deploy the backend proxy with your ElevenLabs API key
+1. Deploy the Convex backend with your ElevenLabs API key
 2. In Settings → Voice, tap "Load voices" to fetch available voices
 3. Tap a voice name to hear a preview
-4. Select your preferred voice — it persists across sessions
+4. Select your preferred voice — it persists across sessions via Convex
 5. All TTS responses will use your selected voice
 
 Voice categories include: premade, cloned, and generated voices with

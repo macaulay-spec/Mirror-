@@ -25,11 +25,11 @@ data class AiResponse(
 )
 
 /**
- * JARVIS AI Client — routes requests through the backend proxy.
+ * JARVIS AI Client — routes requests through the Convex backend proxy.
  *
  * When BackendConfig.USE_BACKEND is true (default):
- *   All API calls go through the Cloudflare Worker proxy.
- *   API keys are stored server-side — the app never sees them.
+ *   All API calls go through Convex HTTP actions.
+ *   API keys are stored server-side as Convex environment variables — the app never sees them.
  *
  * When BackendConfig.USE_BACKEND is false:
  *   Direct API calls (for development/testing without a backend).
@@ -58,7 +58,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Backend Proxy Path (production) ───────────────────────────────
+    // ─── Backend Proxy Path (Convex) ──────────────────────────────────
 
     private suspend fun chatViaProxy(
         systemPrompt: String,
@@ -97,7 +97,7 @@ class JarvisApiClient(
                 val bodyString = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     val msg = when (response.code) {
-                        503 -> "AI service not configured on the backend. Check deployment."
+                        503 -> "AI service not configured on the backend. Check Convex deployment."
                         429 -> "Rate limit reached. Please wait a moment and try again."
                         else -> "Backend error (HTTP ${response.code}): ${bodyString.take(200)}"
                     }
@@ -124,6 +124,122 @@ class JarvisApiClient(
             }
         } catch (e: Exception) {
             Result.failure(Exception("Backend connection failed: ${e.localizedMessage}"))
+        }
+    }
+
+    // ─── Save Voice Preferences via Convex ────────────────────────────
+
+    suspend fun saveVoicePreferences(
+        userId: String,
+        voiceId: String,
+        voiceName: String,
+        engineType: String = "elevenlabs",
+        stability: Float = 0.5f,
+        similarityBoost: Float = 0.75f,
+        style: Float = 0f
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject()
+                .put("userId", userId)
+                .put("voiceId", voiceId)
+                .put("voiceName", voiceName)
+                .put("engineType", engineType)
+                .put("stability", stability.toDouble())
+                .put("similarityBoost", similarityBoost.toDouble())
+                .put("style", style.toDouble())
+
+            val request = Request.Builder()
+                .url("${BackendConfig.WORKER_URL}${BackendConfig.PREFERENCES_ENDPOINT}")
+                .header("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Result.success(true)
+                } else {
+                    val body = response.body?.string() ?: ""
+                    Result.failure(Exception("Failed to save preferences: ${body.take(200)}"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Preferences save failed: ${e.localizedMessage}"))
+        }
+    }
+
+    // ─── Load Voice Preferences via Convex ────────────────────────────
+
+    suspend fun loadVoicePreferences(userId: String): Result<VoicePreferences?> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("${BackendConfig.WORKER_URL}${BackendConfig.PREFERENCES_ENDPOINT}?userId=$userId")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@use Result.success(null)
+                }
+
+                val body = response.body?.string() ?: "{}"
+                val json = JSONObject(body)
+                val voice = json.optJSONObject("voice")
+
+                if (voice == null) {
+                    Result.success(null)
+                } else {
+                    Result.success(
+                        VoicePreferences(
+                            voiceId = voice.optString("voiceId", "JBFqnCBsd6RMkjVDRZzb"),
+                            voiceName = voice.optString("voiceName", "George"),
+                            engineType = voice.optString("engineType", "elevenlabs"),
+                            stability = voice.optDouble("stability", 0.5).toFloat(),
+                            similarityBoost = voice.optDouble("similarityBoost", 0.75).toFloat(),
+                            style = voice.optDouble("style", 0.0).toFloat()
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Preferences load failed: ${e.localizedMessage}"))
+        }
+    }
+
+    // ─── Fetch Available ElevenLabs Voices ────────────────────────────
+
+    suspend fun fetchElevenLabsVoices(): Result<List<ElevenLabsVoice>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: "{}"
+                if (!response.isSuccessful) {
+                    return@use Result.failure(Exception("Failed to fetch voices: ${body.take(200)}"))
+                }
+
+                val json = JSONObject(body)
+                val voicesArray = json.optJSONArray("voices") ?: return@use Result.success(emptyList())
+
+                val voices = mutableListOf<ElevenLabsVoice>()
+                for (i in 0 until voicesArray.length()) {
+                    val v = voicesArray.getJSONObject(i)
+                    voices.add(
+                        ElevenLabsVoice(
+                            voiceId = v.optString("voiceId"),
+                            name = v.optString("name"),
+                            category = v.optString("category"),
+                            description = v.optString("description"),
+                            previewUrl = v.optString("previewUrl")
+                        )
+                    )
+                }
+                Result.success(voices)
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Voice fetch failed: ${e.localizedMessage}"))
         }
     }
 
@@ -385,3 +501,23 @@ class JarvisApiClient(
         }
     }
 }
+
+/**
+ * Data classes for voice preferences and ElevenLabs voices.
+ */
+data class VoicePreferences(
+    val voiceId: String,
+    val voiceName: String,
+    val engineType: String,
+    val stability: Float,
+    val similarityBoost: Float,
+    val style: Float
+)
+
+data class ElevenLabsVoice(
+    val voiceId: String,
+    val name: String,
+    val category: String,
+    val description: String,
+    val previewUrl: String
+)

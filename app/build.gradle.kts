@@ -18,10 +18,12 @@ android {
         versionName = "2.0.0"
 
         // Read API keys from local.properties
-        val localProperties = Properties().apply {
+        val localProperties = java.util.Properties().apply {
             val localPropertiesFile = project.file("local.properties")
             if (localPropertiesFile.exists()) {
-                load(localPropertiesFile.inputStream())
+                localPropertiesFile.inputStream().use { input ->
+                    this.load(input)
+                }
             }
         }
 

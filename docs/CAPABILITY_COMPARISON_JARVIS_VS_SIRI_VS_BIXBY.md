@@ -86,7 +86,7 @@ Android blocks apps from doing directly.
 | Read notifications | ✅ | ✅ | ✅ `get_recent_notifications` — filter by app |
 | Reply to notification | ✅ | ✅ | ✅ `reply_to_notification` — inline reply via NotificationListener |
 | Dismiss notification | ✅ | ❌ | ✅ `dismiss_notification` |
-| Send email | ✅ (Apple Mail / Gmail) | ✅ | ❌ **Gap** — no email tool registered |
+| Send email | ✅ (Apple Mail / Gmail) | ✅ | ✅ `email_draft` — opens email composer with pre-filled recipient/subject/body |
 | FaceTime / Video call | ✅ (Apple ecosystem) | ✅ (Samsung ecosystem) | ❌ |
 | Contact lookup | ✅ | ✅ | ✅ `contact_lookup` — search by name/nickname |
 | Call log | ✅ | ✅ | ✅ `call_log` — recent calls |
@@ -126,7 +126,7 @@ app" and have it just work), usage stats integration, recent apps list.
 | Set reminder | ✅ | ✅ | ✅ `set_reminder` — with alarm attached |
 | Set alarm | ✅ | ✅ | ✅ `set_alarm` — via Android AlarmClock intent |
 | Set timer | ✅ | ✅ | ✅ `set_timer` — via Android AlarmClock intent |
-| Read calendar | ✅ | ✅ | ❌ **Gap** — can create but not read calendar entries |
+| Read calendar | ✅ | ✅ | ✅ `calendar_read` — reads today's or any date's events |
 | Cancel alarm | ✅ | ✅ | ❌ |
 | Modify/delete events | ✅ | ✅ | ❌ |
 | Time awareness ("how long until...") | ✅ | ❌ | ⚠️ `navigate_to` gives travel time via Maps, but no standalone time-to-event |
@@ -309,11 +309,11 @@ X permission") is more helpful than generic error messages.
 
 ## WHAT TO BUILD NEXT (priority order)
 
-| # | Gap | Impact | Difficulty |
-|---|---|---|---|
-| 1 | **Calendar reading** ("What's my schedule?") | High — one of the most common Siri commands | Low — just needs a `calendar_read` tool |
-| 2 | **Email draft** ("Email John about the meeting") | Medium — opens Gmail with pre-filled draft | Low — Intent.ACTION_SENDTO |
-| 3 | **Weather** ("What's the weather?") | High — top-5 assistant command | Medium — needs a weather API (OpenWeatherMap free tier) |
+| # | Gap | Impact | Difficulty | Status |
+|---|---|---|---|---|
+| 1 | **Calendar reading** ("What's my schedule?") | High | Low | ✅ Done — `calendar_read` tool |
+| 2 | **Email draft** ("Email John about the meeting") | Medium | Low | ✅ Done — `email_draft` tool |
+| 3 | **Weather** ("What's the weather?") | High | Low | ✅ Done — `weather` tool (Open-Meteo, no API key) |
 | 4 | **Morning briefing upgrade** (weather + calendar + notifications) | High — makes JARVIS proactive | Medium — combine existing tools |
 | 5 | **Home/Work addresses** | Medium — enables time-to-commute | Low — SharedPreferences + onboarding step |
 | 6 | **Streaming TTS** (ElevenLabs WebSocket) | High — reduces first-word latency from 4s to <500ms | High — WebSocket implementation |

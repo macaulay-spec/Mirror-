@@ -580,50 +580,74 @@ private fun VoiceStageView(
 @Composable
 private fun QuickActionsGrid(onQuickAction: (String) -> Unit) {
     val actions = listOf(
-        QuickAction("Open App", Icons.Default.OpenInNew, "Open Instagram"),
         QuickAction("Volume", Icons.Default.VolumeUp, "Volume up"),
         QuickAction("Flashlight", Icons.Default.FlashlightOn, "Turn on flashlight"),
-        QuickAction("Screenshot", Icons.Default.ChatBubbleOutline, "Take a screenshot")
+        QuickAction("Battery", Icons.Default.PowerSettingsNew, "Battery status"),
+        QuickAction("Weather", Icons.Default.OpenInNew, "What's the weather?"),
+        QuickAction("Schedule", Icons.Default.ChatBubbleOutline, "What's on my calendar?"),
+        QuickAction("Notifications", Icons.Default.Send, "Read my notifications"),
+        QuickAction("Screen", Icons.Default.OpenInNew, "What's on screen?"),
+        QuickAction("Navigate", Icons.Default.OpenInNew, "Navigate to the nearest petrol station")
     )
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
+            .padding(vertical = 4.dp)
     ) {
-        actions.forEach { action ->
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onQuickAction(action.query) }
-                    .padding(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(JarvisColors.SurfaceGlass)
-                        .border(0.5.dp, JarvisColors.Hairline, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = action.icon,
-                        contentDescription = action.label,
-                        tint = JarvisColors.Presence,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = action.label,
-                    color = JarvisColors.TextSecondary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Default
-                )
+        // Row 1
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            actions.take(4).forEach { action ->
+                QuickActionItem(action, onQuickAction)
             }
         }
+        Spacer(modifier = Modifier.height(4.dp))
+        // Row 2
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            actions.drop(4).forEach { action ->
+                QuickActionItem(action, onQuickAction)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickActionItem(action: QuickAction, onQuickAction: (String) -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onQuickAction(action.query) }
+            .padding(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(JarvisColors.SurfaceGlass)
+                .border(0.5.dp, JarvisColors.Hairline, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = action.icon,
+                contentDescription = action.label,
+                tint = JarvisColors.Presence,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = action.label,
+            color = JarvisColors.TextSecondary,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Default
+        )
     }
 }
 

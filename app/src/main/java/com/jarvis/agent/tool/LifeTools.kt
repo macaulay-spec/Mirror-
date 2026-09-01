@@ -28,6 +28,7 @@ object LifeTools {
 
     fun registerAll() {
         registerCalendar()
+        registerCalendarRead()
         registerReminder()
         registerAlarm()
         registerTimer()
@@ -36,6 +37,8 @@ object LifeTools {
         registerShareLocation()
         registerClipboard()
         registerScreenCapture()
+        registerEmailDraft()
+        registerWeather()
     }
 
     private fun arg(args: Map<String, Any?>, vararg keys: String): String =
@@ -470,6 +473,263 @@ object LifeTools {
         } catch (e: Exception) {
             error("screen_capture", "I captured the screen but could not read it: ${e.localizedMessage}")
         }
+    }
+
+    // ---------------------------------------------------------- calendar read
+
+    private fun registerCalendarRead() {
+        ToolRegistry.register(
+            ToolDefinition(
+                id = "calendar_read",
+                name = "Read Calendar Events",
+                description = "Reads upcoming calendar events for today or a specific date range. Shows event titles, times, and locations.",
+                category = "CALENDAR",
+                riskLevel = RiskLevel.LEVEL_0
+            ) { context, args ->
+                if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALENDAR)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    return@ToolDefinition error("calendar_read", "I need calendar permission to read your events. Open Settings → Apps → JARVIS → Permissions and allow Calendar access.")
+                }
+
+                val whenText = arg(args, "when", "time", "date", "day")
+                val startMillis: Long
+                val endMillis: Long
+
+                if (whenText.isNotBlank()) {
+                    val parsed = com.jarvis.app.tools.TimeParser.parse(whenText)
+                    if (parsed != null) {
+                        startMillis = parsed
+                        endMillis = parsed + 24 * 60 * 60 * 1000L // 1 day range
+                    } else {
+                        // Default to today
+                        val cal = java.util.Calendar.getInstance()
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        cal.set(java.util.Calendar.MINUTE, 0)
+                        cal.set(java.util.Calendar.SECOND, 0)
+                        startMillis = cal.timeInMillis
+                        endMillis = startMillis + 24 * 60 * 60 * 1000L
+                    }
+                } else {
+                    // Default: today from now
+                    startMillis = System.currentTimeMillis()
+                    endMillis = startMillis + 24 * 60 * 60 * 1000L
+                }
+
+                val projection = arrayOf(
+                    CalendarContract.Events.TITLE,
+                    CalendarContract.Events.DTSTART,
+                    CalendarContract.Events.DTEND,
+                    CalendarContract.Events.EVENT_LOCATION,
+                    CalendarContract.Events.DESCRIPTION
+                )
+
+                val selection = "${CalendarContract.Events.DTSTART} >= ? AND ${CalendarContract.Events.DTSTART} <= ?"
+                val selectionArgs = arrayOf(startMillis.toString(), endMillis.toString())
+
+                return@ToolDefinition try {
+                    val events = mutableListOf<Map<String, Any>>()
+                    context.contentResolver.query(
+                        CalendarContract.Events.CONTENT_URI,
+                        projection,
+                        selection,
+                        selectionArgs,
+                        "${CalendarContract.Events.DTSTART} ASC"
+                    )?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val title = cursor.getString(0) ?: "Untitled"
+                            val dtStart = cursor.getLong(1)
+                            val dtEnd = cursor.getLong(2)
+                            val location = cursor.getString(3) ?: ""
+                            val description = cursor.getString(4) ?: ""
+                            events.add(mapOf(
+                                "title" to title,
+                                "start" to com.jarvis.app.tools.TimeParser.describe(dtStart),
+                                "end" to com.jarvis.app.tools.TimeParser.describe(dtEnd),
+                                "location" to location,
+                                "description" to description
+                            ))
+                        }
+                    }
+
+                    if (events.isEmpty()) {
+                        ToolExecutionResult(
+                            toolId = "calendar_read",
+                            success = true,
+                            data = mapOf("events" to emptyList<Any>()),
+                            verificationDetails = "No upcoming events found."
+                        )
+                    } else {
+                        val summary = events.joinToString("\n") { ev ->
+                            "• ${ev["title"]} at ${ev["start"]}${if (ev["location"] != "") " @ ${ev["location"]}" else ""}"
+                        }
+                        ToolExecutionResult(
+                            toolId = "calendar_read",
+                            success = true,
+                            data = mapOf("events" to events, "count" to events.size),
+                            verificationDetails = "Found ${events.size} event(s):\n$summary"
+                        )
+                    }
+                } catch (e: Exception) {
+                    error("calendar_read", "Could not read calendar: ${e.localizedMessage}")
+                }
+            }
+        )
+    }
+
+    // ------------------------------------------------------------- email draft
+
+    private fun registerEmailDraft() {
+        ToolRegistry.register(
+            ToolDefinition(
+                id = "email_draft",
+                name = "Draft an Email",
+                description = "Opens an email composer with a pre-filled recipient, subject, and body. The user reviews and sends it manually.",
+                category = "COMMUNICATION",
+                riskLevel = RiskLevel.LEVEL_2
+            ) { context, args ->
+                val to = arg(args, "to", "recipient", "email", "contact")
+                val subject = arg(args, "subject", "title")
+                val body = arg(args, "body", "message", "text", "content")
+
+                if (to.isBlank() && body.isBlank()) {
+                    return@ToolDefinition error("email_draft", "Who should I draft the email to, and what should it say?")
+                }
+
+                // Try to resolve contact name to email address
+                val emailAddress = if (to.contains("@")) {
+                    to
+                } else if (to.isNotBlank()) {
+                    val matches = com.jarvis.app.tools.ContactsToolkit(context).search(to)
+                    matches?.email ?: to // fallback to raw string if no email found
+                } else {
+                    ""
+                }
+
+                return@ToolDefinition try {
+                    val intent = Intent(Intent.ACTION_SENDTO).apply {
+                        data = Uri.parse("mailto:${Uri.encode(emailAddress)}")
+                        if (subject.isNotBlank()) putExtra(Intent.EXTRA_SUBJECT, subject)
+                        if (body.isNotBlank()) putExtra(Intent.EXTRA_TEXT, body)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Send email").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                    ToolExecutionResult(
+                        toolId = "email_draft",
+                        success = true,
+                        data = mapOf("to" to emailAddress, "subject" to subject, "body" to body),
+                        verificationDetails = "Email draft opened for $emailAddress."
+                    )
+                } catch (e: Exception) {
+                    error("email_draft", "Could not open email app: ${e.localizedMessage}")
+                }
+            }
+        )
+    }
+
+    // --------------------------------------------------------------- weather
+
+    private fun registerWeather() {
+        ToolRegistry.register(
+            ToolDefinition(
+                id = "weather",
+                name = "Get Weather",
+                description = "Gets current weather for the user's location or a named place. Returns temperature, conditions, humidity, and wind.",
+                category = "INFORMATION",
+                riskLevel = RiskLevel.LEVEL_0
+            ) { context, args ->
+                val place = arg(args, "place", "location", "city", "where")
+
+                // Try to get user's location first
+                val loc = com.jarvis.app.tools.LocationToolkit(context).lastKnown()
+                val latLon = if (loc.contains(",")) {
+                    val parts = loc.split(",")
+                    try {
+                        val lat = parts[0].trim().toDouble()
+                        val lon = parts[1].trim().toDouble()
+                        Pair(lat, lon)
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else null
+
+                return@ToolDefinition try {
+                    val url = if (latLon != null) {
+                        "https://api.open-meteo.com/v1/forecast?latitude=${latLon.first}&longitude=${latLon.second}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius"
+                    } else {
+                        // No location — use a default or ask
+                        error("weather", "I need your location for weather. Enable location permission, or tell me which city.")
+                    }
+
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            return@use error("weather", "Weather service returned error ${response.code}")
+                        }
+
+                        val json = org.json.JSONObject(response.body?.string() ?: "{}")
+                        val current = json.optJSONObject("current") ?: json.optJSONObject("current_weather")
+                        if (current == null) {
+                            return@use error("weather", "Could not parse weather data.")
+                        }
+
+                        val temp = current.optDouble("temperature_2m", current.optDouble("temperature", -999.0))
+                        val humidity = current.optInt("relative_humidity_2m", -1)
+                        val windSpeed = current.optDouble("wind_speed_10m", current.optDouble("windspeed", 0.0))
+                        val weatherCode = current.optInt("weather_code", current.optInt("weathercode", 0))
+
+                        val condition = weatherCodeToText(weatherCode)
+                        val detail = buildString {
+                            append("${temp.toInt()}°C, $condition")
+                            if (humidity > 0) append(", humidity ${humidity}%")
+                            if (windSpeed > 0) append(", wind ${windSpeed.toInt()} km/h")
+                        }
+
+                        ToolExecutionResult(
+                            toolId = "weather",
+                            success = true,
+                            data = mapOf(
+                                "temperature" to temp,
+                                "condition" to condition,
+                                "humidity" to humidity,
+                                "wind_speed" to windSpeed
+                            ),
+                            verificationDetails = "Current weather: $detail"
+                        )
+                    }
+                } catch (e: Exception) {
+                    error("weather", "Could not fetch weather: ${e.localizedMessage}")
+                }
+            }
+        )
+    }
+
+    private fun weatherCodeToText(code: Int): String = when (code) {
+        0 -> "Clear sky"
+        1, 2, 3 -> "Partly cloudy"
+        45, 48 -> "Foggy"
+        51, 53, 55 -> "Drizzle"
+        56, 57 -> "Freezing drizzle"
+        61, 63, 65 -> "Rain"
+        66, 67 -> "Freezing rain"
+        71, 73, 75 -> "Snow"
+        77 -> "Snow grains"
+        80, 81, 82 -> "Rain showers"
+        85, 86 -> "Snow showers"
+        95 -> "Thunderstorm"
+        96, 99 -> "Thunderstorm with hail"
+        else -> "Unknown"
     }
 
     // ---------------------------------------------------------------- utils

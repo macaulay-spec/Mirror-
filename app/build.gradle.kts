@@ -17,10 +17,18 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        buildConfigField("String", "XAI_API_KEY", "\"\"")
-        buildConfigField("String", "GEMINI_API_KEY", "\"\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"\"")
-        buildConfigField("String", "RORK_TOOLKIT_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")
+        // Read API keys from local.properties
+        val localProperties = Properties().apply {
+            val localPropertiesFile = project.file("local.properties")
+            if (localPropertiesFile.exists()) {
+                load(localPropertiesFile.inputStream())
+            }
+        }
+
+        buildConfigField("String", "XAI_API_KEY", "\"${localProperties.getProperty("XAI_API_KEY", "")}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
+        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${localProperties.getProperty("ELEVENLABS_API_KEY", "")}\"")
+        buildConfigField("String", "RORK_TOOLKIT_KEY", "\"${localProperties.getProperty("RORK_TOOLKIT_KEY", System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: "")}\"")
     }
 
     buildTypes {

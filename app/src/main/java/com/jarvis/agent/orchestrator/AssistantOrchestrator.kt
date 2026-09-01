@@ -1,7 +1,9 @@
 package com.jarvis.agent.orchestrator
 
 import android.content.Context
+import com.jarvis.agent.ai.AgentExecutor
 import com.jarvis.agent.ai.JarvisAIEngine
+import com.jarvis.agent.ai.plan.AgentStep
 import com.jarvis.agent.dialogue.DialogueManager
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.android.voice.JarvisVoiceEngine
@@ -23,14 +25,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * AssistantOrchestrator — the single entry point for all user input.
+ * AssistantOrchestrator  the single entry point for all user input.
  *
  * Pipeline:
  *   USER INPUT
- *     → DialogueManager  (fast local intents + slot filling + confirmation)
- *     → JarvisAIEngine   (Grok/Gemini with real function calling)
- *     → ToolRegistry     (executes the chosen tool)
- *     → VoiceEngine.speak()  (speaks the reply)
+ *      DialogueManager  (fast local intents + slot filling + confirmation)
+ *      JarvisAIEngine   (Grok/Gemini with real function calling)
+ *      ToolRegistry     (executes the chosen tool)
+ *      VoiceEngine.speak()  (speaks the reply)
+ *
+ * NEW: Task execution tracking
+ * - Exposes current task execution state for TaskExecutionScreen
+ * - Tracks multi-step execution progress
+ * - Connects AgentExecutor step updates to UI
  */
 class AssistantOrchestrator(
     private val context: Context,
@@ -50,7 +57,23 @@ class AssistantOrchestrator(
     private val _pendingConfirmation = MutableStateFlow<ToolExecutionRequest?>(null)
     val pendingConfirmation: StateFlow<ToolExecutionRequest?> = _pendingConfirmation.asStateFlow()
 
-    // ── Public API ────────────────────────────────────────────────────────
+    // Task execution state for TaskExecutionScreen
+    private val _currentTaskDescription = MutableStateFlow<String?>(null)
+    val currentTaskDescription: StateFlow<String?> = _currentTaskDescription.asStateFlow()
+
+    private val _currentSteps = MutableStateFlow<List<AgentStep>>(emptyList())
+    val currentSteps: StateFlow<List<AgentStep>> = _currentSteps.asStateFlow()
+
+    private val _currentStepIndex = MutableStateFlow<Int?>(null)
+    val currentStepIndex: StateFlow<Int?> = _currentStepIndex.asStateFlow()
+
+    private val _isTaskExecuting = MutableStateFlow<Boolean>(false)
+    val isTaskExecuting: StateFlow<Boolean> = _isTaskExecuting.asStateFlow()
+
+    private val _taskFinalResult = MutableStateFlow<String?>(null)
+    val taskFinalResult: StateFlow<String?> = _taskFinalResult.asStateFlow()
+
+    //  Public API 
 
     fun setVisualState(state: JarvisVisualState) {
         _visualState.value = state
@@ -90,6 +113,7 @@ class AssistantOrchestrator(
         runCatching { aiEngine.memoryManager.clearAllMemories() }
         runCatching { aiEngine.memoryManager.resetSession() }
         setVisualState(JarvisVisualState.IDLE)
+        resetTaskExecution()
     }
 
     fun emergencyStop() {
@@ -99,9 +123,21 @@ class AssistantOrchestrator(
         _pendingConfirmation.value = null
         dialogueManager.cancel()
         addMessage(AssistantMessage(role = MessageRole.SYSTEM, text = "All active tasks halted."))
+        resetTaskExecution()
     }
 
-    // ── Core pipeline ─────────────────────────────────────────────────────
+    /**
+     * Resets task execution state.
+     */
+    private fun resetTaskExecution() {
+        _currentTaskDescription.value = null
+        _currentSteps.value = emptyList()
+        _currentStepIndex.value = null
+        _isTaskExecuting.value = false
+        _taskFinalResult.value = null
+    }
+
+    //  Core pipeline 
 
     private suspend fun processUserCommand(userInput: String) {
         if (userInput.isBlank()) return
@@ -141,8 +177,27 @@ class AssistantOrchestrator(
                 delay(400)
                 setVisualState(JarvisVisualState.IDLE)
             } else {
-                // Dialogue couldn't handle it — send to LLM with full function calling
-                val engineResult = aiEngine.processCommand(userInput)
+                // Dialogue couldn't handle it  send to LLM with full function calling
+                // Track task execution for UI
+                _currentTaskDescription.value = userInput
+                _isTaskExecuting.value = true
+                resetTaskExecution()
+                
+                val engineResult = aiEngine.processCommand(
+                    userInput,
+                    onStepUpdate = { steps, stepIndex ->
+                        _currentSteps.value = steps
+                        _currentStepIndex.value = stepIndex
+                    },
+                    onComplete = { result, success ->
+                        _taskFinalResult.value = result
+                        _isTaskExecuting.value = false
+                        if (success) {
+                            _currentStepIndex.value = _currentSteps.value.lastIndex
+                        }
+                    }
+                )
+                
                 addMessage(AssistantMessage(
                     role = MessageRole.JARVIS,
                     text = engineResult.reply,
@@ -163,13 +218,15 @@ class AssistantOrchestrator(
         } catch (e: Exception) {
             val errorText = "Something went wrong: ${e.localizedMessage ?: "unknown error"}"
             addMessage(AssistantMessage(role = MessageRole.JARVIS, text = errorText))
+            _taskFinalResult.value = errorText
+            _isTaskExecuting.value = false
             setVisualState(JarvisVisualState.ERROR)
             delay(300)
             setVisualState(JarvisVisualState.IDLE)
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    //  Helpers 
 
     private fun handleExecutionResult(result: ToolExecutionResult) {
         val text = com.jarvis.agent.ai.ReplySanitizer.sanitize(
@@ -202,7 +259,7 @@ class AssistantOrchestrator(
         return when (request.toolId) {
             "call_contact" -> "Call $who. Shall I?"
             "send_sms" -> "Send to $who: \"${request.arguments["message"]}\". Shall I?"
-            else -> "${request.name} — shall I go ahead?"
+            else -> "${request.name}  shall I go ahead?"
         }
     }
 }

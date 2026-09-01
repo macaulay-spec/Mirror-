@@ -108,7 +108,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("WAKE_WORD_ACTIVATED", false)) {
-            com.jarvis.app.voice.VoiceBus.onWakeWord()
+            // FIX: Delegate to voiceBridge which properly handles wake word detection
+            // and connects it to the voice pipeline
+            app.voiceBridge?.onWakeWordDetected()
             intent.removeExtra("WAKE_WORD_ACTIVATED")
         }
     }
@@ -120,13 +122,22 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val vm = voiceEngine ?: return
-        if (vm.engineState.value == com.jarvis.core.model.JarvisVisualState.LISTENING) {
-            vm.stopListening()
-            orchestrator.setVisualState(JarvisVisualState.IDLE)
+        // FIX: Use voiceBridge if available, otherwise fall back to direct voiceEngine
+        // The VoiceOrchestratorBridge properly manages state and connects
+        // voice input to the orchestrator
+        val bridge = app.voiceBridge
+        if (bridge != null) {
+            bridge.toggleVoiceInput()
         } else {
-            orchestrator.setVisualState(JarvisVisualState.LISTENING)
-            vm.startListening()
+            // Fallback to direct voice engine control
+            val vm = voiceEngine ?: return
+            if (vm.engineState.value == com.jarvis.core.model.JarvisVisualState.LISTENING) {
+                vm.stopListening()
+                orchestrator.setVisualState(JarvisVisualState.IDLE)
+            } else {
+                orchestrator.setVisualState(JarvisVisualState.LISTENING)
+                vm.startListening()
+            }
         }
     }
 

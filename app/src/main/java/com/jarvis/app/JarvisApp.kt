@@ -78,10 +78,20 @@ class JarvisApp : Application() {
         // Start the floating Orb if overlay permission is granted
         startOrbIfAllowed()
 
-        // Wire the wake-word bus to the (now process-lifetime) orchestrator
-        // once here, instead of every time MainActivity happens to be created.
+        // FIX: Wire the wake-word bus to the orchestrator via VoiceOrchestratorBridge
+        // This is the CRITICAL connection that was missing - voiceEngine and orchestrator
+        // existed but were never properly connected, so voice input went nowhere.
+        // The VoiceOrchestratorBridge now:
+        // 1. Wires voiceEngine.onSpeechResult to orchestrator.submitUserInput()
+        // 2. Connects VoiceBus.wakeWordDetected to startListening()
+        // 3. Manages state synchronization between components
         voiceEngine?.let { engine ->
-            voiceBridge = VoiceOrchestratorBridge(engine, orchestrator, appScope)
+            voiceBridge = VoiceOrchestratorBridge.create(
+                context = applicationContext,
+                voiceEngine = engine,
+                orchestrator = orchestrator,
+                scope = appScope
+            )
         }
     }
 

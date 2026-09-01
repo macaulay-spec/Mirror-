@@ -7,9 +7,9 @@ import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
-import com.jarvis.app.assistant.JarvisApiClient
 import com.jarvis.core.model.ToolExecutionResult
-import com.jarvis.app.config.ApiConfig
+import com.jarvis.app.assistant.JarvisApiClient
+import com.jarvis.agent.ai.plan.AgentStep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -23,7 +23,7 @@ data class JarvisEngineResult(
 )
 
 /**
- * JarvisAIEngine — the LLM reasoning core.
+ * JarvisAIEngine  the LLM reasoning core.
  *
  * Architecture:
  *   BEFORE: 200-line deterministic router intercepted most commands before the AI
@@ -33,9 +33,13 @@ data class JarvisEngineResult(
  *           function declarations so the model decides what tool to call.
  *
  * Tool IDs used in the fast-path match the IDs registered in ToolRegistry:
- *   device_battery  — registered as "device_battery"
- *   device_time     — registered as "device_time"
- *   device_flashlight — registered as "device_flashlight"
+ *   device_battery   registered as "device_battery"
+ *   device_time      registered as "device_time"
+ *   device_flashlight  registered as "device_flashlight"
+ *
+ * NEW: Task execution tracking for TaskExecutionScreen
+ * - Passes step update callbacks to AgentExecutor
+ * - Tracks multi-step execution progress
  */
 class JarvisAIEngine(private val context: Context) {
     private val apiClient = JarvisApiClient()
@@ -45,12 +49,12 @@ class JarvisAIEngine(private val context: Context) {
     val systemPrompt: String
         get() {
             val session = memoryManager.getSessionContext()
-            val name = ApiConfig.userName
-            val tone = ApiConfig.personalityTone
+            val name = com.jarvis.app.config.ApiConfig.userName
+            val tone = com.jarvis.app.config.ApiConfig.personalityTone
             val toneInstruction = when (tone) {
                 "conversational" -> "Speak in a friendly, natural conversational tone."
-                "executive"      -> "Speak in a concise, executive briefing style — bullet points when appropriate."
-                else             -> "Speak in the calm, precise style of the JARVIS AI from Iron Man — British, direct, never verbose."
+                "executive"      -> "Speak in a concise, executive briefing style  bullet points when appropriate."
+                else             -> "Speak in the calm, precise style of the JARVIS AI from Iron Man  British, direct, never verbose."
             }
             return """
 You are JARVIS, $name's personal AI operating layer for Android.
@@ -61,7 +65,7 @@ Current context:
 - Current task: ${session.currentTask}
 - Last action: ${session.lastAction} (success: ${session.lastActionResult})
 
-You have native function-calling tools available. Use them directly — do NOT reply with JSON objects describing what you would do. Call the tool.
+You have native function-calling tools available. Use them directly  do NOT reply with JSON objects describing what you would do. Call the tool.
 
 Rules:
 - For device actions, UI interactions, notifications, calls, SMS: call the appropriate tool.
@@ -73,7 +77,12 @@ Rules:
             """.trimIndent()
         }
 
-    suspend fun processCommand(rawInput: String, onChunk: ((String) -> Unit)? = null): JarvisEngineResult =
+    suspend fun processCommand(
+        rawInput: String,
+        onChunk: ((String) -> Unit)? = null,
+        onStepUpdate: ((List<AgentStep>, Int) -> Unit)? = null,
+        onComplete: ((String, Boolean) -> Unit)? = null
+    ): JarvisEngineResult =
         withContext(Dispatchers.Default) {
             val input = rawInput.trim()
             if (input.isBlank()) return@withContext JarvisEngineResult("Please go ahead.")
@@ -108,8 +117,16 @@ Rules:
                 )
             }
 
-            // All other commands → LLM with real function calling
-            val agentResult = agentExecutor.executeTask(systemPrompt, history, input, null, onChunk)
+            // All other commands  LLM with real function calling
+            // Pass callbacks for step-by-step tracking
+            val agentResult = agentExecutor.executeTask(
+                systemPrompt = systemPrompt,
+                initialHistory = history,
+                userMessage = input,
+                onChunk = onChunk,
+                onStepUpdate = onStepUpdate,
+                onComplete = onComplete
+            )
 
             // ADDED (forensic audit): only use the canned local fallback when
             // there's genuinely no key configured -- that's the documented
@@ -118,7 +135,7 @@ Rules:
             // specific, actionable message for exactly that -- show it instead
             // of masking a real problem with a cheerful generic line.
             val finalResult = if (agentResult.state == JarvisVisualState.ERROR) {
-                if (!ApiConfig.hasAI) {
+                if (!com.jarvis.app.config.ApiConfig.hasAI) {
                     JarvisEngineResult(reply = localFallback(input), state = JarvisVisualState.SUCCESS)
                 } else {
                     agentResult.copy(reply = ReplySanitizer.sanitize(agentResult.reply))
@@ -133,7 +150,7 @@ Rules:
 
     /**
      * Fast-path handles only the four commands where sub-100ms matters.
-     * Uses the same tool IDs that ToolRegistry registers — verified against ToolRegistry.kt.
+     * Uses the same tool IDs that ToolRegistry registers  verified against ToolRegistry.kt.
      */
     private suspend fun fastPath(input: String): ToolExecutionResult? {
         val lower = input.lowercase().trim()
@@ -155,20 +172,20 @@ Rules:
     /** Minimal offline fallback when the AI key is invalid or network is down. */
     private fun localFallback(input: String): String {
         val lower = input.lowercase().trim()
-        val name = ApiConfig.userName
+        val name = com.jarvis.app.config.ApiConfig.userName
         return when {
             lower.contains("who are you") || lower.contains("what is your name") ->
-                "I'm JARVIS, your personal AI assistant, $name. I'm running on local protocols — my AI connection needs a valid key."
+                "I'm JARVIS, your personal AI assistant, $name. I'm running on local protocols  my AI connection needs a valid key."
             lower.contains("hello") || lower.contains("hi") || lower.contains("hey") ->
-                "Hello $name. I'm here — though my AI reasoning is offline. Check Settings → Access Control to verify your key."
+                "Hello $name. I'm here  though my AI reasoning is offline. Check Settings  Access Control to verify your key."
             lower.contains("how are you") ->
                 "Local systems are nominal, $name. My cloud reasoning is unavailable right now."
             lower.contains("thank") ->
                 "Always at your service, $name."
             lower.contains("what can you do") || lower.contains("help") || lower.contains("capabilities") ->
-                "I can control your device, open apps, read notifications, answer questions and much more — once my AI key is configured. Go to Settings → Access Control."
+                "I can control your device, open apps, read notifications, answer questions and much more  once my AI key is configured. Go to Settings  Access Control."
             else ->
-                "I'm operating on local protocols only, $name. Add a valid xAI or Gemini key in Settings → Access Control to restore full intelligence."
+                "I'm operating on local protocols only, $name. Add a valid xAI or Gemini key in Settings  Access Control to restore full intelligence."
         }
     }
 }

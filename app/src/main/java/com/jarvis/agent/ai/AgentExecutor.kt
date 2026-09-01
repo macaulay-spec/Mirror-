@@ -11,6 +11,7 @@ import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -37,6 +38,11 @@ import kotlinx.coroutines.withContext
  *    pauses and returns a pendingConfirmation that AssistantOrchestrator
  *    routes into the same confirm/reject UI the typed-intent path already
  *    uses -- one confirmation system instead of two inconsistent ones.
+ *
+ * NEW: Step-by-step progress tracking for TaskExecutionScreen
+ * - Exposes currentPlan StateFlow for UI observation
+ * - Emits step updates as execution progresses
+ * - Provides completion/failure callbacks
  */
 class AgentExecutor(
     private val context: Context,
@@ -45,6 +51,7 @@ class AgentExecutor(
 ) {
     companion object {
         private const val MAX_STEPS = 4
+        private const val STEP_DELAY_MS = 200L
     }
 
     suspend fun executeTask(
@@ -52,7 +59,9 @@ class AgentExecutor(
         initialHistory: List<Pair<String, String>>,
         userMessage: String,
         onStateChange: ((JarvisVisualState) -> Unit)? = null,
-        onChunk: ((String) -> Unit)? = null
+        onChunk: ((String) -> Unit)? = null,
+        onStepUpdate: ((List<AgentStep>, Int) -> Unit)? = null,
+        onComplete: ((String, Boolean) -> Unit)? = null
     ): JarvisEngineResult = withContext(Dispatchers.Default) {
         onStateChange?.invoke(JarvisVisualState.THINKING)
 
@@ -60,13 +69,17 @@ class AgentExecutor(
         val history = initialHistory.toMutableList()
         var currentInput = userMessage
         var lastToolVerification: String? = null
+        var stepIndex = 0
 
         for (stepCount in 0 until MAX_STEPS) {
             val aiResult = apiClient.chat(systemPrompt, history, currentInput)
             if (aiResult.isFailure) {
                 val detail = aiResult.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
+                val errorMsg = detail ?: "I am operating under local core protocols. How may I assist you?"
+                onComplete?.invoke(errorMsg, false)
+                onStateChange?.invoke(JarvisVisualState.ERROR)
                 return@withContext JarvisEngineResult(
-                    reply = detail ?: "I am operating under local core protocols. How may I assist you?",
+                    reply = errorMsg,
                     state = JarvisVisualState.ERROR
                 )
             }
@@ -74,26 +87,22 @@ class AgentExecutor(
             val aiResponse = aiResult.getOrNull() ?: break
 
             if (aiResponse.toolCalls.isEmpty()) {
-                // No tool calls this round -- the model considers the goal done.
                 val replyText = aiResponse.message?.takeIf { it.isNotBlank() }
                     ?: lastToolVerification
                     ?: "Task completed."
                 val cleanReply = ReplySanitizer.sanitize(replyText)
+                
+                onComplete?.invoke(cleanReply, true)
+                onStepUpdate?.invoke(plan.steps, plan.steps.lastIndex)
+                
                 history.add("jarvis" to cleanReply)
                 return@withContext JarvisEngineResult(reply = cleanReply, state = JarvisVisualState.SUCCESS)
             }
 
-            // The model explained itself before/while acting -- surface that
-            // immediately instead of only revealing it once the whole
-            // multi-step turn finishes. This is the "explain what it's doing"
-            // half of the vision; verification below is the other half.
             aiResponse.message?.takeIf { it.isNotBlank() }?.let {
                 onChunk?.invoke(ReplySanitizer.sanitize(it))
             }
 
-            // Gate the WHOLE round on risk before executing anything in it --
-            // safer than discovering a high-risk call partway through a batch
-            // after lower-risk ones already fired.
             val riskyCall = aiResponse.toolCalls.firstOrNull { call ->
                 (ToolRegistry.getTool(call.toolName)?.riskLevel ?: RiskLevel.LEVEL_1) >= RiskLevel.LEVEL_2
             }
@@ -103,6 +112,9 @@ class AgentExecutor(
                 val argsText = riskyCall.arguments.entries.joinToString { "${it.key}: ${it.value}" }
                 val askText = "I'd like to ${riskyCall.toolName.replace('_', ' ')}" +
                     (if (argsText.isNotBlank()) " ($argsText)" else "") + ". Go ahead?"
+                
+                onStateChange?.invoke(JarvisVisualState.LISTENING)
+                
                 return@withContext JarvisEngineResult(
                     reply = askText,
                     state = JarvisVisualState.LISTENING,
@@ -137,18 +149,46 @@ class AgentExecutor(
                 }
                 executionSummaries.add(summary)
                 lastToolVerification = summary
+                
+                // Notify UI of step update
+                onStepUpdate?.invoke(plan.steps, plan.steps.lastIndex)
+                
+                delay(STEP_DELAY_MS)
+                
+                stepIndex++
             }
 
             val allSummary = executionSummaries.joinToString(". ")
-            // Always hand results back to the model instead of guessing here
-            // whether the goal is finished -- the model saw what it asked for
-            // and is in the best position to decide if another step is needed.
             currentInput = "Tool execution results: $allSummary"
             history.add("user" to currentInput)
             onStateChange?.invoke(JarvisVisualState.THINKING)
         }
 
         val fallback = ReplySanitizer.sanitize(lastToolVerification ?: "Task finished.")
+        onComplete?.invoke(fallback, true)
+        onStepUpdate?.invoke(plan.steps, plan.steps.lastIndex)
+        
         JarvisEngineResult(fallback, JarvisVisualState.SUCCESS)
+    }
+
+    /**
+     * Builds a human-readable description for a step.
+     */
+    private fun buildStepDescription(toolName: String, args: Map<String, Any?>): String {
+        return when (toolName) {
+            "read_screen" -> "Reading screen content"
+            "find_on_screen" -> "Finding element on screen"
+            "tap_on_screen" -> "Tapping on screen"
+            "open_app" -> "Opening app: ${args["packageName"] ?: args["app"]}"
+            "send_sms" -> "Sending SMS to ${args["phone"] ?: args["recipient"]}"
+            "call_phone" -> "Calling ${args["phone"] ?: args["number"]}"
+            "get_contacts" -> "Getting contacts"
+            "get_battery_level" -> "Checking battery level"
+            "get_network_info" -> "Checking network status"
+            "get_location" -> "Getting location"
+            "take_photo" -> "Taking photo"
+            "read_notifications" -> "Reading notifications"
+            else -> "Executing: ${toolName.replace("_", " ")}"
+        }
     }
 }

@@ -2,6 +2,8 @@ package com.jarvis.android.voice
 
 import android.content.Context
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
+import com.jarvis.app.voice.JarvisSoundManager
+import com.jarvis.app.voice.SoundEvent
 import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.JarvisVisualState
 import kotlinx.coroutines.CoroutineScope

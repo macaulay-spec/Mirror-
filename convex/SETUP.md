@@ -30,17 +30,30 @@ This uploads your Convex functions and gives you a deployment URL like:
 
 ### 4. Set your API keys as secrets
 
+**SECURITY NOTE: NEVER use hardcoded keys. Get your own from each provider.**
+
 ```bash
-npx convex env set XAI_API_KEY "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
+# Get your keys from these providers:
+# xAI: https://console.x.ai/ (key starts with xai-)
+# Google Gemini: https://aistudio.google.com/apikey (key starts with AIzaSy)
+# ElevenLabs: https://elevenlabs.io (key starts with sk_)
+# OpenAI: https://platform.openai.com/api-keys (key starts with sk-)
+# Anthropic: https://console.anthropic.com/settings/keys (key starts with sk-ant-)
+# Groq: https://console.groq.com/keys (key starts with gsk_)
+# Mistral: https://console.mistral.ai/api-keys (key starts with mx-)
+
+npx convex env set XAI_API_KEY "your-xai-key-here"
+npx convex env set GEMINI_API_KEY "your-gemini-key-here"
 npx convex env set ELEVENLABS_API_KEY "your-elevenlabs-key-here"
 ```
 
-Optional (if you have them):
+Optional providers:
 ```bash
-npx convex env set GEMINI_API_KEY "AIzaSy..."
-npx convex env set OPENAI_API_KEY "sk-..."
-npx convex env set ANTHROPIC_API_KEY "sk-ant-..."
-npx convex env set GROQ_API_KEY "gsk_..."
+npx convex env set OPENAI_API_KEY "your-openai-key-here"
+npx convex env set ANTHROPIC_API_KEY "your-anthropic-key-here"
+npx convex env set GROQ_API_KEY "your-groq-key-here"
+npx convex env set MISTRAL_API_KEY "your-mistral-key-here"
+npx convex env set CEREBRAS_API_KEY "your-cerebras-key-here"
 ```
 
 ### 5. Update the Android app

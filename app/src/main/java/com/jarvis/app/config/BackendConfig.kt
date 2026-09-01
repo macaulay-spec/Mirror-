@@ -22,14 +22,24 @@ object BackendConfig {
      * Replace with your actual deployment URL after `npx convex deploy`.
      *
      * Format: https://<your-deployment>.convex.site
+     *
+     * SECURITY: Set USE_BACKEND = true for production to keep API keys
+     * on the server. Only set to false for local development with
+     * keys in local.properties (which is .gitignored).
      */
     const val WORKER_URL = "https://YOUR_DEPLOYMENT.convex.site"
 
     /**
      * Whether to use the backend proxy (true) or direct API calls (false).
-     * Set to false for testing without Convex (keys will be in APK).
+     * 
+     * PRODUCTION: Set to true (recommended) - All API keys stored securely
+     *             on Convex server, never in the Android APK.
+     * 
+     * DEVELOPMENT: Set to false - Uses keys from local.properties via BuildConfig.
+     *             local.properties is .gitignored, so keys stay local.
+     *             NEVER commit keys to Git!
      */
-    const val USE_BACKEND = false  // Set to true after deploying Convex
+    const val USE_BACKEND = true  // Set to true for production (recommended)
 
     // ── Convex HTTP Action Endpoints ─────────────────────────────────────
     const val LLM_CHAT_ENDPOINT = "/api/llm/chat"

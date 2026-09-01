@@ -32,14 +32,14 @@ object BackendConfig {
     /**
      * Whether to use the backend proxy (true) or direct API calls (false).
      * 
-     * PRODUCTION: Set to true (recommended) - All API keys stored securely
-     *             on Convex server, never in the Android APK.
+     * Set to false to use direct API calls with keys from local.properties.
+     * local.properties is .gitignored, so keys stay on your local machine only.
      * 
-     * DEVELOPMENT: Set to false - Uses keys from local.properties via BuildConfig.
-     *             local.properties is .gitignored, so keys stay local.
-     *             NEVER commit keys to Git!
+     * Set to true only if you've deployed Convex and configured it.
+     * 
+     * NEVER commit API keys to Git!
      */
-    const val USE_BACKEND = true  // Set to true for production (recommended)
+    const val USE_BACKEND = false  // Direct API mode - keys from local.properties
 
     // ── Convex HTTP Action Endpoints ─────────────────────────────────────
     const val LLM_CHAT_ENDPOINT = "/api/llm/chat"

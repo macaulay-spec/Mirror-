@@ -77,3 +77,21 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.koin.androidx.compose)
+
+    // JARVIS: memory + preferences
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+    implementation(libs.datastore.preferences)
+
+    // JARVIS: networking / AI
+    implementation(libs.okhttp)
+
+    // JARVIS: camera / OCR
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+
+    debugImplementation(libs.androidx.ui.tooling)
+}

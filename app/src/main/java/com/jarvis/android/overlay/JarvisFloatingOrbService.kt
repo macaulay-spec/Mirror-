@@ -16,7 +16,6 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -26,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,8 +56,9 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.jarvis.app.JarvisApp
 import com.jarvis.app.MainActivity
-import com.rork.jarvisaiassistant.R
+import com.jarvis.app.R
 import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
@@ -71,12 +73,17 @@ import com.jarvis.core.ui.JarvisCore
  * - Tap expands to compact strip (Orb shrinks to 32dp, shows last reply + mic + close)
  * - Auto-collapses after ~6s of no interaction
  * - Never intercepts touches outside its own bounds
+ * - **CONNECTED TO ORCHESTRATOR** — mic button triggers voice input
  */
 class JarvisFloatingOrbService : Service() {
 
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     private lateinit var params: WindowManager.LayoutParams
+
+    /** Direct reference to the orchestrator — lives on the Application, not the Activity. */
+    private val orchestrator get() = (application as? JarvisApp)?.orchestrator
+    private val voiceEngine get() = (application as? JarvisApp)?.voiceEngine
 
     override fun onCreate() {
         super.onCreate()
@@ -121,7 +128,17 @@ class JarvisFloatingOrbService : Service() {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         }
                     )
-                }
+                },
+                onToggleMic = {
+                    // Toggle voice input — connected to the real orchestrator
+                    val engine = voiceEngine ?: return@OrbOverlayContent
+                    if (engine.engineState.value == JarvisVisualState.LISTENING) {
+                        engine.stopListening()
+                    } else {
+                        engine.startListening()
+                    }
+                },
+                isListening = state == JarvisVisualState.LISTENING
             )
         }
 
@@ -236,21 +253,21 @@ class JarvisFloatingOrbService : Service() {
 /**
  * Orb overlay content — uses the SAME JarvisCore as the main app.
  *
- * Tap expands to a compact strip; the strip auto-collapses after ~6s.
- * The Orb is the same visual everywhere — it scales, it doesn't become
- * a different graphic.
+ * Tap expands to a compact strip with mic button; the strip auto-collapses after ~6s.
+ * The Orb is the same visual everywhere — it scales, it doesn't become a different graphic.
  */
 @Composable
 private fun OrbOverlayContent(
     state: JarvisVisualState,
     audioLevel: Float,
-    onOpenApp: () -> Unit
+    onOpenApp: () -> Unit,
+    onToggleMic: () -> Unit,
+    isListening: Boolean
 ) {
     var isExpanded by remember { mutableStateOf(false) }
-    var collapseJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     if (isExpanded) {
-        // Compact strip: mini Orb + status + actions
+        // Compact strip: mini Orb + status + mic + actions
         Row(
             modifier = Modifier
                 .padding(4.dp)
@@ -273,7 +290,7 @@ private fun OrbOverlayContent(
             Spacer(modifier = Modifier.width(8.dp))
 
             // Status text
-            Column(modifier = Modifier.width(100.dp)) {
+            androidx.compose.foundation.layout.Column(modifier = Modifier.width(80.dp)) {
                 Text(
                     text = "Jarvis",
                     color = state.orbColor(),
@@ -286,6 +303,16 @@ private fun OrbOverlayContent(
                     color = JarvisColors.TextMuted,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Default
+                )
+            }
+
+            // Mic button — toggles voice input
+            IconButton(onClick = onToggleMic, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = if (isListening) "Stop listening" else "Start listening",
+                    tint = if (isListening) JarvisColors.StateError else JarvisColors.Presence,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 

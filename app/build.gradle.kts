@@ -17,20 +17,10 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        // Read API keys from local.properties
-        val localProperties = java.util.Properties().apply {
-            val localPropertiesFile = project.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                localPropertiesFile.inputStream().use { input ->
-                    this.load(input)
-                }
-            }
-        }
-
-        buildConfigField("String", "XAI_API_KEY", "\"${localProperties.getProperty("XAI_API_KEY", "")}\"")
-        buildConfigField("String", "GEMINI_API_KEY", "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${localProperties.getProperty("ELEVENLABS_API_KEY", "")}\"")
-        buildConfigField("String", "RORK_TOOLKIT_KEY", "\"${localProperties.getProperty("RORK_TOOLKIT_KEY", System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: "")}\"")
+        buildConfigField("String", "XAI_API_KEY", "\"\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"\"")
+        buildConfigField("String", "ELEVENLABS_API_KEY", "\"\"")
+        buildConfigField("String", "RORK_TOOLKIT_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")
     }
 
     buildTypes {
@@ -87,21 +77,3 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.koin.androidx.compose)
-
-    // JARVIS: memory + preferences
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
-    implementation(libs.datastore.preferences)
-
-    // JARVIS: networking / AI
-    implementation(libs.okhttp)
-
-    // JARVIS: camera / OCR
-    implementation(libs.camera.core)
-    implementation(libs.camera.camera2)
-    implementation(libs.camera.lifecycle)
-    implementation(libs.camera.view)
-
-    debugImplementation(libs.androidx.ui.tooling)
-}

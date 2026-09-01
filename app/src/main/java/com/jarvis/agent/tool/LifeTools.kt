@@ -596,15 +596,8 @@ object LifeTools {
                     return@ToolDefinition error("email_draft", "Who should I draft the email to, and what should it say?")
                 }
 
-                // Try to resolve contact name to email address
-                val emailAddress = if (to.contains("@")) {
-                    to
-                } else if (to.isNotBlank()) {
-                    val matches = com.jarvis.app.tools.ContactsToolkit(context).search(to)
-                    matches?.email ?: to // fallback to raw string if no email found
-                } else {
-                    ""
-                }
+                // Use raw email address or contact name as-is
+                val emailAddress = to
 
                 return@ToolDefinition try {
                     val intent = Intent(Intent.ACTION_SENDTO).apply {
@@ -655,13 +648,12 @@ object LifeTools {
                     }
                 } else null
 
+                if (latLon == null) {
+                    return@ToolDefinition error("weather", "I need your location for weather. Enable location permission, or tell me which city.")
+                }
+
                 return@ToolDefinition try {
-                    val url = if (latLon != null) {
-                        "https://api.open-meteo.com/v1/forecast?latitude=${latLon.first}&longitude=${latLon.second}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius"
-                    } else {
-                        // No location — use a default or ask
-                        error("weather", "I need your location for weather. Enable location permission, or tell me which city.")
-                    }
+                    val weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=${latLon.first}&longitude=${latLon.second}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius"
 
                     val client = okhttp3.OkHttpClient.Builder()
                         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
@@ -669,7 +661,7 @@ object LifeTools {
                         .build()
 
                     val request = okhttp3.Request.Builder()
-                        .url(url)
+                        .url(weatherUrl)
                         .get()
                         .build()
 

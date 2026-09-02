@@ -195,7 +195,7 @@ fun EmptyState(message: String) {
  */
 fun ToolExecutionResult.toActionCardData(): DeviceActionCardData {
     return DeviceActionCardData(
-        title = this.toolName ?: "Unknown Action",
+        title = this.toolId,
         description = this.verificationDetails ?: this.error ?: "",
         status = if (this.success) ActionCardStatus.SUCCESS else ActionCardStatus.FAILED,
         details = this.error

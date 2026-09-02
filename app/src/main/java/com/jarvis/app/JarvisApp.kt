@@ -50,7 +50,7 @@ class JarvisApp : Application() {
         )
     }
 
-    private var voiceBridge: VoiceOrchestratorBridge? = null
+    var voiceBridge: VoiceOrchestratorBridge? = null
 
     override fun onCreate() {
         super.onCreate()

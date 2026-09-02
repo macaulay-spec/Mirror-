@@ -17,9 +17,7 @@ import kotlinx.coroutines.launch
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.agent.tool.ToolRegistration
 import com.jarvis.android.permissions.PermissionAndSetupHelper
-import com.jarvis.android.voice.JarvisSoundManager
 import com.jarvis.android.voice.JarvisVoiceEngine
-import com.jarvis.android.voice.SoundEvent
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisTheme
@@ -95,7 +93,6 @@ class MainActivity : ComponentActivity() {
                         orchestrator = orchestrator,
                         onOpenSettings = { showSettings = true },
                         onToggleVoice = {
-                            JarvisSoundManager.play(SoundEvent.ACTIVATE)
                             handleVoiceToggle()
                         }
                     )

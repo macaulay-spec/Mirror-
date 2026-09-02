@@ -31,7 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jarvis.agent.ai.AgentExecutor
+import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.agent.ai.plan.AgentStep
 import com.jarvis.agent.ai.plan.StepStatus
 import com.jarvis.core.model.JarvisVisualState
@@ -77,22 +77,22 @@ data class TaskStep(
 /**
  * Main Task Execution Screen composable.
  * 
- * @param agentExecutor The executor to observe for real-time progress
+ * @param orchestrator The orchestrator to observe for real-time progress
  * @param taskDescription The user's original request/description
  * @param onDismiss Callback when user dismisses the screen
  */
 @Composable
 fun TaskExecutionScreen(
-    agentExecutor: AgentExecutor?,
+    orchestrator: AssistantOrchestrator?,
     taskDescription: String,
     onDismiss: () -> Unit = {}
 ) {
     // Collect state from the executor
-    val currentSteps = agentExecutor?.currentPlan?.collectAsState()?.value?.steps ?: emptyList()
-    val currentStepIndex = agentExecutor?.currentStepIndex?.collectAsState()?.value ?: 0
-    val executionState = agentExecutor?.executionState?.collectAsState()?.value ?: JarvisVisualState.IDLE
-    val isComplete = agentExecutor?.isExecutionComplete?.collectAsState()?.value ?: false
-    val finalResult = agentExecutor?.finalResult?.collectAsState()?.value
+    val currentSteps = orchestrator?.currentSteps?.collectAsState()?.value ?: emptyList()
+    val currentStepIndex = orchestrator?.currentStepIndex?.collectAsState()?.value ?: 0
+    val executionState = orchestrator?.visualState?.collectAsState()?.value ?: JarvisVisualState.IDLE
+    val isComplete = orchestrator?.isTaskExecuting?.collectAsState()?.value == false && (orchestrator?.currentSteps?.collectAsState()?.value?.isNotEmpty() == true)
+    val finalResult = orchestrator?.taskFinalResult?.collectAsState()?.value
 
     // Animated step index for smooth transitions
     var animatedStepIndex by remember { mutableIntStateOf(0) }

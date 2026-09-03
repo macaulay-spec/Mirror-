@@ -25,35 +25,15 @@ class JarvisAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         _isEnabled.value = true
-        connectedOnce = true
-
-        // CRITICAL FIX (2026-09-03): this used to build a brand-new
-        // AccessibilityServiceInfo and ASSIGN it to serviceInfo. A freshly
-        // constructed info object does not carry the capabilities declared in
-        // accessibility_service_config.xml — on real devices this wiped
-        // canRetrieveWindowContent / canPerformGestures for the session, so
-        // rootInActiveWindow returned null and dispatchGesture failed even
-        // though the service showed as "enabled" in Settings. That is exactly
-        // the "accessibility is enabled but JARVIS says it isn't" report.
-        //
-        // Correct approach: read the EXISTING serviceInfo (populated from the
-        // XML by the framework), OR-in extra flags, and write it back.
-        try {
-            val current = serviceInfo ?: AccessibilityServiceInfo()
-            current.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
-            current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            current.flags = (current.flags
-                ?: AccessibilityServiceInfo.FLAG_DEFAULT) or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+        val info = AccessibilityServiceInfo().apply {
+            eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+            feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
                     AccessibilityServiceInfo.FLAG_REQUEST_ACCESSIBILITY_BUTTON
-            current.notificationTimeout = 100
-            serviceInfo = current
-        } catch (_: Exception) {
-            // If reconfiguring fails we still keep the XML-declared defaults,
-            // which are correct — never overwrite them with an empty object.
+            notificationTimeout = 100
         }
+        serviceInfo = info
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val buttonController = accessibilityButtonController
@@ -250,30 +230,10 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun scroll(forward: Boolean): Boolean {
-        // 1) Prefer semantic scroll on an actual scrollable node.
-        val root = rootInActiveWindow
-        if (root != null) {
-            val scrollable = findScrollableNode(root)
-            val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-            if (scrollable?.performAction(action) == true) return true
-        }
-        // 2) Gesture fallback — many screens (Compose, image feeds, games)
-        // expose no scrollable accessibility node at all. Swipe the middle of
-        // the screen like a finger: forward = swipe up (see content below),
-        // backward = swipe down (go back up).
-        return try {
-            val metrics = resources.displayMetrics
-            val centerX = metrics.widthPixels / 2f
-            val fromY = if (forward) metrics.heightPixels * 0.70f else metrics.heightPixels * 0.30f
-            val toY = if (forward) metrics.heightPixels * 0.15f else metrics.heightPixels * 0.85f
-            val path = Path().apply { moveTo(centerX, fromY); lineTo(centerX, toY) }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 320))
-                .build()
-            dispatchGesture(gesture, null, null)
-        } catch (_: Exception) {
-            false
-        }
+        val root = rootInActiveWindow ?: return false
+        val scrollable = findScrollableNode(root) ?: root
+        val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        return scrollable.performAction(action)
     }
 
     private fun findScrollableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -309,25 +269,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         private val _isEnabled = MutableStateFlow(false)
         val isEnabled: StateFlow<Boolean> = _isEnabled.asStateFlow()
 
-        // True once the system has bound this service at least once this boot.
-        // Lets us tell the difference between "the user never enabled it" and
-        // "it WAS enabled but Android (battery optimization / app update)
-        // silently killed it" — previously both produced the same misleading
-        // "not enabled" error.
-        private var connectedOnce = false
-
         fun isServiceRunning(): Boolean = instance != null
-
-        fun wasEnabledAtLeastOnce(): Boolean = connectedOnce
-
-        /** Honest status string for tool errors; empty string means available. */
-        fun unavailabilityReason(): String = when {
-            instance != null -> ""
-            connectedOnce -> "ACCESSIBILITY_STOPPED: JARVIS Accessibility was enabled, but Android stopped it " +
-                "(battery optimization or app update). Re-enable it: Settings › Accessibility › JARVIS."
-            else -> "PERMISSION_REQUIRED: JARVIS Accessibility Service is not enabled. " +
-                "Enable it: Settings › Accessibility › JARVIS."
-        }
 
         fun openSettings(context: Context) {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
@@ -352,7 +294,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "screen_read",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Jarvis Accessibility Service is not enabled."
                         )
                     } else {
                         val elements = service.getStructuredScreenData()
@@ -382,7 +324,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "find_text",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         val texts = service.findTextOnScreen()
@@ -413,7 +355,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "click_element",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         // CHANGED (forensic audit, Task 8 / K): previously this
@@ -469,7 +411,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "type_text",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         val success = service.setTextInField(marker, text)
@@ -500,7 +442,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "scroll",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         val success = service.scroll(forward)
@@ -531,7 +473,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "tap",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         val success = service.clickAt(x, y)
@@ -564,7 +506,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "swipe",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "PERMISSION_REQUIRED: Accessibility Service disabled."
                         )
                     } else {
                         val success = service.swipe(fx, fy, tx, ty)
@@ -589,7 +531,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 ) { _, _ ->
                     val service = instance
                     if (service == null) {
-                        ToolExecutionResult(toolId = "press_back", success = false, data = null, error = unavailabilityReason())
+                        ToolExecutionResult(toolId = "press_back", success = false, data = null, error = "PERMISSION_REQUIRED")
                     } else {
                         val success = service.back()
                         ToolExecutionResult(toolId = "press_back", success = success, data = null, verificationDetails = if (success) "SUCCESS: Pressed back." else "FAILED")
@@ -608,7 +550,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 ) { _, _ ->
                     val service = instance
                     if (service == null) {
-                        ToolExecutionResult(toolId = "press_home", success = false, data = null, error = unavailabilityReason())
+                        ToolExecutionResult(toolId = "press_home", success = false, data = null, error = "PERMISSION_REQUIRED")
                     } else {
                         val success = service.home()
                         ToolExecutionResult(toolId = "press_home", success = success, data = null, verificationDetails = if (success) "SUCCESS: Pressed home." else "FAILED")
@@ -627,7 +569,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 ) { _, _ ->
                     val service = instance
                     if (service == null) {
-                        ToolExecutionResult(toolId = "open_recents", success = false, data = null, error = unavailabilityReason())
+                        ToolExecutionResult(toolId = "open_recents", success = false, data = null, error = "PERMISSION_REQUIRED")
                     } else {
                         val success = service.recents()
                         ToolExecutionResult(toolId = "open_recents", success = success, data = null, verificationDetails = if (success) "SUCCESS: Opened recents." else "FAILED")
@@ -651,7 +593,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                             toolId = "device_navigate_global",
                             success = false,
                             data = null,
-                            error = unavailabilityReason()
+                            error = "Accessibility service required for global navigation."
                         )
                     } else {
                         val globalAction = when (actionStr) {

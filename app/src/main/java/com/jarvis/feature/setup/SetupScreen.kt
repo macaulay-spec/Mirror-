@@ -148,12 +148,10 @@ fun SetupScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(JarvisColors.VoidBlack, JarvisColors.DarkSpace, JarvisColors.VoidBlack)
-                    )
-                )
+                .background(JarvisColors.VoidBlack)
         ) {
+            // Faint HUD grid + top cyan bleed (v3 mockup background)
+            com.jarvis.core.ui.HudBackground(modifier = Modifier.matchParentSize())
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()

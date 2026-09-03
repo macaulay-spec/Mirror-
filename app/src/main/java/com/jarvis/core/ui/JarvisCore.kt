@@ -1,6 +1,7 @@
 package com.jarvis.core.ui
 
 import androidx.compose.animation.core.EaseInOutSine
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -21,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -37,17 +37,23 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * JARVIS Orb — one identity, everywhere.
+ * JARVIS Core — ONE identity, everywhere (hero, mini orb, header emblem).
  *
- * Design spec: a luminous core (soft radial gradient) with a single thin outer ring
- * at ~1.3x the core's radius. Complexity is added by STATE, not by default.
+ * v3 "carbon copy" geometry, straight from the approved mockups:
+ *  - deep black glass field with a soft neon halo
+ *  - a small luminous core
+ *  - a thin inner ring (cyan)
+ *  - a RADIAL TICK ring (the HUD dial marks)
+ *  - an outer ring of fine ARC SEGMENTS that slowly rotates
+ *  - TWO TINY ORBITING LIGHT DOTS (one cyan, one electric blue)
  *
- * - Idle: 40% brightness, slow breathing (4200ms), ring barely visible
- * - Listening: 90% brightness, ring = real waveform from mic amplitude
- * - Thinking: violet hue, inward particle gather (12-16 particles)
- * - Executing: amber hue, single rotating arc segment
- * - Speaking: blue, core pulses with TTS amplitude
- * - Error: sharp contraction + flash (~180ms), settle to idle
+ * State behaviour:
+ *  - Idle: slow breathing, dial drifts, everything calm
+ *  - Listening: outer ring becomes a live circular equalizer (mic amplitude)
+ *  - Thinking: electric-blue tint + inward particle gather
+ *  - Executing: fast electric-blue arc sweeping the outer ring
+ *  - Speaking: core pulses with TTS amplitude
+ *  - Error: sharp contraction + coral flash
  */
 @Composable
 fun JarvisCore(
@@ -58,12 +64,18 @@ fun JarvisCore(
     onClick: (() -> Unit)? = null
 ) {
     val accentColor = state.orbColor()
+    val secondaryColor = if (
+        state == JarvisVisualState.ERROR ||
+        state == JarvisVisualState.SUCCESS ||
+        state == JarvisVisualState.OFFLINE
+    ) accentColor else JarvisColors.ElectricBlue
+
     val transition = rememberInfiniteTransition(label = "orb")
 
-    // Idle breathing: 95% → 105% → 95%, 4200ms ease-in-out
+    // Idle breathing: 96% → 104%, 4200ms ease-in-out
     val breathe by transition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.05f,
+        initialValue = 0.96f,
+        targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
             animation = tween(4200, easing = EaseInOutSine),
             repeatMode = RepeatMode.Reverse
@@ -76,32 +88,54 @@ fun JarvisCore(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(8000),
+            animation = tween(8000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "particleDrift"
     )
 
-    // Executing arc rotation
+    // Outer dial slow rotation (always alive, barely perceptible)
+    val dialRotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(30000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dialRotation"
+    )
+
+    // Executing arc sweep (fast)
     val arcRotation by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1500),
+            animation = tween(1500, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "arcRotation"
     )
 
+    // Orbiting dots (slow, opposite-feeling phases)
+    val orbitDrift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(12000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "orbitDrift"
+    )
+
     // Smooth state transitions
     val targetBrightness = when (state) {
-        JarvisVisualState.IDLE -> 0.60f       // bumped from 0.40 — design shows visible Orb at idle
+        JarvisVisualState.IDLE -> 0.60f
         JarvisVisualState.WAKING -> 0.75f
-        JarvisVisualState.LISTENING -> 0.95f
-        JarvisVisualState.THINKING -> 0.85f
-        JarvisVisualState.EXECUTING -> 0.90f
-        JarvisVisualState.SPEAKING -> 0.90f
-        JarvisVisualState.SUCCESS -> 0.95f
+        JarvisVisualState.LISTENING -> 1.0f
+        JarvisVisualState.THINKING -> 0.90f
+        JarvisVisualState.EXECUTING -> 0.95f
+        JarvisVisualState.SPEAKING -> 0.95f
+        JarvisVisualState.SUCCESS -> 1.0f
         JarvisVisualState.ERROR -> 0.90f
         JarvisVisualState.OFFLINE -> 0.30f
     }
@@ -111,10 +145,9 @@ fun JarvisCore(
         label = "brightness"
     )
 
-    // Scale: breathing in idle, contracted in error
     val baseScale = when (state) {
         JarvisVisualState.IDLE, JarvisVisualState.OFFLINE -> breathe
-        JarvisVisualState.ERROR -> 0.88f
+        JarvisVisualState.ERROR -> 0.90f
         JarvisVisualState.SUCCESS -> 1.06f
         else -> 1.0f
     }
@@ -139,64 +172,72 @@ fun JarvisCore(
             val cy = canvasSize.height / 2f
             val center = Offset(cx, cy)
             val baseRadius = canvasSize.minDimension / 2f
-            val coreRadius = baseRadius * 0.30f
-            val ringRadius = coreRadius * 1.6f
 
-            // ── Ambient glow ─────────────────────────────────────────
-            drawAmbientGlow(center, coreRadius * 3f, accentColor, brightness)
+            val coreRadius = baseRadius * 0.20f
+            val ringInner = baseRadius * 0.42f
+            val ringTicks = baseRadius * 0.64f
+            val ringDial = baseRadius * 0.88f
 
-            // ── Outer ring (state-dependent behavior) ────────────────
+            // ── Neon halo ──────────────────────────────────────────────
+            drawAmbientGlow(center, baseRadius, accentColor, brightness)
+
+            // ── Outer dial ring (state-dependent) ──────────────────────
             when (state) {
                 JarvisVisualState.LISTENING -> {
-                    // Ring = waveform driven by real mic amplitude
-                    drawWaveformRing(center, ringRadius, accentColor, audioLevel, brightness)
-                }
-                JarvisVisualState.THINKING -> {
-                    // Subtle static ring
-                    drawCircle(
-                        color = accentColor.copy(alpha = 0.15f * brightness),
-                        radius = ringRadius * baseScale,
-                        center = center,
-                        style = Stroke(width = 1.5f, cap = StrokeCap.Round)
-                    )
+                    // Live circular equalizer driven by mic amplitude
+                    drawWaveformRing(center, ringDial, accentColor, audioLevel, brightness)
                 }
                 JarvisVisualState.EXECUTING -> {
-                    // Single rotating arc segment
-                    drawExecutingArc(center, ringRadius * baseScale, accentColor, arcRotation, brightness)
-                }
-                JarvisVisualState.ERROR -> {
-                    // Contracted ring with error color
-                    drawCircle(
-                        color = JarvisColors.StateError.copy(alpha = 0.6f),
-                        radius = ringRadius * 0.85f,
-                        center = center,
-                        style = Stroke(width = 2f, cap = StrokeCap.Round)
-                    )
+                    drawDialArcs(center, ringDial, accentColor, secondaryColor, dialRotation, brightness)
+                    rotate(arcRotation, pivot = center) {
+                        drawArc(
+                            color = secondaryColor.copy(alpha = 0.95f * brightness),
+                            startAngle = -18f,
+                            sweepAngle = 72f,
+                            useCenter = false,
+                            topLeft = Offset(center.x - ringDial, center.y - ringDial),
+                            size = androidx.compose.ui.geometry.Size(ringDial * 2f, ringDial * 2f),
+                            style = Stroke(width = 3f, cap = StrokeCap.Round)
+                        )
+                    }
                 }
                 else -> {
-                    // Idle / speaking / success: barely visible static ring
-                    drawCircle(
-                        color = accentColor.copy(alpha = 0.12f * brightness),
-                        radius = ringRadius * baseScale,
-                        center = center,
-                        style = Stroke(width = 1.2f, cap = StrokeCap.Round)
-                    )
+                    drawDialArcs(center, ringDial, accentColor, secondaryColor, dialRotation, brightness)
                 }
             }
 
-            // ── Thinking particles (inward gather) ───────────────────
+            // ── Radial tick ring (the HUD dial marks) ──────────────────
+            drawTickRing(
+                center, ringTicks,
+                if (state == JarvisVisualState.LISTENING) accentColor else secondaryColor,
+                brightness * (if (state == JarvisVisualState.LISTENING) 1.6f else 1f)
+            )
+
+            // ── Thin inner ring ────────────────────────────────────────
+            drawCircle(
+                color = accentColor.copy(alpha = 0.35f * brightness),
+                radius = ringInner * baseScale,
+                center = center,
+                style = Stroke(width = 1.2f, cap = StrokeCap.Round)
+            )
+
+            // ── Thinking particles (inward gather) ─────────────────────
             if (state == JarvisVisualState.THINKING) {
-                drawThinkingParticles(center, ringRadius * 1.8f, accentColor, particleDrift, brightness)
+                drawThinkingParticles(center, ringDial * 1.05f, accentColor, particleDrift, brightness)
             }
 
-            // ── Luminous core ────────────────────────────────────────
+            // ── Two orbiting light dots ────────────────────────────────
+            drawOrbitDot(center, ringTicks, orbitDrift, accentColor, brightness)
+            drawOrbitDot(center, ringDial, orbitDrift * 0.7f + 140f, secondaryColor, brightness)
+
+            // ── Luminous core ──────────────────────────────────────────
             drawLuminousCore(center, coreRadius * baseScale, accentColor, brightness, audioLevel)
 
-            // ── Error flash overlay ──────────────────────────────────
+            // ── Error flash overlay ────────────────────────────────────
             if (state == JarvisVisualState.ERROR) {
                 drawCircle(
-                    color = JarvisColors.StateError.copy(alpha = 0.3f),
-                    radius = coreRadius * 1.5f,
+                    color = JarvisColors.StateError.copy(alpha = 0.30f),
+                    radius = coreRadius * 1.6f,
                     center = center
                 )
             }
@@ -212,12 +253,11 @@ private fun DrawScope.drawAmbientGlow(
     color: Color,
     brightness: Float
 ) {
-    // Outer diffuse glow
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.15f * brightness),
-                color.copy(alpha = 0.06f * brightness),
+                color.copy(alpha = 0.18f * brightness),
+                color.copy(alpha = 0.07f * brightness),
                 Color.Transparent
             ),
             center = center,
@@ -226,18 +266,17 @@ private fun DrawScope.drawAmbientGlow(
         radius = radius,
         center = center
     )
-    // Inner brighter glow ring
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.25f * brightness),
-                color.copy(alpha = 0.08f * brightness),
+                color.copy(alpha = 0.28f * brightness),
+                color.copy(alpha = 0.09f * brightness),
                 Color.Transparent
             ),
             center = center,
-            radius = radius * 0.65f
+            radius = radius * 0.55f
         ),
-        radius = radius * 0.65f,
+        radius = radius * 0.55f,
         center = center
     )
 }
@@ -249,45 +288,30 @@ private fun DrawScope.drawLuminousCore(
     brightness: Float,
     audioLevel: Float
 ) {
-    val dynamicR = radius * (1f + audioLevel * 0.15f)
+    val dynamicR = radius * (1f + audioLevel * 0.18f)
 
-    // Outer volumetric glow
+    // Volumetric glow
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
-                color.copy(alpha = 0.35f * brightness),
-                color.copy(alpha = 0.12f * brightness),
+                color.copy(alpha = 0.40f * brightness),
+                color.copy(alpha = 0.14f * brightness),
                 Color.Transparent
             ),
             center = center,
-            radius = dynamicR * 2.4f
+            radius = dynamicR * 3.2f
         ),
-        radius = dynamicR * 2.4f,
+        radius = dynamicR * 3.2f,
         center = center
     )
 
-    // Middle glow layer
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(
-                color.copy(alpha = 0.70f * brightness),
-                color.copy(alpha = 0.35f * brightness),
-                Color.Transparent
-            ),
-            center = center,
-            radius = dynamicR * 1.5f
-        ),
-        radius = dynamicR * 1.5f,
-        center = center
-    )
-
-    // Solid core — bright luminous sphere
+    // Solid luminous sphere
     drawCircle(
         brush = Brush.radialGradient(
             listOf(
                 Color.White.copy(alpha = 0.95f * brightness),
                 color.copy(alpha = 0.90f * brightness),
-                color.copy(alpha = 0.55f * brightness)
+                color.copy(alpha = 0.45f * brightness)
             ),
             center = center,
             radius = dynamicR
@@ -296,34 +320,108 @@ private fun DrawScope.drawLuminousCore(
         center = center
     )
 
-    // Inner nucleus highlight (bright white center)
+    // Hot center
     drawCircle(
         color = Color.White.copy(alpha = 0.85f * brightness),
-        radius = dynamicR * 0.40f,
+        radius = dynamicR * 0.42f,
         center = center
     )
+}
 
-    // Dark pupil (the eye-like center from the design)
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(
-                JarvisColors.VoidBlack.copy(alpha = 0.90f),
-                JarvisColors.VoidBlack.copy(alpha = 0.50f),
-                Color.Transparent
+/** The HUD dial marks: 72 short radial ticks, every 6th emphasized. */
+private fun DrawScope.drawTickRing(
+    center: Offset,
+    radius: Float,
+    color: Color,
+    brightness: Float
+) {
+    val ticks = 72
+    val angleStep = (2f * PI.toFloat()) / ticks
+    for (i in 0 until ticks) {
+        val emphasized = i % 6 == 0
+        val len = if (emphasized) radius * 0.075f else radius * 0.038f
+        val angle = i * angleStep - PI.toFloat() / 2f
+        val cosA = cos(angle)
+        val sinA = sin(angle)
+        val inner = radius - len
+        val outer = radius + len
+        drawLine(
+            color = color.copy(
+                alpha = ((if (emphasized) 0.55f else 0.20f) * brightness).coerceIn(0f, 1f)
             ),
-            center = center,
-            radius = dynamicR * 0.25f
-        ),
-        radius = dynamicR * 0.25f,
-        center = center
-    )
-
-    // Iris ring (glowing ring around the pupil)
+            start = Offset(center.x + cosA * inner, center.y + sinA * inner),
+            end = Offset(center.x + cosA * outer, center.y + sinA * outer),
+            strokeWidth = if (emphasized) 2f else 1f,
+            cap = StrokeCap.Round
+        )
+    }
+    // Faint full circle underneath the ticks
     drawCircle(
-        color = color.copy(alpha = 0.70f * brightness),
-        radius = dynamicR * 0.22f,
+        color = color.copy(alpha = 0.08f * brightness),
+        radius = radius,
         center = center,
-        style = Stroke(width = 1.5f)
+        style = Stroke(width = 1f)
+    )
+}
+
+/** Fine arc segments around the outer ring, slowly rotating. */
+private fun DrawScope.drawDialArcs(
+    center: Offset,
+    radius: Float,
+    colorA: Color,
+    colorB: Color,
+    rotation: Float,
+    brightness: Float
+) {
+    // Base ring
+    drawCircle(
+        color = colorA.copy(alpha = 0.10f * brightness),
+        radius = radius,
+        center = center,
+        style = Stroke(width = 1f)
+    )
+    rotate(rotation, pivot = center) {
+        val segments = 8
+        for (i in 0 until segments) {
+            val start = i * (360f / segments)
+            val sweep = if (i % 2 == 0) 20f else 9f
+            val alpha = if (i % 2 == 0) 0.55f else 0.28f
+            val col = if (i % 4 == 0) colorB else colorA
+            drawArc(
+                color = col.copy(alpha = alpha * brightness),
+                startAngle = start,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = Offset(center.x - radius, center.y - radius),
+                size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
+                style = Stroke(width = 2f, cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+/** One tiny glowing dot orbiting at [angleDeg] on the given [radius]. */
+private fun DrawScope.drawOrbitDot(
+    center: Offset,
+    radius: Float,
+    angleDeg: Float,
+    color: Color,
+    brightness: Float
+) {
+    val angle = angleDeg * (PI.toFloat() / 180f)
+    val x = center.x + cos(angle) * radius
+    val y = center.y + sin(angle) * radius
+    // Halo
+    drawCircle(
+        color = color.copy(alpha = 0.25f * brightness),
+        radius = radius * 0.045f,
+        center = Offset(x, y)
+    )
+    // Dot
+    drawCircle(
+        color = color.copy(alpha = 0.95f * brightness),
+        radius = radius * 0.018f,
+        center = Offset(x, y)
     )
 }
 
@@ -334,67 +432,31 @@ private fun DrawScope.drawWaveformRing(
     audioLevel: Float,
     brightness: Float
 ) {
-    val segments = 64
+    val segments = 72
     val angleStep = (2f * PI.toFloat()) / segments
 
     for (i in 0 until segments) {
         val angle = i * angleStep - PI.toFloat() / 2f
-        // Waveform: audio level drives amplitude, position in ring drives phase
         val wave = sin(angle * 3f + audioLevel * 8f) * audioLevel * radius * 0.25f
         val innerR = radius - wave.coerceAtLeast(0f)
-        val outerR = radius + wave.coerceAtMost(radius * 0.3f)
-
-        val innerX = center.x + cos(angle) * innerR
-        val innerY = center.y + sin(angle) * innerR
-        val outerX = center.x + cos(angle) * outerR
-        val outerY = center.y + sin(angle) * outerR
+        val outerR = radius + wave.coerceAtMost(radius * 0.30f)
 
         val segAlpha = (0.3f + audioLevel * 0.6f) * brightness
         drawLine(
             color = color.copy(alpha = segAlpha.coerceIn(0.1f, 1f)),
-            start = Offset(innerX, innerY),
-            end = Offset(outerX, outerY),
-            strokeWidth = 1.5f,
+            start = Offset(center.x + cos(angle) * innerR, center.y + sin(angle) * innerR),
+            end = Offset(center.x + cos(angle) * outerR, center.y + sin(angle) * outerR),
+            strokeWidth = 2f,
             cap = StrokeCap.Round
         )
     }
 
-    // Base ring (faint)
     drawCircle(
         color = color.copy(alpha = 0.10f * brightness),
         radius = radius,
         center = center,
         style = Stroke(width = 1f)
     )
-}
-
-private fun DrawScope.drawExecutingArc(
-    center: Offset,
-    radius: Float,
-    color: Color,
-    rotation: Float,
-    brightness: Float
-) {
-    // Base ring (more visible)
-    drawCircle(
-        color = color.copy(alpha = 0.15f * brightness),
-        radius = radius,
-        center = center,
-        style = Stroke(width = 1.5f)
-    )
-
-    // Rotating arc segment (determinate-ish progress)
-    rotate(rotation, pivot = center) {
-        drawArc(
-            color = color.copy(alpha = 0.85f * brightness),
-            startAngle = 0f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
-            style = Stroke(width = 3f, cap = StrokeCap.Round)
-        )
-    }
 }
 
 private fun DrawScope.drawThinkingParticles(
@@ -407,19 +469,15 @@ private fun DrawScope.drawThinkingParticles(
     val count = 14
     for (i in 0 until count) {
         val angle = (i * (360f / count) + drift) * (PI.toFloat() / 180f)
-        // Particles drift inward over their lifecycle
-        val progress = ((drift + i * 25f) % 360f) / 360f  // 0..1 lifecycle
-        val dist = outerRadius * (1f - progress * 0.7f)    // move inward
-        val alpha = (1f - progress) * 0.6f * brightness     // fade as they approach center
-
+        val progress = ((drift + i * 25f) % 360f) / 360f
+        val dist = outerRadius * (1f - progress * 0.7f)
+        val alpha = (1f - progress) * 0.6f * brightness
         if (alpha > 0.02f) {
             val px = center.x + cos(angle) * dist
             val py = center.y + sin(angle) * dist
-            val pSize = 1.5f + (1f - progress) * 1.5f
-
             drawCircle(
                 color = color.copy(alpha = alpha),
-                radius = pSize,
+                radius = 1.5f + (1f - progress) * 1.5f,
                 center = Offset(px, py)
             )
         }

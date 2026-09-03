@@ -104,19 +104,21 @@ object ElevenLabsVoicePlayer {
 
     /** Plays the next queued sentence if nothing is currently playing. */
     private fun playNextFromQueue(context: Context, voiceId: String, apiKey: String) {
-        val next: String?
-        val generation: Int
+        var next: String? = null
+        var generation = -1
         synchronized(queueLock) {
-            if (mediaPlayer != null) return          // still playing; completion drains the queue
-            next = speechQueue.removeFirstOrNull()
-            if (next == null) {
-                VoiceBus.setEngineState(JarvisVisualState.IDLE)
-                return
+            if (mediaPlayer == null) {
+                next = speechQueue.removeFirstOrNull()
+                if (next == null) {
+                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                } else {
+                    generation = ++queueGeneration
+                }
             }
-            generation = ++queueGeneration
         }
+        val sentence = next ?: return   // still playing, or queue empty
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            val ok = trySpeak(context, next, voiceId, apiKey, generation) {
+            val ok = trySpeak(context, sentence, voiceId, apiKey, generation) {
                 playNextFromQueue(context, voiceId, apiKey)
             }
             if (!ok) playNextFromQueue(context, voiceId, apiKey)   // don't stall the queue

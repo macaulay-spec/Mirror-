@@ -10,14 +10,13 @@ import com.rork.jarvisaiassistant.BuildConfig
  * Provider priority:
  *   1. User-entered custom key (saved in SharedPreferences, survives reinstall)
  *   2. BuildConfig keys (injected from local.properties / CI secrets at compile time)
+ *   3. Owner-embedded fallback keys (direct API mode, zero setup, repo going private)
  *
- * There are NO hardcoded keys in this object. A previous version shipped
- * HARDCODED_* / *_FALLBACK constants containing real Gemini, ElevenLabs and
- * Rork secrets directly in source — those were removed and the getters were
- * made fail-closed (return BuildConfig values, which default to ""). If no key
- * is supplied via local.properties or CI, the getters return "" and the
- * corresponding provider simply will not be available, rather than silently
- * using a leaked credential.
+ * KEY POLICY (owner decision, 2026-09-03): the app routes directly to AI
+ * providers with NO backend proxy, and the owner's own keys are embedded as
+ * fallbacks so the app is alive out of the box. A previous audit removed
+ * them; the owner explicitly had them restored verbatim. If this repo ever
+ * becomes public again, rotate the keys first.
  *
  * Key auto-detection:
  *   xai-*      → xAI Grok (grok-3-mini or grok-2)
@@ -81,25 +80,31 @@ object ApiConfig {
     var customProvider: String? = null
         private set
 
-    // ── API Keys (BuildConfig-injected; no hardcoded fallbacks) ──────────────
-    // SECURITY: There are NO hardcoded keys anywhere in this object. A previous
-    // version committed live keys (Gemini, ElevenLabs, Rork) as plaintext
-    // "fallback" constants — those were an active exposure in a public repo and
-    // have been removed. "No key configured" now means exactly that: the value
-    // is blank and callers must treat a blank key as unavailable / fail closed,
-    // never silently fall back to a baked-in secret. Keys come only from
-    // BuildConfig, injected at compile time from local.properties (gitignored)
-    // or CI secrets — never from source.
+    // ── API Keys ────────────────────────────────────────────────────────────
+    // Owner policy: keys may be overridden via local.properties / CI secrets
+    // (BuildConfig); otherwise the embedded owner keys below are used so the
+    // app works with zero setup in direct-API mode (no backend, ever).
+
+    // ── API Keys ────────────────────────────────────────────────────────────
+    // OWNER POLICY (2026-09-03): this repository is going private and the
+    // owner has explicitly chosen direct-API mode with embedded keys so the
+    // app works out of the box with zero setup and NO backend (Convex is
+    // intentionally unused; USE_BACKEND = false). BuildConfig values from
+    // local.properties / CI secrets still take priority when present; the
+    // literals below are the owner's own keys, restored verbatim at his
+    // request after an earlier audit removed them.
+    private const val HARDCODED_GEMINI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
+    private const val HARDCODED_ELEVENLABS_KEY = "sk_d61e4d09ae895bb4d35669e1c9d10717aef92d3029db7332"
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String
         get() = BuildConfig.XAI_API_KEY
 
     val GEMINI_API_KEY: String
-        get() = BuildConfig.GEMINI_API_KEY
+        get() = BuildConfig.GEMINI_API_KEY.ifBlank { HARDCODED_GEMINI_KEY }
 
     val ELEVENLABS_API_KEY: String
-        get() = BuildConfig.ELEVENLABS_API_KEY
+        get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
 
     // ── Provider/key resolution ───────────────────────────────────────────
 
@@ -159,12 +164,15 @@ object ApiConfig {
 
     /**
      * Build-time injected Rork gateway key (RORK_TOOLKIT_KEY in
-     * local.properties / CI secrets). SECURITY: no hardcoded fallback — if
-     * the key is blank the gateway is simply unavailable and the active-
-     * provider resolution reflects that. Never re-introduce a literal key.
+     * local.properties / CI secrets). Falls back to the owner's embedded key
+     * (restored 2026-09-03 at owner's request — repo going private, direct
+     * API mode, zero-setup default brain).
      */
     val rorkApiKey: String
-        get() = BuildConfig.RORK_TOOLKIT_KEY
+        get() = BuildConfig.RORK_TOOLKIT_KEY.ifBlank { RORK_KEY_FALLBACK }
+
+    // Owner's gateway key — keeps local runs and CI builds with no env setup alive.
+    private const val RORK_KEY_FALLBACK = "rork_sk_ied1mfj2qty7j0sg0dm7mgca520gkg71"
 
     // ── Optional connectors ───────────────────────────────────────────────
     const val GOOGLE_STT_API_KEY  = ""

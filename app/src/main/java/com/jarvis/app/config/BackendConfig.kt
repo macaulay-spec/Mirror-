@@ -30,6 +30,27 @@ object BackendConfig {
     const val WORKER_URL = "https://YOUR_DEPLOYMENT.convex.site"
 
     /**
+     * Whether the placeholder [WORKER_URL] has been replaced with a real
+     * Convex deployment URL. Callers MUST check this before making a backend
+     * request; if it is false while [USE_BACKEND] is true, the app would
+     * otherwise silently POST to a non-existent host and hang/fail opaquely.
+     *
+     * This is the guard that turns a silent misconfiguration into an
+     * immediate, explicit "backend not configured" error.
+     */
+    val isWorkerUrlConfigured: Boolean
+        get() = WORKER_URL.isNotBlank() &&
+            !WORKER_URL.contains("YOUR_DEPLOYMENT", ignoreCase = true) &&
+            WORKER_URL.endsWith(".convex.site")
+
+    /**
+     * True only when backend mode is BOTH enabled AND actually configured.
+     * Use this instead of raw [USE_BACKEND] at every proxy entry point.
+     */
+    val isBackendReady: Boolean
+        get() = USE_BACKEND && isWorkerUrlConfigured
+
+    /**
      * Whether to use the backend proxy (true) or direct API calls (false).
      * 
      * Set to false to use direct API calls with keys from local.properties.

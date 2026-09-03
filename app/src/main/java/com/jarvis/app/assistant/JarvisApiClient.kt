@@ -27,9 +27,13 @@ data class AiResponse(
 /**
  * JARVIS AI Client — routes requests through the Convex backend proxy.
  *
- * When BackendConfig.USE_BACKEND is true (default):
+ * When BackendConfig.isBackendReady (USE_BACKEND true AND WORKER_URL configured):
  *   All API calls go through Convex HTTP actions.
  *   API keys are stored server-side as Convex environment variables — the app never sees them.
+ *
+ * When USE_BACKEND is true but WORKER_URL is still the placeholder:
+ *   chat() fails fast with an explicit "backend not configured" error instead
+ *   of silently POSTing to a non-existent host.
  *
  * When BackendConfig.USE_BACKEND is false:
  *   Direct API calls (for development/testing without a backend).
@@ -51,8 +55,15 @@ class JarvisApiClient(
         provider: String = ApiConfig.activeProvider,
         model: String = resolveModel(provider)
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
-        if (BackendConfig.USE_BACKEND) {
+        if (BackendConfig.isBackendReady) {
             chatViaProxy(systemPrompt, history, userMessage, provider, model)
+        } else if (BackendConfig.USE_BACKEND && !BackendConfig.isWorkerUrlConfigured) {
+            // Backend was enabled but WORKER_URL is still the placeholder.
+            // Fail explicitly instead of silently POSTing to a non-existent host.
+            Result.failure(IllegalStateException(
+                "Backend mode is enabled (USE_BACKEND=true) but BackendConfig.WORKER_URL is still the placeholder. " +
+                "Run `npx convex deploy` and set the real deployment URL in BackendConfig, or set USE_BACKEND=false to use direct API mode with keys from local.properties."
+            ))
         } else {
             chatDirect(systemPrompt, history, userMessage, provider, model)
         }

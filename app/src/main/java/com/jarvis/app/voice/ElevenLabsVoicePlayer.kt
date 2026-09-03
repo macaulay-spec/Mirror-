@@ -5,8 +5,8 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -16,232 +16,221 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * ElevenLabsVoicePlayer — streams HD TTS audio from ElevenLabs.
+ * ElevenLabsVoicePlayer — HD TTS with a resilient endpoint + voice chain.
  *
- * Improvements over previous version:
- *   - Uses eleven_turbo_v2_5 model (fast + high quality)
- *   - Voice preset cascade: tries configured voice first, falls back through
- *     the preset list so the app never goes silent due to a missing voice ID
- *   - VoiceDiagnostics reports the real failure reason
- *   - stop() is safe to call at any time (barge-in support)
- *   - Returns true/false so JarvisVoiceEngine knows whether to fall back to Android TTS
+ * Endpoint chain (tried in order):
+ *   1. Rork proxy (`toolkit.rork.com/v2/elevenlabs/...`) — zero setup, key held
+ *      server-side and injected at build time.
+ *   2. Direct api.elevenlabs.io — only when the user supplied their own key.
+ *
+ * Voice chain: the configured voice first, then JarvisVoice's British
+ * candidates, so a per-account missing voice ID can never leave JARVIS silent.
+ *
+ * [speak] suspends until playback completes (or returns false if synthesis
+ * failed, telling the caller to fall back to Android TTS). [stop] is safe to
+ * call at any time and acts as barge-in: the in-flight [speak] unblocks and
+ * any queued sentence is abandoned by the caller.
  */
 object ElevenLabsVoicePlayer {
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(40, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
 
-    // ── Streaming sentence queue ──────────────────────────────────────────
-    // Real-time replies arrive as text deltas; completed sentences are queued
-    // here and spoken back-to-back so JARVIS starts talking while the rest of
-    // the reply is still generating. stop() flushes the whole queue (barge-in).
-    private val speechQueue = ArrayDeque<String>()
-    private val queueLock = Any()
-    @Volatile private var queueGeneration = 0
+    @Volatile
+    private var playbackDone: CompletableDeferred<Boolean>? = null
 
-    // Voice fallback chain — tried in order if the first ID fails
-    private val BRITISH_FALLBACK_IDS = listOf(
-        "JBFqnCBsd6RMkjVDRZzb", // George — warm, British male
-        "N2lVS1w4EtoT3dr4eOWO", // Callum — intense, British male
-        "Xb7hH8MSUJpSbSDYk0k2", // Alice — British female
-        "pNInz6obpgDQGcFmaJgB", // Adam — deep US male (last resort)
-        "21m00Tcm4TlvDq8ikWAM"  // Rachel — always exists on every ElevenLabs account
+    /** Incremented on every new play/stop; stale completions are ignored. */
+    private val generation = AtomicInteger(0)
+
+    private data class Endpoint(
+        val label: String,
+        val url: (String) -> String,
+        val auth: (Request.Builder) -> Request.Builder
     )
 
+    private fun endpoints(): List<Endpoint> = buildList {
+        add(
+            Endpoint(
+                label = "proxy",
+                url = { voiceId -> "https://toolkit.rork.com/v2/elevenlabs/v1/text-to-speech/$voiceId" },
+                auth = { builder -> builder.header("Authorization", "Bearer ${ApiConfig.rorkApiKey}") }
+            )
+        )
+        if (ApiConfig.ELEVENLABS_API_KEY.isNotBlank()) {
+            add(
+                Endpoint(
+                    label = "direct",
+                    url = { voiceId -> "https://api.elevenlabs.io/v1/text-to-speech/$voiceId" },
+                    auth = { builder -> builder.header("xi-api-key", ApiConfig.ELEVENLABS_API_KEY) }
+                )
+            )
+        }
+    }
+
+    private fun voiceOrder(configured: String): List<String> = buildList {
+        add(configured)
+        com.jarvis.app.voice.JarvisVoice.BRITISH_CANDIDATES.forEach { candidate ->
+            if (candidate.id != configured && !contains(candidate.id)) add(candidate.id)
+        }
+    }
+
     /**
-     * Speak [text] via ElevenLabs.
-     * Returns true if audio started playing, false if ElevenLabs is unavailable (caller should use Android TTS).
+     * Speak [text] and suspend until playback finishes.
+     * Returns true when audio played (or was barged in mid-playback),
+     * false when synthesis failed on every endpoint/voice — the caller
+     * should then fall back to Android TTS.
      */
     suspend fun speak(context: Context, text: String, voiceId: String = ApiConfig.selectedVoiceId): Boolean =
         withContext(Dispatchers.IO) {
             if (text.isBlank()) return@withContext false
-            val apiKey = ApiConfig.ELEVENLABS_API_KEY
-            if (apiKey.isBlank()) {
-                VoiceDiagnostics.report("ElevenLabs key not configured — using Android TTS")
-                return@withContext false
-            }
 
-            stop()  // barge-in: stop any current playback
+            val myGen = generation.incrementAndGet()
+            stop()  // barge-in: stop any current playback before starting
 
-            // Try configured voice, then fall back through the cascade
-            val voiceOrder = buildList {
-                add(voiceId)
-                BRITISH_FALLBACK_IDS.forEach { if (it != voiceId) add(it) }
-            }
-
-            for (vid in voiceOrder) {
-                val result = trySpeak(context, text, vid, apiKey)
-                if (result) {
-                    VoiceDiagnostics.success("ElevenLabs voice: $vid")
-                    return@withContext true
+            for (endpoint in endpoints()) {
+                for (vid in voiceOrder(voiceId)) {
+                    if (myGen != generation.get()) return@withContext true  // superseded by a newer utterance
+                    val outcome = tryPlay(context, text, vid, endpoint, myGen)
+                    if (outcome != null) {
+                        if (outcome) VoiceDiagnostics.success("ElevenLabs ${endpoint.label} voice: $vid")
+                        return@withContext outcome
+                    }
                 }
             }
 
-            VoiceDiagnostics.report("ElevenLabs: all voices failed — using Android TTS fallback")
+            VoiceDiagnostics.report("ElevenLabs: all endpoints and voices failed — falling back to Android TTS")
             return@withContext false
         }
 
+    /** Stop current playback immediately (barge-in). Safe from any thread. */
+    fun stop() {
+        generation.incrementAndGet()
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+        } catch (_: Exception) {}
+        mediaPlayer = null
+        // Unblock a waiting speak() — treat as played so the caller does not
+        // fall back to TTS over the top of a user-initiated interruption.
+        playbackDone?.complete(true)
+        playbackDone = null
+    }
+
+    val isPlaying: Boolean
+        get() = try { mediaPlayer?.isPlaying == true } catch (_: Exception) { false }
+
     /**
-     * Queue one sentence for sequential playback (streaming mode). Synthesis
-     * and playback happen in the background; sentences play in order.
-     * Returns false only when ElevenLabs is not configured (caller should use
-     * Android TTS for this sentence instead).
+     * Download + play one utterance. Returns null when the request failed and
+     * the next endpoint/voice should be tried; otherwise the playback outcome.
      */
-    fun enqueueSentence(context: Context, sentence: String, voiceId: String = ApiConfig.selectedVoiceId): Boolean {
-        if (sentence.isBlank()) return true
-        val apiKey = ApiConfig.ELEVENLABS_API_KEY
-        if (apiKey.isBlank()) return false
-        synchronized(queueLock) { speechQueue.add(sentence.trim()) }
-        playNextFromQueue(context, voiceId, apiKey)
-        return true
-    }
-
-    /** Plays the next queued sentence if nothing is currently playing. */
-    private fun playNextFromQueue(context: Context, voiceId: String, apiKey: String) {
-        var next: String? = null
-        var generation = -1
-        synchronized(queueLock) {
-            if (mediaPlayer == null) {
-                next = speechQueue.removeFirstOrNull()
-                if (next == null) {
-                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
-                } else {
-                    generation = ++queueGeneration
-                }
-            }
-        }
-        val sentence = next ?: return   // still playing, or queue empty
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            val ok = trySpeak(context, sentence, voiceId, apiKey, generation) {
-                playNextFromQueue(context, voiceId, apiKey)
-            }
-            if (!ok) playNextFromQueue(context, voiceId, apiKey)   // don't stall the queue
-        }
-    }
-
-    private suspend fun trySpeak(
+    private suspend fun tryPlay(
         context: Context,
         text: String,
         voiceId: String,
-        apiKey: String,
-        generation: Int = -1,
-        onCompleted: (() -> Unit)? = null
-    ): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                val url = "https://api.elevenlabs.io/v1/text-to-speech/$voiceId"
-                val payload = JSONObject().apply {
-                    put("text", text)
-                    put("model_id", "eleven_turbo_v2_5")
-                    put("voice_settings", JSONObject().apply {
-                        put("stability", 0.40)
-                        put("similarity_boost", 0.80)
-                        put("style", 0.28)
-                        put("use_speaker_boost", true)
-                    })
-                }
+        endpoint: Endpoint,
+        myGen: Int
+    ): Boolean? = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject()
+                .put("text", text)
+                .put("model_id", JarvisVoice.MODEL)
+                .put("voice_settings", JSONObject().apply {
+                    put("stability", JarvisVoice.STABILITY)
+                    put("similarity_boost", JarvisVoice.SIMILARITY_BOOST)
+                    put("style", JarvisVoice.STYLE)
+                    put("use_speaker_boost", JarvisVoice.SPEAKER_BOOST)
+                })
 
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("xi-api-key", apiKey)
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Accept", "audio/mpeg")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
+            val requestBuilder = endpoint.auth(
+                Request.Builder()
+                    .url(endpoint.url(voiceId))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "audio/mpeg")
+            )
 
-                val response = httpClient.newCall(request).execute()
+            val request = requestBuilder
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    VoiceDiagnostics.report("ElevenLabs HTTP ${response.code} for voice $voiceId")
-                    return@withContext false
+                    VoiceDiagnostics.report("ElevenLabs ${endpoint.label} HTTP ${response.code} for voice $voiceId")
+                    return@use null
                 }
 
-                val body = response.body ?: return@withContext false
+                val body = response.body ?: return@use null
                 val tempFile = File.createTempFile("jarvis_tts_", ".mp3", context.cacheDir)
                 tempFile.deleteOnExit()
 
                 FileOutputStream(tempFile).use { fos ->
                     body.byteStream().use { input -> input.copyTo(fos) }
                 }
-                if (tempFile.length() <= 512) return@withContext false   // empty/corrupt
-
-                val started = withContext(Dispatchers.Main) {
-                    try {
-                        // Stale guard: if stop() was called while this sentence
-                        // was synthesizing, drop it instead of playing it.
-                        if (generation >= 0 && generation != queueGeneration) {
-                            tempFile.delete()
-                            false
-                        } else {
-                            mediaPlayer?.release()
-                            mediaPlayer = MediaPlayer().apply {
-                                setAudioAttributes(
-                                    AudioAttributes.Builder()
-                                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                                        .build()
-                                )
-                                setDataSource(tempFile.absolutePath)
-                                prepare()
-                                start()
-                                setOnCompletionListener {
-                                    try {
-                                        mediaPlayer = null
-                                        it.release()
-                                        tempFile.delete()
-                                    } catch (_: Exception) {}
-                                    if (onCompleted != null) {
-                                        onCompleted()          // queue: drain the next sentence
-                                    } else {
-                                        VoiceBus.setEngineState(JarvisVisualState.IDLE)
-                                    }
-                                }
-                                // NOTE: OnErrorListener.onError takes THREE params (mp, what, extra)
-                                setOnErrorListener { mp, _, _ ->
-                                    try {
-                                        mediaPlayer = null
-                                        mp.release()
-                                        tempFile.delete()
-                                    } catch (_: Exception) {}
-                                    if (onCompleted != null) onCompleted() else VoiceBus.setEngineState(JarvisVisualState.IDLE)
-                                    true
-                                }
-                            }
-                            VoiceBus.setEngineState(JarvisVisualState.SPEAKING)
-                            true
-                        }
-                    } catch (e: Exception) {
-                        VoiceDiagnostics.report("MediaPlayer error: ${e.message}")
-                        false
-                    }
+                if (tempFile.length() <= 512) {
+                    tempFile.delete()
+                    return@use null  // empty/corrupt
                 }
-                started
-            } catch (e: Exception) {
-                VoiceDiagnostics.report("ElevenLabs exception for $voiceId: ${e.message}")
-                false
-            }
-        }
 
-    /** Stop current playback immediately and flush the sentence queue (barge-in). */
-    fun stop() {
-        synchronized(queueLock) {
-            queueGeneration++
-            speechQueue.clear()
-        }
-        try {
-            mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
+                startPlayback(tempFile, myGen)
             }
-            mediaPlayer = null
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            VoiceDiagnostics.report("ElevenLabs ${endpoint.label} error for $voiceId: ${e.message}")
+            null
+        }
     }
 
-    val isPlaying: Boolean
-        get() = try { mediaPlayer?.isPlaying == true } catch (_: Exception) { false }
+    private suspend fun startPlayback(tempFile: File, myGen: Int): Boolean? =
+        withContext(Dispatchers.Main) {
+            if (myGen != generation.get()) {
+                tempFile.delete()
+                return@withContext true  // superseded by a newer utterance
+            }
+
+            val done = CompletableDeferred<Boolean>()
+            playbackDone = done
+            try { mediaPlayer?.release() } catch (_: Exception) {}
+
+            mediaPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .build()
+                )
+                setDataSource(tempFile.absolutePath)
+                setOnCompletionListener {
+                    try { it.release(); tempFile.delete() } catch (_: Exception) {}
+                    done.complete(true)
+                    if (myGen == generation.get()) {
+                        VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                    }
+                }
+                setOnErrorListener { _, what, extra ->
+                    VoiceDiagnostics.report("MediaPlayer error: $what/$extra")
+                    done.complete(false)
+                    true
+                }
+                try {
+                    prepare()
+                    start()
+                } catch (e: Exception) {
+                    VoiceDiagnostics.report("MediaPlayer prepare failed: ${e.message}")
+                    try { release() } catch (_: Exception) {}
+                    mediaPlayer = null
+                    tempFile.delete()
+                    return@withContext null
+                }
+            }
+
+            VoiceBus.setEngineState(JarvisVisualState.SPEAKING)
+            done.await()
+        }
 }

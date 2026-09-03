@@ -10,7 +10,11 @@ class MemoryRepository(private val db: AppDatabase) {
     fun search(q: String): Flow<List<MemoryEntity>> = memoryDao.search("%$q%")
 
     suspend fun remember(content: String, type: String = "semantic", importance: Int = 60) {
-        memoryDao.insert(MemoryEntity(content = content, type = type, importance = importance))
+        // FIX (production repair): repeated saves of the same fact used to pile
+        // up as duplicates and pollute recall. Skip an exact-content match.
+        val duplicate = memoryDao.snapshot().any { it.content.equals(content.trim(), ignoreCase = true) }
+        if (duplicate) return
+        memoryDao.insert(MemoryEntity(content = content.trim(), type = type, importance = importance))
     }
 
     suspend fun forget(q: String) = memoryDao.deleteWhere("%$q%")

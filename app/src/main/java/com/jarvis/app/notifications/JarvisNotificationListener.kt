@@ -2,6 +2,7 @@ package com.jarvis.app.notifications
 
 import android.app.Notification
 import android.app.RemoteInput
+import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
 import android.os.Parcelable
@@ -27,10 +28,14 @@ class JarvisNotificationListener : NotificationListenerService() {
         @Volatile var instance: JarvisNotificationListener? = null
             private set
 
-        /** Best effort reply through a notification's RemoteInput action. */
-        fun replyViaNotification(packageName: String, replyText: String): Boolean {
+        /**
+         * Best effort reply through a notification's RemoteInput action.
+         * [key] targets the EXACT conversation; when null/blank the most recent
+         * notification of [packageName] with a reply action is used.
+         */
+        fun replyViaNotification(packageName: String, replyText: String, key: String? = null): Boolean {
             val inst = instance ?: return false
-            return inst.sendReply(packageName, replyText)
+            return inst.sendReply(packageName, replyText, key)
         }
 
         fun dismissNotification(key: String): Boolean {
@@ -77,6 +82,10 @@ class JarvisNotificationListener : NotificationListenerService() {
                                 "sender" to it.sender,
                                 "title" to it.title,
                                 "content" to (if (it.fullContent.isNotBlank()) it.fullContent else it.text),
+                                // CHANGED (production repair): expose the notification
+                                // key so reply_notification can target the EXACT
+                                // conversation instead of guessing by package.
+                                "key" to it.key,
                                 "hasReplyAction" to it.hasReplyAction,
                                 "timestamp" to it.timestamp
                             )
@@ -150,13 +159,19 @@ class JarvisNotificationListener : NotificationListenerService() {
                 ToolDefinition(
                     id = "reply_notification",
                     name = "Reply to Notification",
-                    description = "Sends an inline reply to a notification (e.g. WhatsApp, SMS, Telegram) using RemoteInput.",
+                    description = "Sends an inline reply to a notification (e.g. WhatsApp, SMS, Telegram) using RemoteInput. " +
+                        "Pass the notification's 'key' (from read_notifications) to reply in the exact conversation; " +
+                        "otherwise the most recent conversation of that app is used.",
                     category = "MESSAGING",
-                    riskLevel = RiskLevel.LEVEL_1
+                    // CHANGED (production repair): sending a message on someone's behalf
+                    // is communication — it must go through the same confirm flow as
+                    // calls/SMS instead of firing the moment the model picks it.
+                    riskLevel = RiskLevel.LEVEL_2
                 ) { _, args ->
                     val pkg = args["package"]?.toString() ?: args["app"]?.toString() ?: ""
                     val message = args["message"]?.toString() ?: args["text"]?.toString() ?: ""
-                    
+                    val key = args["key"]?.toString()?.takeIf { it.isNotBlank() }
+
                     if (message.isBlank()) {
                         return@ToolDefinition ToolExecutionResult(
                             toolId = "reply_notification",
@@ -179,12 +194,13 @@ class JarvisNotificationListener : NotificationListenerService() {
                         pkg
                     }
 
-                    val success = replyViaNotification(resolvedPkg, message)
+                    val success = replyViaNotification(resolvedPkg, message, key)
                     ToolExecutionResult(
                         toolId = "reply_notification",
                         success = success,
                         data = mapOf("package" to resolvedPkg, "message" to message),
-                        verificationDetails = if (success) "Sent reply '$message' to $resolvedPkg." else "Could not send inline reply. App notification might not support RemoteInput."
+                        verificationDetails = if (success) "Sent reply '$message' to $resolvedPkg."
+                        else "Could not send inline reply. The app's notification may not support RemoteInput, or no conversation notification is active."
                     )
                 }
             )
@@ -209,6 +225,17 @@ class JarvisNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
+
+    override fun onListenerDisconnected() {
+        // FIX (production repair): Android drops the listener binding on crash,
+        // Doze, or battery-saver pressure — previously it silently died here and
+        // every notification feature stopped working in the background. Ask for
+        // an immediate rebind instead.
+        if (instance === this) instance = null
+        try {
+            requestRebind(ComponentName(this, JarvisNotificationListener::class.java))
+        } catch (_: Exception) {}
+    }
 
     override fun onDestroy() {
         if (instance === this) instance = null
@@ -340,9 +367,9 @@ class JarvisNotificationListener : NotificationListenerService() {
         } catch (_: Exception) { }
     }
 
-    private fun sendReply(packageName: String, replyText: String): Boolean {
+    private fun sendReply(packageName: String, replyText: String, key: String? = null): Boolean {
         return try {
-            val action = findReplyAction(packageName) ?: return false
+            val action = findReplyAction(packageName, key) ?: return false
             val inputs = action.getRemoteInputs() ?: return false
             val results = Bundle()
             results.putCharSequence(inputs.first().resultKey, replyText)
@@ -355,14 +382,24 @@ class JarvisNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun findReplyAction(packageName: String): Notification.Action? {
+    /**
+     * FIX (production repair): replies used to hit the FIRST notification of the
+     * package — with two WhatsApp chats active the reply could land in the wrong
+     * conversation. Now: exact notification key first, then the most recent
+     * notification of the package that actually supports inline reply.
+     */
+    private fun findReplyAction(packageName: String, key: String? = null): Notification.Action? {
         val sbns = activeNotifications ?: return null
-        for (sbn in sbns) {
-            if (sbn.packageName != packageName) continue
-            val action = findReplyActionForSbn(sbn)
-            if (action != null) return action
+
+        if (!key.isNullOrBlank()) {
+            sbns.firstOrNull { it.key == key }
+                ?.let { sbn -> findReplyActionForSbn(sbn)?.let { return it } }
         }
-        return null
+
+        return sbns.asSequence()
+            .filter { it.packageName == packageName }
+            .maxByOrNull { it.postTime }
+            ?.let { findReplyActionForSbn(it) }
     }
 
     private fun findReplyActionForSbn(sbn: StatusBarNotification): Notification.Action? {

@@ -71,8 +71,11 @@ class VoiceOrchestratorBridge(
         // Clear previous transcript
         VoiceBus.clearTranscript()
         
-        // Only start listening if we're in a valid state
+        // Only start listening if we're in a valid state.
+        // CHANGED (continuous conversation): wake word arms the full loop —
+        // after JARVIS replies it listens again automatically.
         if (voiceEngine.engineState.value == JarvisVisualState.IDLE) {
+            voiceEngine.continuousMode = true
             orchestrator.setVisualState(JarvisVisualState.LISTENING)
             voiceEngine.startListening()
         }
@@ -87,6 +90,7 @@ class VoiceOrchestratorBridge(
             voiceEngine.stopListening()
             orchestrator.setVisualState(JarvisVisualState.IDLE)
         } else {
+            voiceEngine.continuousMode = true
             orchestrator.setVisualState(JarvisVisualState.LISTENING)
             voiceEngine.startListening()
         }

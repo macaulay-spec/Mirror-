@@ -45,6 +45,8 @@ class WakeWordForegroundService : Service() {
         private const val COOLDOWN_MS = 6000L
         private const val MAX_CONSECUTIVE_ERRORS = 5
         private const val ERROR_RESET_DELAY_MS = 30000L
+        private const val WAKE_LOCK_TTL_MS = 10 * 60 * 1000L
+        private const val WAKE_LOCK_RENEWAL_MS = 9 * 60 * 1000L
 
         var running = false
             private set
@@ -62,6 +64,20 @@ class WakeWordForegroundService : Service() {
         createChannel()
         startForeground(NOTIF_ID, buildNotification())
         acquireWakeLock()
+
+        // FIX (production repair): the wake lock expired after 10 minutes and was
+        // never renewed, so Doze quietly killed wake-word listening overnight.
+        // Renew it on a schedule for as long as the service lives.
+        scope.launch {
+            while (running) {
+                delay(WAKE_LOCK_RENEWAL_MS)
+                if (running) {
+                    try {
+                        wakeLock?.acquire(WAKE_LOCK_TTL_MS)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

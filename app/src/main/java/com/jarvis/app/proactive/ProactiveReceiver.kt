@@ -36,6 +36,20 @@ class ProactiveReceiver : BroadcastReceiver() {
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
                 if (ProactiveScheduler.isEnabled(context)) ProactiveScheduler.schedule(context)
+                // FIX (production repair): the wake-word listener used to stay
+                // dead after reboot or app update until the user manually opened
+                // the app. Restart it whenever the mic permission is already
+                // granted, so "Hey JARVIS" survives a reboot.
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    runCatching {
+                        ContextCompat.startForegroundService(
+                            context,
+                            Intent(context, com.jarvis.app.voice.WakeWordForegroundService::class.java)
+                        )
+                    }
+                }
                 return
             }
             Intent.ACTION_BATTERY_LOW -> {

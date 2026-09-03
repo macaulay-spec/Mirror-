@@ -59,13 +59,25 @@ class JarvisMemoryManager(context: Context) {
     suspend fun addConversation(role: String, text: String) {
         if (!memoryEnabled) return
         repository.addConversation(role, text)
-        
-        // Intelligent extraction for long-term memory
-        if (role == "user" && isWorthRemembering(text)) {
-            val lower = text.lowercase()
-            if (!containsSensitive(lower)) {
-                val clean = text.removePrefix("remember that").removePrefix("remember").trim()
-                repository.remember(clean, type = "preference", importance = 80)
+
+        // CHANGED (production repair): this used to store ANY user message
+        // mentioning "like"/"always"/"remember" as a permanent preference --
+        // flooding memory with conversational noise ("I like how you work"
+        // became a stored fact). The LLM already has memory_remember/
+        // memory_recall tools for explicit saves, so the deterministic path
+        // only catches the explicit "remember ..." phrasing.
+        if (role == "user") {
+            val lower = text.lowercase().trimStart()
+            val explicitRemember = lower.startsWith("remember") || lower.startsWith("keep in mind")
+            if (explicitRemember && !containsSensitive(lower)) {
+                val clean = text.trim()
+                    .removePrefix("Remember that ").removePrefix("remember that ")
+                    .removePrefix("Remember ").removePrefix("remember ")
+                    .removePrefix("Keep in mind ").removePrefix("keep in mind ")
+                    .trim()
+                if (clean.isNotBlank()) {
+                    repository.remember(clean, type = "preference", importance = 80)
+                }
             }
         }
     }
@@ -96,13 +108,6 @@ class JarvisMemoryManager(context: Context) {
         sessionContext.lastActionResult = true
         sessionContext.lastActionDetails = ""
         actionHistory.clear()
-    }
-
-    private fun isWorthRemembering(text: String): Boolean {
-        val lower = text.lowercase()
-        return lower.contains("prefer") || lower.contains("like") || lower.contains("hate") ||
-                lower.contains("dislike") || lower.contains("always") || lower.contains("remember") ||
-                lower.contains("my name is") || lower.contains("call me")
     }
 
     private fun containsSensitive(lower: String): Boolean {

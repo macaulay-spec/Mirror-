@@ -159,7 +159,16 @@ fun DualModeHost(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(JarvisColors.VoidBlack)
+                .background(
+                    // V4 mockup background: deep teal-navy with a subtle lift in the middle
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF0A1520),
+                            Color(0xFF0D1B24),
+                            Color(0xFF0A1520)
+                        )
+                    )
+                )
         ) {
             // Faint technical grid + top cyan bleed (mockup background)
             HudBackground(

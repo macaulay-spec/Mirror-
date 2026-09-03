@@ -181,7 +181,8 @@ fun DualModeHost(
                             StageMode.CONVERSATION else StageMode.VOICE_STAGE
                     },
                     onOpenSettings = onOpenSettings,
-                    onEmergencyStop = { orchestrator.emergencyStop() }
+                    onEmergencyStop = { orchestrator.emergencyStop() },
+                    onOpenDrawer = { drawerOpen = true }
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -338,7 +339,8 @@ private fun TopPresenceHeader(
     visualState: JarvisVisualState,
     onSwitchMode: () -> Unit,
     onOpenSettings: () -> Unit,
-    onEmergencyStop: () -> Unit
+    onEmergencyStop: () -> Unit,
+    onOpenDrawer: () -> Unit = {}
 ) {
     val accent by animateColorAsState(
         targetValue = visualState.orbColor(),
@@ -396,7 +398,7 @@ private fun TopPresenceHeader(
                         visualState == JarvisVisualState.SPEAKING, accent = accent)
 
                 Spacer(modifier = Modifier.width(4.dp))
-                IconButton(onClick = { drawerOpen = true }, modifier = Modifier.size(30.dp)) {
+                IconButton(onClick = onOpenDrawer, modifier = Modifier.size(30.dp)) {
                     Icon(
                         imageVector = Icons.Default.Menu,
                         contentDescription = "Menu",

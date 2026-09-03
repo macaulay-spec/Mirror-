@@ -66,9 +66,30 @@ class ElevenLabsTts(private val context: Context) {
     }
 
     init {
-        // Restore saved voice selection
+        // Restore saved voice selection.
+        //
+        // VOICE-UNIFICATION FIX: there used to be TWO independent stores of the
+        // selected ElevenLabs voice:
+        //   - this class wrote/ read SharedPreferences("jarvis_voice")
+        //   - JarvisVoiceEngine -> ElevenLabsVoicePlayer read ApiConfig.selectedVoiceId,
+        //     which is SharedPreferences("jarvis_neural_prefs")
+        // So picking a voice in Settings never changed what actually spoke.
+        // ApiConfig is now the single source of truth: it is loaded once in
+        // JarvisApp.onCreate() and used by the live speaking path. We keep the
+        // local prefs as a compatibility mirror but seed ApiConfig from it on
+        // first run, and every selectVoice() now writes through to ApiConfig too.
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _selectedVoiceId.value = prefs.getString(KEY_VOICE_ID, DEFAULT_VOICE_ID)
+        val saved = prefs.getString(KEY_VOICE_ID, null)
+        val apiVoice = ApiConfig.selectedVoiceId
+        val resolved = when {
+            !saved.isNullOrBlank() && saved != apiVoice -> {
+                // Migrate any legacy selection into ApiConfig so the engine uses it.
+                ApiConfig.saveVoicePreferences(context, ApiConfig.voiceEngineType, saved)
+                saved
+            }
+            else -> apiVoice
+        }
+        _selectedVoiceId.value = resolved
     }
 
     // ── Public API ─────────────────────────────────────────────────────
@@ -137,12 +158,19 @@ class ElevenLabsTts(private val context: Context) {
 
     /**
      * Select a voice for synthesis.
+     *
+     * VOICE-UNIFICATION FIX: writes the selection to BOTH the local mirror
+     * prefs (for this screen's own StateFlow) AND to ApiConfig, which is what
+     * the actual speaking path (JarvisVoiceEngine -> ElevenLabsVoicePlayer)
+     * reads. Without writing through to ApiConfig, picking a voice in Settings
+     * had no effect on what Jarvis said.
      */
     fun selectVoice(voiceId: String) {
         _selectedVoiceId.value = voiceId
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_VOICE_ID, voiceId).apply()
-        Log.d(TAG, "Selected voice: $voiceId")
+        ApiConfig.saveVoicePreferences(context, ApiConfig.voiceEngineType, voiceId)
+        Log.d(TAG, "Selected voice: $voiceId (synced to ApiConfig)")
     }
 
     /**

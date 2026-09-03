@@ -63,6 +63,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             var isOnboarding by remember { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
             var showSettings by remember { mutableStateOf(false) }
+            var currentDest by remember { mutableStateOf("home") }
+            val voiceTts = remember {
+                runCatching { com.jarvis.app.voice.ElevenLabsTts(applicationContext) }.getOrNull()
+            }
 
             LaunchedEffect(Unit) {
                 if (intent?.getBooleanExtra("WAKE_WORD_ACTIVATED", false) == true) {
@@ -89,13 +93,38 @@ class MainActivity : ComponentActivity() {
                         onOpenNotificationListener = { PermissionAndSetupHelper.openNotificationListenerSettings(this@MainActivity) }
                     )
                 } else {
-                    DualModeHost(
-                        orchestrator = orchestrator,
-                        onOpenSettings = { showSettings = true },
-                        onToggleVoice = {
-                            handleVoiceToggle()
+                    when (currentDest) {
+                        "device" -> com.jarvis.feature.control.DeviceControlScreen(
+                            onBack = { currentDest = "home" }
+                        )
+                        "memory" -> com.jarvis.feature.memory.MemoryPeopleScreen(
+                            onBack = { currentDest = "home" }
+                        )
+                        "voice" -> {
+                            if (voiceTts != null) {
+                                com.jarvis.feature.voice.VoiceSelectionScreen(
+                                    tts = voiceTts,
+                                    onContinue = { currentDest = "home" },
+                                    onSkip = { currentDest = "home" }
+                                )
+                            } else {
+                                DualModeHost(
+                                    orchestrator = orchestrator,
+                                    onOpenSettings = { showSettings = true },
+                                    onToggleVoice = { handleVoiceToggle() },
+                                    onNavigate = { currentDest = it }
+                                )
+                            }
                         }
-                    )
+                        else -> DualModeHost(
+                            orchestrator = orchestrator,
+                            onOpenSettings = { showSettings = true },
+                            onToggleVoice = {
+                                handleVoiceToggle()
+                            },
+                            onNavigate = { currentDest = it }
+                        )
+                    }
                 }
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,14 +43,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.KeyboardVoice
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,12 +114,14 @@ fun DualModeHost(
     orchestrator: AssistantOrchestrator,
     onOpenSettings: () -> Unit = {},
     onToggleVoice: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigate: (String) -> Unit = {}
 ) {
     val visualState by orchestrator.visualState.collectAsState()
     val messages by orchestrator.messages.collectAsState()
 
     var stageMode by remember { mutableStateOf(StageMode.VOICE_STAGE) }
+    var drawerOpen by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -235,7 +241,92 @@ fun DualModeHost(
                     )
                 }
             }
+
+            // ── Navigation drawer (glass, slides over content) ────────────
+            if (drawerOpen) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x88000000))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { drawerOpen = false }
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(250.dp)
+                            .clip(RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp))
+                            .background(JarvisColors.SurfaceGlassElevated)
+                            .border(
+                                0.8.dp, JarvisColors.Hairline,
+                                RoundedCornerShape(topEnd = 22.dp, bottomEnd = 22.dp)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 18.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            JarvisCore(state = visualState, size = 34.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "J A R V I S",
+                                color = JarvisColors.TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 3.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(18.dp))
+                        DrawerItem(Icons.Default.Dashboard, "Command Deck") {
+                            drawerOpen = false
+                        }
+                        DrawerItem(Icons.Default.FlashlightOn, "Device Control") {
+                            onNavigate("device")
+                            drawerOpen = false
+                        }
+                        DrawerItem(Icons.Default.Storage, "Memory") {
+                            onNavigate("memory")
+                            drawerOpen = false
+                        }
+                        DrawerItem(Icons.Default.KeyboardVoice, "Voice") {
+                            onNavigate("voice")
+                            drawerOpen = false
+                        }
+                        DrawerItem(Icons.Default.Settings, "Settings") {
+                            onOpenSettings()
+                            drawerOpen = false
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+/** One glass drawer row. */
+@Composable
+private fun DrawerItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = JarvisColors.Presence,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = JarvisColors.TextPrimary,
+            fontSize = 14.sp
+        )
     }
 }
 
@@ -305,6 +396,14 @@ private fun TopPresenceHeader(
                         visualState == JarvisVisualState.SPEAKING, accent = accent)
 
                 Spacer(modifier = Modifier.width(4.dp))
+                IconButton(onClick = { drawerOpen = true }, modifier = Modifier.size(30.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = JarvisColors.TextSecondary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
                 IconButton(onClick = onSwitchMode, modifier = Modifier.size(30.dp)) {
                     Icon(
                         imageVector = if (mode == StageMode.VOICE_STAGE)

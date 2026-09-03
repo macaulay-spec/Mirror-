@@ -170,54 +170,57 @@ object ElevenLabsVoicePlayer {
                 }
                 if (tempFile.length() <= 512) return@withContext false   // empty/corrupt
 
-                withContext(Dispatchers.Main) {
+                val started = withContext(Dispatchers.Main) {
                     try {
                         // Stale guard: if stop() was called while this sentence
                         // was synthesizing, drop it instead of playing it.
                         if (generation >= 0 && generation != queueGeneration) {
                             tempFile.delete()
-                            return@withContext false
-                        }
-                        mediaPlayer?.release()
-                        mediaPlayer = MediaPlayer().apply {
-                            setAudioAttributes(
-                                AudioAttributes.Builder()
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                                    .build()
-                            )
-                            setDataSource(tempFile.absolutePath)
-                            prepare()
-                            start()
-                            setOnCompletionListener {
-                                try {
-                                    mediaPlayer = null
-                                    it.release()
-                                    tempFile.delete()
-                                } catch (_: Exception) {}
-                                if (onCompleted != null) {
-                                    onCompleted()          // queue: drain the next sentence
-                                } else {
-                                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                            false
+                        } else {
+                            mediaPlayer?.release()
+                            mediaPlayer = MediaPlayer().apply {
+                                setAudioAttributes(
+                                    AudioAttributes.Builder()
+                                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                        .build()
+                                )
+                                setDataSource(tempFile.absolutePath)
+                                prepare()
+                                start()
+                                setOnCompletionListener {
+                                    try {
+                                        mediaPlayer = null
+                                        it.release()
+                                        tempFile.delete()
+                                    } catch (_: Exception) {}
+                                    if (onCompleted != null) {
+                                        onCompleted()          // queue: drain the next sentence
+                                    } else {
+                                        VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                                    }
+                                }
+                                // NOTE: OnErrorListener.onError takes THREE params (mp, what, extra)
+                                setOnErrorListener { mp, _, _ ->
+                                    try {
+                                        mediaPlayer = null
+                                        mp.release()
+                                        tempFile.delete()
+                                    } catch (_: Exception) {}
+                                    if (onCompleted != null) onCompleted() else VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                                    true
                                 }
                             }
-                            setOnErrorListener { mp, _ ->
-                                try {
-                                    mediaPlayer = null
-                                    mp.release()
-                                    tempFile.delete()
-                                } catch (_: Exception) {}
-                                if (onCompleted != null) onCompleted() else VoiceBus.setEngineState(JarvisVisualState.IDLE)
-                                true
-                            }
+                            VoiceBus.setEngineState(JarvisVisualState.SPEAKING)
+                            true
                         }
-                        VoiceBus.setEngineState(JarvisVisualState.SPEAKING)
                     } catch (e: Exception) {
                         VoiceDiagnostics.report("MediaPlayer error: ${e.message}")
-                        return@withContext false
+                        false
                     }
                 }
-                true
+                started
             } catch (e: Exception) {
                 VoiceDiagnostics.report("ElevenLabs exception for $voiceId: ${e.message}")
                 false

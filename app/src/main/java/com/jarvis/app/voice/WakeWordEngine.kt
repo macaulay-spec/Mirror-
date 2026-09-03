@@ -39,6 +39,15 @@ interface WakeWordEngine {
  * Current engine: Android's built-in SpeechRecognizer, restarted on error or timeout.
  *
  * Kept as the default so the app works on the very first run, before any model download.
+ *
+ * FIX (2026-09-03, "wake word stops responding"): onResults() used to set
+ * running = false and NEVER restart the recognizer — only onError() did. After
+ * the recognizer produced one final result (i.e. the first time you said
+ * anything, or it heard a noise and finalized), the engine went silent
+ * forever until some other error happened to fire. Now EVERY final result
+ * re-arms the recognizer, and silence/no-match errors (6/7) — which are the
+ * recognizer's normal way of saying "heard nothing" every few seconds — no
+ * longer count toward the service's consecutive-error backoff.
  */
 class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngine {
 
@@ -46,6 +55,13 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
 
     private var recognizer: SpeechRecognizer? = null
     private var running = false
+
+    // True while the OWNER (service) wants continuous listening. Distinct from
+    // `running`, which tracks whether a recognizer instance is alive right now.
+    // rearm() only restarts when wantListening is true, so a stop() request is
+    // always respected even if a re-arm was already scheduled.
+    @Volatile private var wantListening = false
+    private var restartPending = false
 
     override val isListening: Boolean
         get() = running
@@ -56,6 +72,7 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
         onError: (String) -> Unit
     ) {
         stop()
+        wantListening = true
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             onError("Speech recognition is not available on this device.")
             return
@@ -84,11 +101,22 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
             override fun onResults(results: Bundle?) {
                 handle(results, onPartial, onDetected, wakeWord)
                 running = false
+                // CRITICAL FIX: a final result is the normal end of every
+                // recognition burst. Re-arm immediately so listening never dies.
+                rearm(onPartial, onDetected, onError, wakeWord)
             }
 
             override fun onError(error: Int) {
                 running = false
-                onError("recognizer error $error")
+                // Errors 6 (no speech input) and 7 (no match) are the
+                // recognizer's NORMAL idle heartbeat in a continuous loop —
+                // not failures. Restart quietly; only real errors (mic busy,
+                // network, client) are reported upward for backoff counting.
+                if (error == 6 || error == 7) {
+                    rearm(onPartial, onDetected, onError, wakeWord)
+                } else {
+                    onError("recognizer error $error")
+                }
             }
         }
 
@@ -97,6 +125,27 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
             startListening(intent)
         }
         running = true
+    }
+
+    /** Re-arms the recognizer if this engine is still supposed to be running. */
+    private fun rearm(
+        onPartial: (String) -> Unit,
+        onDetected: () -> Unit,
+        onError: (String) -> Unit,
+        wakeWord: String
+    ) {
+        if (restartPending) return
+        restartPending = true
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            restartPending = false
+            if (wantListening && !running) {
+                try {
+                    start(onPartial, onDetected, onError)
+                } catch (_: Exception) {
+                    onError("failed to re-arm recognizer")
+                }
+            }
+        }, 250L)
     }
 
     private fun handle(
@@ -115,6 +164,7 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
 
     override fun stop() {
         running = false
+        wantListening = false
         try {
             recognizer?.stopListening()
             recognizer?.cancel()

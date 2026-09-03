@@ -46,7 +46,7 @@ import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.KeyboardVoice
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.ScreenSearchDesktop
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -502,7 +502,7 @@ private fun VoiceStageView(
 @Composable
 private fun QuickActionChips(onQuickAction: (String) -> Unit) {
     val chips = listOf(
-        Triple("Screen", Icons.Default.ScreenSearchDesktop, "What's on my screen?"),
+        Triple("Screen", Icons.Default.Search, "What's on my screen?"),
         Triple("Apps", Icons.Default.Apps, "Open WhatsApp"),
         Triple("Alerts", Icons.Default.Notifications, "Read my notifications"),
         Triple("Torch", Icons.Default.FlashlightOn, "Turn on the flashlight")

@@ -96,64 +96,73 @@ class ElevenLabsTts(private val context: Context) {
 
     /**
      * Fetch available voices from ElevenLabs.
-     * Works in both backend proxy and direct mode.
+     * AUDIT FIX (2026-09-03): tries the Rork proxy FIRST (works with the
+     * build-injected toolkit key, no user key needed); only falls back to the
+     * direct API when the user supplied their own ElevenLabs key. The old
+     * direct-only path 401'd for everyone and left the Settings voice list
+     * permanently empty.
      */
     suspend fun refreshVoices(): Result<List<Voice>> = withContext(Dispatchers.IO) {
-        try {
-            val request = if (BackendConfig.isBackendReady) {
-                // Backend proxy mode (Convex) \u2014 only when WORKER_URL is configured
-                Request.Builder()
-                    .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
-                    .get()
-                    .build()
-            } else {
-                // Direct mode — call ElevenLabs API directly
-                val apiKey = ApiConfig.ELEVENLABS_API_KEY
-                if (apiKey.isBlank()) {
-                    return@withContext Result.failure(Exception("ElevenLabs API key not configured"))
-                }
-                Request.Builder()
-                    .url("https://api.elevenlabs.io/v1/voices")
-                    .header("xi-api-key", apiKey)
-                    .get()
-                    .build()
+        val attempts = buildList<Pair<String, (Request.Builder) -> Request.Builder>> {
+            val gatewayKey = ApiConfig.rorkApiKey
+            if (gatewayKey.isNotBlank()) {
+                add("https://toolkit.rork.com/v2/elevenlabs/v1/voices" to
+                    { b: Request.Builder -> b.header("Authorization", "Bearer $gatewayKey") })
             }
-
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "Failed to fetch voices: ${response.code} - $body")
-                    return@use Result.failure(Exception("Failed to fetch voices: ${response.code}"))
-                }
-
-                val json = JSONObject(body)
-                val voicesArray = json.optJSONArray("voices") ?: return@use Result.success(emptyList())
-
-                val voiceList = mutableListOf<Voice>()
-                for (i in 0 until voicesArray.length()) {
-                    val v = voicesArray.getJSONObject(i)
-                    val labels = v.optJSONObject("labels")
-                    voiceList.add(
-                        Voice(
-                            voiceId = v.getString("voice_id"),  // Note: voice_id not voiceId in direct mode
-                            name = v.getString("name"),
-                            category = v.optString("category", "premade"),
-                            description = v.optString("description"),
-                            previewUrl = v.optString("preview_url"),  // Note: preview_url not previewUrl
-                            gender = labels?.optString("gender"),
-                            accent = labels?.optString("accent")
-                        )
-                    )
-                }
-
-                _voices.value = voiceList
-                Log.d(TAG, "Loaded ${voiceList.size} voices")
-                return@use Result.success(voiceList)
+            val directKey = ApiConfig.ELEVENLABS_API_KEY
+            if (directKey.isNotBlank()) {
+                add("https://api.elevenlabs.io/v1/voices" to
+                    { b: Request.Builder -> b.header("xi-api-key", directKey) })
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching voices", e)
-            Result.failure(e)
         }
+        if (attempts.isEmpty()) {
+            return@withContext Result.failure(Exception("No ElevenLabs credentials configured (rebuild with the Rork toolkit key or add your own key)"))
+        }
+
+        var lastError: Exception? = null
+        for ((url, auth) in attempts) {
+            try {
+                val request = auth(Request.Builder().url(url).get()).build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string() ?: ""
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Voices request failed on $url: ${response.code} - ${body.take(120)}")
+                        lastError = Exception("Failed to fetch voices: ${response.code}")
+                        return@use null
+                    }
+
+                    val json = JSONObject(body)
+                    val voicesArray = json.optJSONArray("voices")
+                        ?: return@use Result.success(emptyList<Voice>())
+
+                    val voiceList = mutableListOf<Voice>()
+                    for (i in 0 until voicesArray.length()) {
+                        val v = voicesArray.getJSONObject(i)
+                        val labels = v.optJSONObject("labels")
+                        voiceList.add(
+                            Voice(
+                                voiceId = v.getString("voice_id"),
+                                name = v.getString("name"),
+                                category = v.optString("category", "premade"),
+                                description = v.optString("description"),
+                                previewUrl = v.optString("preview_url"),
+                                gender = labels?.optString("gender"),
+                                accent = labels?.optString("accent")
+                            )
+                        )
+                    }
+
+                    _voices.value = voiceList
+                    Log.d(TAG, "Loaded ${voiceList.size} voices via $url")
+                    return@use Result.success(voiceList)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching voices from $url", e)
+                lastError = e
+            }
+        }
+        Result.failure(lastError ?: Exception("Failed to fetch voices"))
     }
 
     /**
@@ -175,69 +184,79 @@ class ElevenLabsTts(private val context: Context) {
 
     /**
      * Synthesize text to speech using ElevenLabs.
-     * Works in both backend proxy and direct mode.
+     * AUDIT FIX (2026-09-03): tries the Rork proxy FIRST (build-injected
+     * toolkit key — verified working live); falls back to the direct API only
+     * when the user supplied their own ElevenLabs key. The old direct-only
+     * path 401'd for everyone and killed TTS from Settings.
      * Returns the audio file path on success.
      */
     suspend fun speak(text: String): Result<String> = withContext(Dispatchers.IO) {
         val voiceId = _selectedVoiceId.value ?: DEFAULT_VOICE_ID
         Log.d(TAG, "Synthesizing with voice: $voiceId")
 
-        try {
-            val request = if (BackendConfig.isBackendReady) {
-                // Backend proxy mode (Convex) \u2014 only when WORKER_URL is configured
-                val payload = JSONObject()
-                    .put("text", text)
-                    .put("voiceId", voiceId)
-                Request.Builder()
-                    .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_SPEAK_ENDPOINT}")
-                    .header("Content-Type", "application/json")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-            } else {
-                // Direct mode — call ElevenLabs API directly
-                val apiKey = ApiConfig.ELEVENLABS_API_KEY
-                if (apiKey.isBlank()) {
-                    return@withContext Result.failure(Exception("ElevenLabs API key not configured"))
-                }
-
-                val payload = JSONObject()
-                    .put("text", text)
-                    .put("model_id", "eleven_multilingual_v2")
-                    .put("voice_settings", JSONObject()
-                        .put("stability", 0.5)
-                        .put("similarity_boost", 0.75)
-                        .put("style", 0))
-
-                Request.Builder()
-                    .url("https://api.elevenlabs.io/v1/text-to-speech/$voiceId")
-                    .header("xi-api-key", apiKey)
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "audio/mpeg")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
+        val attempts = buildList<Pair<String, (Request.Builder) -> Request.Builder>> {
+            val gatewayKey = ApiConfig.rorkApiKey
+            if (gatewayKey.isNotBlank()) {
+                add("https://toolkit.rork.com/v2/elevenlabs/v1/text-to-speech/$voiceId" to
+                    { b: Request.Builder -> b.header("Authorization", "Bearer $gatewayKey") })
             }
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val err = response.body?.string() ?: ""
-                    Log.e(TAG, "TTS failed: ${response.code} - $err")
-                    return@use Result.failure(Exception("TTS failed (${response.code}): ${err.take(200)}"))
-                }
-
-                // Save the audio to a temp file
-                val audioBytes = response.body?.bytes()
-                    ?: return@use Result.failure(Exception("Empty audio response"))
-
-                val audioFile = File(context.cacheDir, "jarvis_tts_${System.currentTimeMillis()}.mp3")
-                FileOutputStream(audioFile).use { it.write(audioBytes) }
-
-                Log.d(TAG, "TTS audio saved: ${audioFile.absolutePath} (${audioBytes.size} bytes)")
-                return@use Result.success(audioFile.absolutePath)
+            val directKey = ApiConfig.ELEVENLABS_API_KEY
+            if (directKey.isNotBlank()) {
+                add("https://api.elevenlabs.io/v1/text-to-speech/$voiceId" to
+                    { b: Request.Builder -> b.header("xi-api-key", directKey) })
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "TTS error", e)
-            Result.failure(e)
         }
+        if (attempts.isEmpty()) {
+            return@withContext Result.failure(Exception("No ElevenLabs credentials configured (rebuild with the Rork toolkit key or add your own key)"))
+        }
+
+        val payload = JSONObject()
+            .put("text", text)
+            .put("model_id", JarvisVoice.MODEL)
+            .put("voice_settings", JSONObject()
+                .put("stability", JarvisVoice.STABILITY)
+                .put("similarity_boost", JarvisVoice.SIMILARITY_BOOST)
+                .put("style", JarvisVoice.STYLE)
+                .put("use_speaker_boost", JarvisVoice.SPEAKER_BOOST))
+
+        var lastError: Exception? = null
+        for ((url, auth) in attempts) {
+            try {
+                val request = auth(
+                    Request.Builder()
+                        .url(url)
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "audio/mpeg")
+                )
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val err = response.body?.string() ?: ""
+                        Log.w(TAG, "TTS failed on $url: ${response.code} - ${err.take(120)}")
+                        lastError = Exception("TTS failed (${response.code}): ${err.take(200)}")
+                        return@use null
+                    }
+
+                    val audioBytes = response.body?.bytes()
+                    if (audioBytes == null || audioBytes.size <= 512) {
+                        lastError = Exception("Empty audio response")
+                        return@use null
+                    }
+
+                    val audioFile = File(context.cacheDir, "jarvis_tts_${System.currentTimeMillis()}.mp3")
+                    FileOutputStream(audioFile).use { it.write(audioBytes) }
+
+                    Log.d(TAG, "TTS audio saved: ${audioFile.absolutePath} (${audioBytes.size} bytes) via $url")
+                    return@use Result.success(audioFile.absolutePath)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "TTS error on $url", e)
+                lastError = e
+            }
+        }
+        Result.failure(lastError ?: Exception("TTS failed"))
     }
 
     /**

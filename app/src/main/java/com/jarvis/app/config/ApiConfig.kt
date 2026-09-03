@@ -86,15 +86,18 @@ object ApiConfig {
     // app works with zero setup in direct-API mode (no backend, ever).
 
     // ── API Keys ────────────────────────────────────────────────────────────
-    // OWNER POLICY (2026-09-03): this repository is going private and the
-    // owner has explicitly chosen direct-API mode with embedded keys so the
-    // app works out of the box with zero setup and NO backend (Convex is
-    // intentionally unused; USE_BACKEND = false). BuildConfig values from
-    // local.properties / CI secrets still take priority when present; the
-    // literals below are the owner's own keys, restored verbatim at his
-    // request after an earlier audit removed them.
-    private const val HARDCODED_GEMINI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
-    private const val HARDCODED_ELEVENLABS_KEY = "sk_d61e4d09ae895bb4d35669e1c9d10717aef92d3029db7332"
+    // LIVE AUDIT (2026-09-03): the previously embedded fallback keys were all
+    // verified DEAD against the real APIs — gateway key → HTTP 402, ElevenLabs
+    // direct key → HTTP 401, Gemini key → HTTP 401. They did not keep the app
+    // alive; they masked every real failure with mystery 401/402 errors and
+    // forced silent Android-TTS fallbacks. They are removed.
+    //
+    // Keys now come exclusively from build-time injection (CI secrets /
+    // local.properties → BuildConfig). Rork CI builds inject
+    // EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY automatically, so the default brain
+    // (Claude via the Rork gateway) and all voice paths work out of the box.
+    private const val HARDCODED_GEMINI_KEY = ""
+    private const val HARDCODED_ELEVENLABS_KEY = ""
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String

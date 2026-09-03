@@ -13,6 +13,8 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import androidx.core.content.ContextCompat
+import com.jarvis.android.voice.CloudSttEngine
 import com.jarvis.core.model.JarvisVisualState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -265,8 +267,11 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                 safeDestroyRecognizer()
 
                 if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                    com.jarvis.app.voice.VoiceDiagnostics.report("Speech recognition is not available on this device")
-                    setState(JarvisVisualState.ERROR)
+                    // AUDIT FIX (2026-09-03): don't give up — many devices ship
+                    // without Google's recognizer. Fall back to cloud STT
+                    // (Vercel AI Gateway via the Rork proxy).
+                    com.jarvis.app.voice.VoiceDiagnostics.report("Device speech recognition unavailable — using cloud STT")
+                    startCloudListening()
                     return@post
                 }
 
@@ -306,6 +311,40 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
             speechRecognizer?.destroy()
         } catch (_: Exception) {}
         speechRecognizer = null
+    }
+
+    /**
+     * AUDIT ADDITION (2026-09-03): cloud STT path (Vercel AI Gateway,
+     * xai/grok-stt via the Rork proxy) for devices where the system
+     * recognizer is missing or repeatedly fails.
+     */
+    fun startCloudListening() {
+        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            com.jarvis.app.voice.VoiceDiagnostics.report("Cloud STT needs microphone permission")
+            setState(JarvisVisualState.ERROR)
+            return
+        }
+        setState(JarvisVisualState.LISTENING)
+        speakScope.launch {
+            val text = CloudSttEngine.listenAndTranscribe { level ->
+                _audioRms.value = level
+                com.jarvis.app.voice.VoiceBus.setAudioLevel(level)
+            }
+            _audioRms.value = 0f
+            abandonAudioFocus()
+            if (!text.isNullOrBlank()) {
+                _lastRecognizedText.value = text
+                consecutiveRecognizerFailures = 0
+                setState(JarvisVisualState.THINKING)
+                onSpeechResult?.invoke(text)
+            } else if (continuousMode) {
+                startListening()
+            } else {
+                setState(JarvisVisualState.IDLE)
+            }
+        }
     }
 
     fun stopListening() {

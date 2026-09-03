@@ -41,6 +41,12 @@ object ElevenLabsVoicePlayer {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Gateway speech voice for the JARVIS persona. xAI voices: eve, ara, rex,
+     * sal, leo — rex is the deep male pick for the British-assistant persona.
+     */
+    private const val GATEWAY_VOICE = "rex"
+
     private var mediaPlayer: MediaPlayer? = null
 
     @Volatile
@@ -103,6 +109,16 @@ object ElevenLabsVoicePlayer {
                         return@withContext outcome
                     }
                 }
+            }
+
+            // AUDIT FIX (2026-09-03): last cloud stop before the robot voice —
+            // Vercel AI Gateway speech via the Rork proxy (verified live), so
+            // a dead ElevenLabs account no longer degrades JARVIS to Android TTS.
+            if (myGen != generation.get()) return@withContext true
+            val gatewayOutcome = tryGatewaySpeech(context, text, myGen)
+            if (gatewayOutcome == true) {
+                VoiceDiagnostics.success("Gateway speech (xai/grok-tts, voice $GATEWAY_VOICE)")
+                return@withContext true
             }
 
             VoiceDiagnostics.report("ElevenLabs: all endpoints and voices failed — falling back to Android TTS")
@@ -183,6 +199,55 @@ object ElevenLabsVoicePlayer {
             }
         } catch (e: Exception) {
             VoiceDiagnostics.report("ElevenLabs ${endpoint.label} error for $voiceId: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Vercel AI Gateway speech via the Rork proxy. Unlike ElevenLabs this
+     * returns JSON with base64 audio. Returns null when the request failed
+     * and the caller should fall back further; otherwise the playback outcome.
+     */
+    private suspend fun tryGatewaySpeech(
+        context: Context,
+        text: String,
+        myGen: Int
+    ): Boolean? = withContext(Dispatchers.IO) {
+        val apiKey = ApiConfig.rorkApiKey
+        if (apiKey.isBlank()) return@withContext null
+        try {
+            val payload = JSONObject()
+                .put("text", text)
+                .put("voice", GATEWAY_VOICE)
+                .put("outputFormat", "mp3")
+
+            val request = Request.Builder()
+                .url("https://toolkit.rork.com/v2/vercel/v4/ai/speech-model")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .header("ai-model-id", "xai/grok-tts")
+                .header("ai-gateway-protocol-version", "0.0.1")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    VoiceDiagnostics.report("Gateway speech HTTP ${response.code}")
+                    return@use null
+                }
+
+                val audioB64 = JSONObject(response.body?.string() ?: "").optString("audio")
+                if (audioB64.isBlank()) return@use null
+                val audioBytes = android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
+                if (audioBytes.size <= 512) return@use null
+
+                val tempFile = File.createTempFile("jarvis_gw_", ".mp3", context.cacheDir)
+                tempFile.deleteOnExit()
+                FileOutputStream(tempFile).use { it.write(audioBytes) }
+                startPlayback(tempFile, myGen)
+            }
+        } catch (e: Exception) {
+            VoiceDiagnostics.report("Gateway speech error: ${e.message}")
             null
         }
     }

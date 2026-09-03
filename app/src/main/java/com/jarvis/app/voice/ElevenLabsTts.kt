@@ -100,8 +100,8 @@ class ElevenLabsTts(private val context: Context) {
      */
     suspend fun refreshVoices(): Result<List<Voice>> = withContext(Dispatchers.IO) {
         try {
-            val request = if (BackendConfig.USE_BACKEND) {
-                // Backend proxy mode
+            val request = if (BackendConfig.isBackendReady) {
+                // Backend proxy mode (Convex) \u2014 only when WORKER_URL is configured
                 Request.Builder()
                     .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
                     .get()
@@ -183,8 +183,8 @@ class ElevenLabsTts(private val context: Context) {
         Log.d(TAG, "Synthesizing with voice: $voiceId")
 
         try {
-            val request = if (BackendConfig.USE_BACKEND) {
-                // Backend proxy mode
+            val request = if (BackendConfig.isBackendReady) {
+                // Backend proxy mode (Convex) \u2014 only when WORKER_URL is configured
                 val payload = JSONObject()
                     .put("text", text)
                     .put("voiceId", voiceId)

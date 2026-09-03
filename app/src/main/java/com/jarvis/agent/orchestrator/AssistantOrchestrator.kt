@@ -184,9 +184,50 @@ class AssistantOrchestrator(
                 _currentTaskDescription.value = userInput
                 _isTaskExecuting.value = true
                 resetTaskExecution()
-                
+
+                // ── Real-time streaming ──────────────────────────────────────
+                // Text deltas update the JARVIS chat bubble live, and every
+                // completed sentence is spoken immediately (queued), so the
+                // reply is heard while the rest is still being generated.
+                val streamBuf = StringBuilder()
+                var spokenUpTo = 0
+                var streamMsgIndex: Int? = null
+                var streamedAny = false
+
                 val engineResult = aiEngine.processCommand(
                     userInput,
+                    onChunk = { chunk ->
+                        if (chunk.isEmpty()) return@processCommand
+                        streamedAny = true
+                        streamBuf.append(chunk)
+
+                        // Update (or create) the streaming chat bubble.
+                        val live = streamBuf.toString()
+                        val idx = streamMsgIndex
+                        if (idx == null) {
+                            streamMsgIndex = _messages.value.size
+                            addMessage(AssistantMessage(role = MessageRole.JARVIS, text = live))
+                        } else {
+                            val list = _messages.value.toMutableList()
+                            if (idx < list.size) {
+                                list[idx] = list[idx].copy(text = live)
+                                _messages.value = list
+                            }
+                        }
+
+                        // Speak each sentence as soon as it completes.
+                        while (spokenUpTo < streamBuf.length) {
+                            var end = -1
+                            for (i in spokenUpTo until streamBuf.length) {
+                                val c = streamBuf[i]
+                                if (c == '.' || c == '!' || c == '?' || c == '\n' || c == '…') { end = i; break }
+                            }
+                            if (end < 0) break
+                            val sentence = streamBuf.substring(spokenUpTo, end + 1).trim()
+                            if (sentence.isNotBlank()) voiceEngine?.speakQueued(sentence)
+                            spokenUpTo = end + 1
+                        }
+                    },
                     onStepUpdate = { steps, stepIndex ->
                         _currentSteps.value = steps
                         _currentStepIndex.value = stepIndex
@@ -199,14 +240,35 @@ class AssistantOrchestrator(
                         }
                     }
                 )
-                
-                addMessage(AssistantMessage(
-                    role = MessageRole.JARVIS,
-                    text = engineResult.reply,
-                    toolResult = engineResult.toolResult,
-                    toolCall = engineResult.pendingConfirmation
-                ))
-                speak(engineResult.reply)
+
+                val finalText = com.jarvis.agent.ai.ReplySanitizer.sanitize(engineResult.reply)
+                if (streamedAny) {
+                    // Replace the streamed bubble with the authoritative final
+                    // text (sanitizer may have trimmed things).
+                    val idx = streamMsgIndex
+                    if (idx != null && idx < _messages.value.size) {
+                        val list = _messages.value.toMutableList()
+                        list[idx] = list[idx].copy(
+                            text = finalText,
+                            toolResult = engineResult.toolResult,
+                            toolCall = engineResult.pendingConfirmation
+                        )
+                        _messages.value = list
+                    }
+                    // Speak whatever tail never formed a full sentence.
+                    if (spokenUpTo < streamBuf.length) {
+                        val tail = streamBuf.substring(spokenUpTo).trim()
+                        if (tail.isNotBlank()) voiceEngine?.speakQueued(tail)
+                    }
+                } else {
+                    addMessage(AssistantMessage(
+                        role = MessageRole.JARVIS,
+                        text = finalText,
+                        toolResult = engineResult.toolResult,
+                        toolCall = engineResult.pendingConfirmation
+                    ))
+                    speak(finalText)
+                }
 
                 if (engineResult.pendingConfirmation != null) {
                     _pendingConfirmation.value = engineResult.pendingConfirmation

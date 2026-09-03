@@ -140,32 +140,8 @@ class WakeWordForegroundService : Service() {
         VoiceBus.onWakeWord()
         VoiceBus.clearTranscript()
 
-        // Stop background listening — the foreground engine takes the mic…
+        // Stop background listening — the foreground engine takes the mic
         stopEngine()
-
-        // …FIX (2026-09-03): …and RESUME background listening once the
-        // foreground interaction settles. This used to stop the engine and
-        // never restart it, so a single successful "Hey JARVIS" permanently
-        // killed hands-free listening until the service was restarted.
-        resumeWhenIdle()
-    }
-
-    /** Re-arms background wake-word listening after a foreground interaction. */
-    private fun resumeWhenIdle() {
-        scope.launch {
-            var waited = 0L
-            while (running && waited < 120_000L) {
-                delay(2000L)
-                waited += 2000L
-                val state = VoiceBus.engineState.value
-                if (state == com.jarvis.core.model.JarvisVisualState.IDLE ||
-                    state == com.jarvis.core.model.JarvisVisualState.ERROR
-                ) {
-                    if (running) startListening()
-                    return@launch
-                }
-            }
-        }
     }
 
     private fun restartSoon() {
@@ -184,19 +160,6 @@ class WakeWordForegroundService : Service() {
             "jarvis:wakeword"
         ).apply {
             acquire(10 * 60 * 1000L) // 10 minutes, auto-releases
-        }
-        // FIX: the wake lock used to expire silently after 10 minutes, after
-        // which doze mode could delay the recognizer re-arm loop indefinitely
-        // ("wake word stops working after a while"). Renew it on a rolling
-        // 9-minute cycle for as long as the service is running.
-        scope.launch {
-            while (running) {
-                delay(9 * 60 * 1000L)
-                if (!running) break
-                try {
-                    wakeLock?.let { if (!it.isHeld) it.acquire(10 * 60 * 1000L) }
-                } catch (_: Exception) {}
-            }
         }
     }
 

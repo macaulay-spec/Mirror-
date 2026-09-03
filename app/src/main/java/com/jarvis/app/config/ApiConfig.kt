@@ -9,8 +9,15 @@ import com.rork.jarvisaiassistant.BuildConfig
  *
  * Provider priority:
  *   1. User-entered custom key (saved in SharedPreferences, survives reinstall)
- *   2. Hardcoded keys (for direct API mode)
- *   3. BuildConfig keys (injected from local.properties at compile time)
+ *   2. BuildConfig keys (injected from local.properties / CI secrets at compile time)
+ *
+ * There are NO hardcoded keys in this object. A previous version shipped
+ * HARDCODED_* / *_FALLBACK constants containing real Gemini, ElevenLabs and
+ * Rork secrets directly in source — those were removed and the getters were
+ * made fail-closed (return BuildConfig values, which default to ""). If no key
+ * is supplied via local.properties or CI, the getters return "" and the
+ * corresponding provider simply will not be available, rather than silently
+ * using a leaked credential.
  *
  * Key auto-detection:
  *   xai-*      → xAI Grok (grok-3-mini or grok-2)
@@ -22,9 +29,8 @@ import com.rork.jarvisaiassistant.BuildConfig
  *   csk-*      → Cerebras
  *   sk-or-*    → OpenRouter
  *
- * NOTE: API keys are hardcoded for direct API mode. This is acceptable
- * for a private repo. The app routes directly to AI providers without
- * a backend proxy.
+ * NOTE: The app routes directly to AI providers without a backend proxy, so
+ * any key you enter is stored locally on the device only.
  */
 object ApiConfig {
 
@@ -75,23 +81,25 @@ object ApiConfig {
     var customProvider: String? = null
         private set
 
-    // ── API Keys (hardcoded for direct API mode) ──────────────────────────
-    // SECURITY: All hardcoded keys REMOVED. NEVER commit keys to Git.
-    // Key format detection for auto-provider selection.
-    // Hardcoded keys for direct API mode
-    // NOTE: These keys will be used when local.properties is not configured
-    private const val HARDCODED_GEMINI_KEY = "AQ.Ab8RN6LVmURwb8YsZu0kcyO1cI5BHpsBen2Re1h4Sv31VnJhGA"
-    private const val HARDCODED_ELEVENLABS_KEY = "sk_d61e4d09ae895bb4d35669e1c9d10717aef92d3029db7332"
+    // ── API Keys (BuildConfig-injected; no hardcoded fallbacks) ──────────────
+    // SECURITY: There are NO hardcoded keys anywhere in this object. A previous
+    // version committed live keys (Gemini, ElevenLabs, Rork) as plaintext
+    // "fallback" constants — those were an active exposure in a public repo and
+    // have been removed. "No key configured" now means exactly that: the value
+    // is blank and callers must treat a blank key as unavailable / fail closed,
+    // never silently fall back to a baked-in secret. Keys come only from
+    // BuildConfig, injected at compile time from local.properties (gitignored)
+    // or CI secrets — never from source.
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String
         get() = BuildConfig.XAI_API_KEY
 
     val GEMINI_API_KEY: String
-        get() = BuildConfig.GEMINI_API_KEY.ifBlank { HARDCODED_GEMINI_KEY }
+        get() = BuildConfig.GEMINI_API_KEY
 
     val ELEVENLABS_API_KEY: String
-        get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
+        get() = BuildConfig.ELEVENLABS_API_KEY
 
     // ── Provider/key resolution ───────────────────────────────────────────
 
@@ -149,14 +157,14 @@ object ApiConfig {
     // ── Rork AI gateway (Claude) ──────────────────────────────────────────
     const val RORK_GATEWAY_URL = "https://toolkit.rork.com/v2/vercel/v1/chat/completions"
 
-    /** Build-time injected gateway key; literal fallback keeps local runs alive.
-     * For development, configure RORK_TOOLKIT_KEY in local.properties.
+    /**
+     * Build-time injected Rork gateway key (RORK_TOOLKIT_KEY in
+     * local.properties / CI secrets). SECURITY: no hardcoded fallback — if
+     * the key is blank the gateway is simply unavailable and the active-
+     * provider resolution reflects that. Never re-introduce a literal key.
      */
     val rorkApiKey: String
-        get() = BuildConfig.RORK_TOOLKIT_KEY.ifBlank { RORK_KEY_FALLBACK }
-
-    // Fallback key for Rork Gateway
-    private const val RORK_KEY_FALLBACK = "rork_sk_ied1mfj2qty7j0sg0dm7mgca520gkg71"
+        get() = BuildConfig.RORK_TOOLKIT_KEY
 
     // ── Optional connectors ───────────────────────────────────────────────
     const val GOOGLE_STT_API_KEY  = ""

@@ -36,18 +36,20 @@ enum class JarvisVisualState(val label: String) {
 
     /**
      * Returns the Orb's accent color for a given visual state.
-     * Each state gets its OWN hue — not brightness steps of cyan.
+     * v3 design language (measured from the approved mockups): vivid cyan
+     * #19C5FF is JARVIS's presence; electric blue #1952FF marks active
+     * processing/executing; soft green/coral retained for success/error.
      */
     fun orbColor(): Color = when (this) {
-        IDLE -> Color(0xAA6FD3FF)       // Visible presence (~67% alpha)
-        WAKING -> Color(0xFF6FD3FF)     // Presence, partial
-        LISTENING -> Color(0xFF6FD3FF)  // Bright presence
-        THINKING -> Color(0xFFB79CFF)   // Soft violet
-        EXECUTING -> Color(0xFFF5B87A)  // Warmth amber
-        SPEAKING -> Color(0xFF6FD3FF)   // Full presence
+        IDLE -> Color(0xAA19C5FF)       // Visible presence (~67% alpha)
+        WAKING -> Color(0xFF19C5FF)     // Presence, partial
+        LISTENING -> Color(0xFF19C5FF)  // Bright vivid cyan
+        THINKING -> Color(0xFF4472FF)   // Cyan → electric blue blend
+        EXECUTING -> Color(0xFF1952FF)  // Electric blue (as in mockup header)
+        SPEAKING -> Color(0xFF19C5FF)   // Full presence
         SUCCESS -> Color(0xFF7EE8B8)    // Soft green
         ERROR -> Color(0xFFFF8A80)      // Warm coral
-        OFFLINE -> Color(0xFF4D5B6E)    // Muted text
+        OFFLINE -> Color(0xFF51607A)    // Muted slate
     }
 }
 

@@ -15,32 +15,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * JARVIS Design System — Color Tokens
+ * JARVIS Design System v3 — "Command Deck"
  *
- * Base: deep graphite-blue, not true black.
- * Two accents: ice-blue (presence) + soft amber (warmth).
- * State colors: each state gets its own hue, not brightness steps of cyan.
- * Never pure #00FFFF or #FF0000.
+ * Carbon-copy tokens measured directly from the approved mockups
+ * (designs/full_app/00-09): true black #000000 base, glass surfaces with a
+ * faint blue tint, hairline white borders (rgba 255,255,255,0.08), vivid
+ * cyan #19C5FF presence + electric blue #1952FF accents, faint technical
+ * grid, soft neon glow.
  */
 object JarvisColors {
-    // ── Backgrounds ──────────────────────────────────────────────────────
-    val VoidBlack = Color(0xFF0B0F17)       // root background
-    val DarkSpace = Color(0xFF121826)       // cards, sheets
-    val SurfaceCard = Color(0xFF1A2232)     // raised/hover surface
-    val SurfaceDark = Color(0xFF121826)      // alias for legacy code
-    val SurfaceGlass = Color(0x8C121826)    // glass panels (rgba 18,24,38,0.55)
-    val SurfaceGlassElevated = Color(0xA3121826) // elevated glass
+    // ── Backgrounds (true black, per mockup) ─────────────────────────────
+    val VoidBlack = Color(0xFF000000)       // root background — measured #000000
+    val DarkSpace = Color(0xFF070B12)       // cards, sheets (blue-tinted near-black)
+    val SurfaceCard = Color(0xFF0C111B)     // raised/hover surface
+    val SurfaceDark = Color(0xFF070B12)     // alias for legacy code
+    val SurfaceGlass = Color(0x73060B14)    // glass panels rgba(6,11,20,0.45)
+    val SurfaceGlassElevated = Color(0x99060B14) // elevated glass rgba(6,11,20,0.60)
+    val SurfaceGlassCyan = Color(0x59061828)     // JARVIS bubble tint (faint cyan)
 
-    // ── Accents ──────────────────────────────────────────────────────────
-    val Presence = Color(0xFF6FD3FF)        // ice-blue — Jarvis's core identity
-    val Warmth = Color(0xFFF5B87A)          // soft amber — highlights, thinking accent
+    // ── Accents (measured from mockups) ──────────────────────────────────
+    val Presence = Color(0xFF19C5FF)        // vivid cyan — JARVIS's core identity
+    val ElectricBlue = Color(0xFF1952FF)    // electric blue — executing/active accents
+    val Warmth = Color(0xFFF5B87A)          // soft amber — reserved for risk/confirm
 
     // ── State Colors ─────────────────────────────────────────────────────
-    val StateIdle = Color(0xAA6FD3FF)       // visible presence (~67% alpha)
-    val StateListening = Color(0xE66FD3FF)  // bright presence (~90%)
-    val StateThinking = Color(0xFFB79CFF)   // soft violet
-    val StateExecuting = Color(0xFFF5B87A)  // warmth amber
-    val StateSpeaking = Color(0xFF6FD3FF)   // full brightness presence
+    val StateIdle = Color(0xAA19C5FF)       // visible presence (~67% alpha)
+    val StateListening = Color(0xFF19C5FF)  // bright vivid cyan
+    val StateThinking = Color(0xFF4472FF)   // cyan → electric blue blend
+    val StateExecuting = Color(0xFF1952FF)  // electric blue (mockup: "EXECUTING")
+    val StateSpeaking = Color(0xFF19C5FF)   // full brightness presence
     val StateError = Color(0xFFFF8A80)      // warm coral, never pure red
     val StateSuccess = Color(0xFF7EE8B8)    // soft green, fades quickly
 
@@ -54,17 +57,18 @@ object JarvisColors {
     val PurpleSync = StateThinking
 
     // ── Text ─────────────────────────────────────────────────────────────
-    val TextPrimary = Color(0xFFE8ECF1)     // slightly warm white
-    val TextSecondary = Color(0xFF8A95A5)   // muted, readable
-    val TextMuted = Color(0xFF4D5B6E)       // subtle, for captions
+    val TextPrimary = Color(0xFFEAF2FF)     // cool white (per mockup)
+    val TextSecondary = Color(0xFF8FA0B8)   // muted, readable
+    val TextMuted = Color(0xFF51607A)       // subtle, for captions
 
     // ── Borders ──────────────────────────────────────────────────────────
     val Hairline = Color(0x14FFFFFF)        // rgba(255,255,255,0.08) — never cyan
     val BorderGlass = Color(0x0FFFFFFF)     // rgba(255,255,255,0.06) — inner highlight
+    val BorderCyan = Hairline                               // legacy alias
+    val BorderCyanBright = Color(0x3D19C5FF)                // cyan glow border (selected states)
 
-    // Legacy border aliases
-    val BorderCyan = Hairline
-    val BorderCyanBright = Hairline
+    // ── HUD grid (faint technical grid from mockups) ─────────────────────
+    val GridLine = Color(0x0A19C5FF)        // cyan at 4% — barely-there grid
 
     // ── Gradients ────────────────────────────────────────────────────────
     val GlassGradient = Brush.verticalGradient(
@@ -83,7 +87,25 @@ object JarvisColors {
     )
 
     val HeaderGradient = Brush.horizontalGradient(
-        listOf(Presence, StateSuccess)
+        listOf(Presence, ElectricBlue)
+    )
+
+    /** Soft neon halo used behind glowing buttons and the orb base. */
+    val GlowRadial = Brush.radialGradient(
+        listOf(
+            Presence.copy(alpha = 0.45f),
+            Presence.copy(alpha = 0.16f),
+            Color.Transparent
+        )
+    )
+
+    /** Electric-blue variant of the halo. */
+    val GlowRadialBlue = Brush.radialGradient(
+        listOf(
+            ElectricBlue.copy(alpha = 0.40f),
+            ElectricBlue.copy(alpha = 0.14f),
+            Color.Transparent
+        )
     )
 }
 
@@ -105,7 +127,7 @@ private val JarvisDarkColorScheme: ColorScheme = darkColorScheme(
     onPrimary = JarvisColors.VoidBlack,
     primaryContainer = JarvisColors.SurfaceGlass,
     onPrimaryContainer = JarvisColors.Presence,
-    secondary = JarvisColors.Warmth,
+    secondary = JarvisColors.ElectricBlue,
     onSecondary = JarvisColors.VoidBlack,
     tertiary = JarvisColors.StateThinking,
     background = JarvisColors.VoidBlack,
@@ -121,16 +143,16 @@ private val JarvisDarkColorScheme: ColorScheme = darkColorScheme(
 )
 
 /**
- * JARVIS Typography — clean geometric-humanist sans.
- * Monospace reserved for technical readouts only.
+ * JARVIS Typography — thin, wide-letter-spaced sans for the HUD wordmark;
+ * clean geometric-humanist sans everywhere else.
  */
 val JarvisTypography = Typography(
     displayLarge = TextStyle(
-        fontFamily = FontFamily.Default,   // Space Grotesk would be ideal; using system sans
+        fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
         fontSize = 28.sp,
         lineHeight = 34.sp,
-        letterSpacing = 2.sp,             // generous at display size only
+        letterSpacing = 6.sp,             // wordmark-grade spacing at display size
         color = JarvisColors.TextPrimary
     ),
     displayMedium = TextStyle(
@@ -138,7 +160,7 @@ val JarvisTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 24.sp,
         lineHeight = 30.sp,
-        letterSpacing = 1.sp,
+        letterSpacing = 3.sp,
         color = JarvisColors.TextPrimary
     ),
     headlineMedium = TextStyle(
@@ -174,6 +196,7 @@ val JarvisTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 13.sp,
         lineHeight = 18.sp,
+        letterSpacing = 1.sp,
         color = JarvisColors.TextSecondary
     ),
     labelSmall = TextStyle(

@@ -16,7 +16,6 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -119,14 +118,10 @@ class JarvisFloatingOrbService : Service() {
         composeView.setContent {
             val state by VoiceBus.engineState.collectAsState()
             val audioLevel by VoiceBus.audioLevel.collectAsState()
-            val orchestratorMessages = orchestrator?.messages?.collectAsState()
-            val lastReply = orchestratorMessages?.value
-                ?.lastOrNull { it.role == com.jarvis.core.model.MessageRole.JARVIS }?.text
 
             OrbOverlayContent(
                 state = state,
                 audioLevel = audioLevel,
-                lastReply = lastReply,
                 onOpenApp = {
                     startActivity(
                         Intent(this@JarvisFloatingOrbService, MainActivity::class.java).apply {
@@ -258,17 +253,13 @@ class JarvisFloatingOrbService : Service() {
 /**
  * Orb overlay content — uses the SAME JarvisCore as the main app.
  *
- * v3 carbon copy of mockups 07/08:
- *  - Collapsed: the mini HUD core floating over any app (black glass,
- *    cyan/electric-blue rings, halo) — same JarvisCore, scaled.
- *  - Expanded: a vertical frosted-glass command strip — mini orb, live status
- *    line, last reply preview, glowing cyan mic, close at the bottom.
+ * Tap expands to a compact strip with mic button; the strip auto-collapses after ~6s.
+ * The Orb is the same visual everywhere — it scales, it doesn't become a different graphic.
  */
 @Composable
 private fun OrbOverlayContent(
     state: JarvisVisualState,
     audioLevel: Float,
-    lastReply: String?,
     onOpenApp: () -> Unit,
     onToggleMic: () -> Unit,
     isListening: Boolean
@@ -276,86 +267,74 @@ private fun OrbOverlayContent(
     var isExpanded by remember { mutableStateOf(false) }
 
     if (isExpanded) {
-        // Expanded: vertical glass command strip (mockup 08)
-        Column(
+        // Compact strip: mini Orb + status + mic + actions
+        Row(
             modifier = Modifier
-                .padding(6.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(JarvisColors.SurfaceGlassElevated.copy(alpha = 0.96f))
-                .border(0.8.dp, JarvisColors.Hairline, RoundedCornerShape(22.dp))
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(4.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(JarvisColors.DarkSpace.copy(alpha = 0.92f))
+                .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(20.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Mini Orb — same JarvisCore
-            JarvisCore(
-                state = state,
-                audioLevel = audioLevel,
-                size = 44.dp,
-                onClick = { isExpanded = false }
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Live status line
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(5.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(state.orbColor())
+            // Mini Orb — same JarvisCore, just smaller
+            Box(modifier = Modifier.size(40.dp)) {
+                JarvisCore(
+                    state = state,
+                    audioLevel = audioLevel,
+                    size = 40.dp,
+                    onClick = { isExpanded = false }
                 )
-                Spacer(modifier = Modifier.width(5.dp))
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Status text
+            androidx.compose.foundation.layout.Column(modifier = Modifier.width(80.dp)) {
                 Text(
-                    text = state.label,
+                    text = "Jarvis",
                     color = state.orbColor(),
                     fontSize = 12.sp,
+                    fontFamily = FontFamily.Default,
                     fontWeight = FontWeight.Medium
                 )
-            }
-
-            // Last reply preview (one line, dimmed)
-            if (!lastReply.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(5.dp))
                 Text(
-                    text = lastReply.take(42),
-                    color = JarvisColors.TextSecondary,
+                    text = state.label,
+                    color = JarvisColors.TextMuted,
                     fontSize = 11.sp,
-                    maxLines = 1
+                    fontFamily = FontFamily.Default
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Mic button — toggles voice input
+            IconButton(onClick = onToggleMic, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = if (isListening) "Stop listening" else "Start listening",
+                    tint = if (isListening) JarvisColors.StateError else JarvisColors.Presence,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
 
-            // Glowing cyan mic — talk to JARVIS from inside any app
-            com.jarvis.core.ui.GlowMicButton(
-                isListening = isListening,
-                onClick = onToggleMic,
-                size = 44.dp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenApp, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.OpenInFull,
-                        contentDescription = "Open App",
-                        tint = JarvisColors.TextSecondary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                IconButton(onClick = { isExpanded = false }, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Collapse",
-                        tint = JarvisColors.TextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+            IconButton(onClick = onOpenApp, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.OpenInFull,
+                    contentDescription = "Open App",
+                    tint = JarvisColors.TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = { isExpanded = false }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Collapse",
+                    tint = JarvisColors.TextMuted,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     } else {
-        // Collapsed: the mini HUD core (mockup 07)
+        // Compact Orb only — same JarvisCore, scaled to 80dp for overlay
         Box(
             modifier = Modifier
                 .size(80.dp)

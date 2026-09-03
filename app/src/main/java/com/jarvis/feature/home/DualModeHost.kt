@@ -3,10 +3,7 @@ package com.jarvis.feature.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -41,16 +38,19 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.KeyboardVoice
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -59,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,17 +81,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.app.config.ApiConfig
-import com.jarvis.app.voice.VoiceBus
 import com.jarvis.core.model.AssistantMessage
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.MessageRole
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.core.ui.GlassCard
-import com.jarvis.core.ui.GlowMicButton
-import com.jarvis.core.ui.HudBackground
 import com.jarvis.core.ui.JarvisCore
-import com.jarvis.core.ui.StreamingCursor
-import com.jarvis.core.ui.ThinkingDots
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class StageMode {
     VOICE_STAGE,
@@ -98,11 +98,10 @@ enum class StageMode {
 }
 
 /**
- * Dual-mode host — v3 "Command Deck" design (carbon copy of the approved
- * mockups 02/03): true-black HUD grid background, frosted-glass header with
- * the J A R V I S wordmark, concentric-ring core, glass chat bubbles with a
- * cyan left edge for JARVIS, live streaming text with cursor, thinking dots,
- * and the glowing mic pill.
+ * Dual-mode host: Voice Stage (orb-centric) and Conversation (chat-centric).
+ *
+ * Design: calm, precise, alive — graphite-blue base, presence/warmth accents,
+ * glass panels, clean typography, unified Orb identity.
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -120,11 +119,19 @@ fun DualModeHost(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Auto-switch to the conversation deck once a conversation starts
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && stageMode == StageMode.VOICE_STAGE &&
-            messages.size > 1) {
-            stageMode = StageMode.CONVERSATION
+    // Call duration timer
+    var callSeconds by remember { mutableIntStateOf(0) }
+    val isCallActive = visualState == JarvisVisualState.LISTENING ||
+            visualState == JarvisVisualState.SPEAKING ||
+            visualState == JarvisVisualState.THINKING
+
+    LaunchedEffect(isCallActive) {
+        if (isCallActive) {
+            callSeconds = 0
+            while (true) {
+                delay(1000)
+                callSeconds++
+            }
         }
     }
 
@@ -136,6 +143,7 @@ fun DualModeHost(
 
     val userName = ApiConfig.userName
 
+    // Determine greeting based on time of day
     val greeting = remember {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         when {
@@ -153,23 +161,26 @@ fun DualModeHost(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(JarvisColors.VoidBlack)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF0B0F17),
+                            Color(0xFF0E1420),
+                            Color(0xFF0B0F17)
+                        )
+                    )
+                )
         ) {
-            // Faint technical grid + top cyan bleed (mockup background)
-            HudBackground(
-                modifier = Modifier.fillMaxSize(),
-                glowColor = visualState.orbColor()
-            )
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // ── Frosted-glass HUD header ────────────────────────────
+                // Top header
                 TopPresenceHeader(
                     mode = stageMode,
                     visualState = visualState,
+                    callDurationSeconds = if (isCallActive) callSeconds else null,
                     onSwitchMode = {
                         stageMode = if (stageMode == StageMode.VOICE_STAGE)
                             StageMode.CONVERSATION else StageMode.VOICE_STAGE
@@ -178,8 +189,9 @@ fun DualModeHost(
                     onEmergencyStop = { orchestrator.emergencyStop() }
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
+                // Main content area
                 AnimatedContent(
                     targetState = stageMode,
                     transitionSpec = {
@@ -196,6 +208,9 @@ fun DualModeHost(
                                 visualState = visualState,
                                 userName = userName,
                                 greeting = greeting,
+                                isCallActive = isCallActive,
+                                callSeconds = callSeconds,
+                                lastMessage = messages.lastOrNull()?.text,
                                 onOrbTap = { onToggleVoice() },
                                 onSwitchToChat = { stageMode = StageMode.CONVERSATION },
                                 onQuickAction = { action ->
@@ -217,6 +232,7 @@ fun DualModeHost(
                     }
                 }
 
+                // Bottom input — only in conversation mode
                 if (stageMode == StageMode.CONVERSATION) {
                     ChatInputBar(
                         value = inputText,
@@ -239,12 +255,13 @@ fun DualModeHost(
     }
 }
 
-// ── Top Header (frosted-glass HUD bar, mockup: slim glass strip) ───────────
+// ── Top Header ────────────────────────────────────────────────────────────
 
 @Composable
 private fun TopPresenceHeader(
     mode: StageMode,
     visualState: JarvisVisualState,
+    callDurationSeconds: Int?,
     onSwitchMode: () -> Unit,
     onOpenSettings: () -> Unit,
     onEmergencyStop: () -> Unit
@@ -255,125 +272,99 @@ private fun TopPresenceHeader(
         label = "headerAccent"
     )
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        backgroundColor = JarvisColors.SurfaceGlassElevated
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Left: mini arc-orb emblem
-            Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-                JarvisCore(
-                    state = if (visualState == JarvisVisualState.OFFLINE)
-                        JarvisVisualState.OFFLINE else JarvisVisualState.IDLE,
-                    size = 34.dp,
-                    onClick = onSwitchMode
-                )
-            }
-
-            // Center: the wordmark
-            Text(
-                text = "J A R V I S",
-                color = JarvisColors.TextPrimary,
-                fontSize = 15.sp,
-                fontFamily = FontFamily.Default,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 4.sp
-            )
-
-            // Right: status + waveform + actions
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = when (visualState) {
-                        JarvisVisualState.IDLE -> "ONLINE"
-                        JarvisVisualState.OFFLINE -> "OFFLINE"
-                        else -> visualState.label.uppercase()
-                    },
-                    color = accent,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                WaveformGlyph(active = visualState == JarvisVisualState.LISTENING ||
-                        visualState == JarvisVisualState.SPEAKING, accent = accent)
-
-                Spacer(modifier = Modifier.width(4.dp))
-                IconButton(onClick = onSwitchMode, modifier = Modifier.size(30.dp)) {
-                    Icon(
-                        imageVector = if (mode == StageMode.VOICE_STAGE)
-                            Icons.Default.ChatBubbleOutline else Icons.Default.KeyboardVoice,
-                        contentDescription = "Switch Mode",
-                        tint = JarvisColors.TextSecondary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-                IconButton(onClick = onEmergencyStop, modifier = Modifier.size(30.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = "Stop",
-                        tint = JarvisColors.StateError.copy(alpha = 0.8f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                IconButton(onClick = onOpenSettings, modifier = Modifier.size(30.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = JarvisColors.TextSecondary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Tiny live audio waveform glyph for the header (4 breathing bars). */
-@Composable
-private fun WaveformGlyph(active: Boolean, accent: Color) {
-    val transition = rememberInfiniteTransition(label = "waveform")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            tween(1100, easing = androidx.compose.animation.core.LinearEasing),
-            RepeatMode.Restart
-        ),
-        label = "wavePhase"
-    )
     Row(
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        repeat(4) { i ->
-            val wave = kotlin.math.sin(Math.toRadians((phase + i * 55f).toDouble())).toFloat()
-            val h = if (active) (8 + 8 * kotlin.math.abs(wave)).dp else 5.dp
-            val alpha = if (active) 0.95f else 0.35f
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { onSwitchMode() }
+        ) {
+            Text(
+                text = "JARVIS",
+                color = JarvisColors.TextPrimary,
+                fontSize = 18.sp,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 3.sp
+            )
+            Spacer(modifier = Modifier.width(10.dp))
             Box(
                 modifier = Modifier
-                    .width(2.dp)
-                    .height(h)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(accent.copy(alpha = alpha))
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(accent)
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (callDurationSeconds != null) {
+                    val mins = callDurationSeconds / 60
+                    val secs = callDurationSeconds % 60
+                    "Live %02d:%02d".format(mins, secs)
+                } else {
+                    visualState.label
+                },
+                color = accent,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onSwitchMode,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = if (mode == StageMode.VOICE_STAGE)
+                        Icons.Default.ChatBubbleOutline else Icons.Default.KeyboardVoice,
+                    contentDescription = "Switch Mode",
+                    tint = JarvisColors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onEmergencyStop,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = "Stop",
+                    tint = JarvisColors.StateError.copy(alpha = 0.8f),
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = JarvisColors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
 
-// ── Voice Stage View (mockup 02: hero orb + live transcript) ───────────────
+// ── Voice Stage View ──────────────────────────────────────────────────────
 
 @Composable
 private fun VoiceStageView(
     visualState: JarvisVisualState,
     userName: String,
     greeting: String,
+    isCallActive: Boolean,
+    callSeconds: Int,
+    lastMessage: String?,
     onOrbTap: () -> Unit,
     onSwitchToChat: () -> Unit,
     onQuickAction: (String) -> Unit
@@ -383,171 +374,290 @@ private fun VoiceStageView(
         animationSpec = spring(),
         label = "voiceAccent"
     )
-    val audioLevel by VoiceBus.audioLevel.collectAsState()
-    val transcript by VoiceBus.transcript.collectAsState()
 
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Greeting block
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "$greeting, $userName.",
-                color = JarvisColors.TextPrimary,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "How can I help you?",
-                color = JarvisColors.TextSecondary,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        // Center: hero orb
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        // Status bar
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
         ) {
-            JarvisCore(
-                state = visualState,
-                audioLevel = if (visualState == JarvisVisualState.LISTENING)
-                    (0.3f + audioLevel * 0.7f).coerceIn(0f, 1f)
-                else if (visualState == JarvisVisualState.SPEAKING) 0.35f else 0f,
-                size = 250.dp,
-                onClick = onOrbTap
-            )
-
-            Spacer(modifier = Modifier.height(22.dp))
-
-            // Live transcript glass bar (with blinking cursor while listening)
-            if (visualState == JarvisVisualState.LISTENING && transcript.isNotBlank()) {
-                GlassCard(
-                    shape = RoundedCornerShape(14.dp),
-                    backgroundColor = JarvisColors.SurfaceGlassElevated
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = transcript.take(80),
-                            color = JarvisColors.TextPrimary,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        StreamingCursor(accent = accent)
-                    }
-                }
-            } else {
-                Text(
-                    text = when (visualState) {
-                        JarvisVisualState.IDLE -> "Standing by"
-                        JarvisVisualState.WAKING -> "Initializing"
-                        JarvisVisualState.LISTENING -> "Listening…"
-                        JarvisVisualState.THINKING -> "Thinking"
-                        JarvisVisualState.EXECUTING -> "Executing"
-                        JarvisVisualState.SPEAKING -> "Speaking"
-                        JarvisVisualState.SUCCESS -> "Done"
-                        JarvisVisualState.ERROR -> "Something went wrong"
-                        JarvisVisualState.OFFLINE -> "Offline"
-                    },
-                    color = accent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.sp,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-
-        // Bottom: quick-action chips + glowing mic pill
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            QuickActionChips(onQuickAction = onQuickAction)
-
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(bottom = 10.dp)
-            ) {
-                GlowMicButton(
-                    isListening = visualState == JarvisVisualState.LISTENING,
-                    onClick = onOrbTap,
-                    size = 54.dp
-                )
-                Text(
-                    text = if (visualState == JarvisVisualState.LISTENING)
-                        "Listening — tap to stop" else "Tap to speak",
-                    color = JarvisColors.TextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
-}
-
-// ── Quick action chips (4 minimal glass chips, mockup 02/03) ───────────────
-
-@Composable
-private fun QuickActionChips(onQuickAction: (String) -> Unit) {
-    val chips = listOf(
-        Triple("Screen", Icons.Default.Search, "What's on my screen?"),
-        Triple("Apps", Icons.Default.Apps, "Open WhatsApp"),
-        Triple("Alerts", Icons.Default.Notifications, "Read my notifications"),
-        Triple("Torch", Icons.Default.FlashlightOn, "Turn on the flashlight")
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        chips.forEach { (label, icon, query) ->
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { onQuickAction(query) }
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(JarvisColors.SurfaceGlass)
-                        .border(0.8.dp, JarvisColors.Hairline, CircleShape),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = JarvisColors.Presence,
-                        modifier = Modifier.size(19.dp)
+                    Text(
+                        text = "Core",
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
+                    )
+                    Text(
+                        text = ApiConfig.getProviderLabel(),
+                        color = JarvisColors.Presence,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-                Spacer(modifier = Modifier.height(5.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Overlay",
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
+                    )
+                    Text(
+                        text = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning)
+                            "Active" else "Ready",
+                        color = if (com.jarvis.android.overlay.JarvisFloatingOrbService.isRunning)
+                            JarvisColors.Presence else JarvisColors.TextMuted,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Center: Greeting + Orb + status text
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Greeting
                 Text(
-                    text = label,
-                    color = JarvisColors.TextSecondary,
-                    fontSize = 10.sp
+                    text = "$greeting, $userName.",
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 20.sp,
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "How can I help you?",
+                    color = JarvisColors.TextSecondary,
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.Default,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Orb
+                JarvisCore(
+                    state = visualState,
+                    audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.45f
+                    else if (visualState == JarvisVisualState.SPEAKING) 0.3f else 0f,
+                    size = 200.dp,
+                    onClick = onOrbTap
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Status text
+                Text(
+                    text = when (visualState) {
+                        JarvisVisualState.IDLE -> "Standing by."
+                        JarvisVisualState.WAKING -> "Initializing..."
+                        JarvisVisualState.LISTENING -> "Listening..."
+                        JarvisVisualState.THINKING -> "Thinking..."
+                        JarvisVisualState.EXECUTING -> "Working on it..."
+                        JarvisVisualState.SPEAKING -> "Speaking..."
+                        JarvisVisualState.SUCCESS -> "Done."
+                        JarvisVisualState.ERROR -> "Something went wrong."
+                        JarvisVisualState.OFFLINE -> "Offline mode."
+                    },
+                    color = accent,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Default,
+                    fontWeight = FontWeight.Normal,
+                    textAlign = TextAlign.Center
+                )
+
+                if (lastMessage != null && visualState != JarvisVisualState.IDLE) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = lastMessage.take(120),
+                        color = JarvisColors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Default,
+                        lineHeight = 18.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    )
+                }
+            }
+        }
+
+        // Quick actions grid
+        QuickActionsGrid(onQuickAction = onQuickAction)
+
+        // Bottom controls
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Mic button
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(
+                        if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError.copy(alpha = 0.15f)
+                        else JarvisColors.SurfaceGlass
+                    )
+                    .border(
+                        1.dp,
+                        if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError.copy(alpha = 0.4f)
+                        else JarvisColors.Hairline,
+                        CircleShape
+                    )
+                    .clickable { onOrbTap() }
+                    .padding(horizontal = 28.dp, vertical = 14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (visualState == JarvisVisualState.LISTENING)
+                            Icons.Default.CallEnd else Icons.Default.Mic,
+                        contentDescription = "Mic",
+                        tint = if (visualState == JarvisVisualState.LISTENING)
+                            JarvisColors.StateError else JarvisColors.Presence,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (visualState == JarvisVisualState.LISTENING)
+                            "End session" else "Tap to speak",
+                        color = JarvisColors.TextPrimary,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Chat switch hint
+            Text(
+                text = "Tap chat icon to switch to conversation mode",
+                color = JarvisColors.TextMuted,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Default,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+        }
+    }
+}
+
+// ── Quick Actions Grid ────────────────────────────────────────────────────
+
+@Composable
+private fun QuickActionsGrid(onQuickAction: (String) -> Unit) {
+    val actions = listOf(
+        QuickAction("Volume", Icons.Default.VolumeUp, "Volume up"),
+        QuickAction("Flashlight", Icons.Default.FlashlightOn, "Turn on flashlight"),
+        QuickAction("Battery", Icons.Default.PowerSettingsNew, "Battery status"),
+        QuickAction("Weather", Icons.Default.OpenInNew, "What's the weather?"),
+        QuickAction("Schedule", Icons.Default.ChatBubbleOutline, "What's on my calendar?"),
+        QuickAction("Notifications", Icons.Default.Send, "Read my notifications"),
+        QuickAction("Screen", Icons.Default.OpenInNew, "What's on screen?"),
+        QuickAction("Navigate", Icons.Default.OpenInNew, "Navigate to the nearest petrol station")
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        // Row 1
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            actions.take(4).forEach { action ->
+                QuickActionItem(action, onQuickAction)
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        // Row 2
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            actions.drop(4).forEach { action ->
+                QuickActionItem(action, onQuickAction)
             }
         }
     }
 }
 
-// ── Conversation View (mockup 03: glass chat deck) ─────────────────────────
+@Composable
+private fun QuickActionItem(action: QuickAction, onQuickAction: (String) -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onQuickAction(action.query) }
+            .padding(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(JarvisColors.SurfaceGlass)
+                .border(0.5.dp, JarvisColors.Hairline, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = action.icon,
+                contentDescription = action.label,
+                tint = JarvisColors.Presence,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = action.label,
+            color = JarvisColors.TextSecondary,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Default
+        )
+    }
+}
+
+private data class QuickAction(
+    val label: String,
+    val icon: ImageVector,
+    val query: String
+)
+
+// ── Conversation View ─────────────────────────────────────────────────────
 
 @Composable
 private fun ConversationView(
@@ -558,7 +668,51 @@ private fun ConversationView(
     onOrbTap: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        // Docked mini-orb status
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    JarvisCore(
+                        state = visualState,
+                        audioLevel = if (visualState == JarvisVisualState.LISTENING) 0.35f else 0f,
+                        size = 36.dp,
+                        onClick = onOrbTap
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = visualState.label,
+                            color = visualState.orbColor(),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Default,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Tap orb for voice",
+                            color = JarvisColors.TextMuted,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Default
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Message list
         if (messages.isEmpty()) {
+            // Empty state: centered Orb + "Standing by."
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -568,14 +722,15 @@ private fun ConversationView(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     JarvisCore(
                         state = JarvisVisualState.IDLE,
-                        size = 170.dp,
+                        size = 180.dp,
                         onClick = onOrbTap
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Standing by.",
                         color = JarvisColors.TextMuted,
-                        fontSize = 14.sp
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Default
                     )
                 }
             }
@@ -585,193 +740,164 @@ private fun ConversationView(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 6.dp)
             ) {
                 items(messages, key = { it.id }) { msg ->
                     ChatMessageItem(
                         message = msg,
-                        showStreamingCursor = msg.role == MessageRole.JARVIS &&
-                                msg.id == messages.lastOrNull()?.id &&
-                                (visualState == JarvisVisualState.THINKING ||
-                                        visualState == JarvisVisualState.SPEAKING ||
-                                        visualState == JarvisVisualState.EXECUTING),
                         onConfirmTool = { req -> orchestrator.confirmToolExecution(req) },
                         onRejectTool = { orchestrator.rejectToolExecution() }
                     )
-                }
-                // "JARVIS is thinking" indicator while the reply streams in
-                if (visualState == JarvisVisualState.THINKING &&
-                    messages.lastOrNull()?.role == MessageRole.USER
-                ) {
-                    item(key = "thinking-indicator") {
-                        GlassCard(
-                            shape = RoundedCornerShape(
-                                topStart = 4.dp, topEnd = 16.dp,
-                                bottomStart = 16.dp, bottomEnd = 16.dp
-                            ),
-                            backgroundColor = JarvisColors.SurfaceGlassCyan
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                ThinkingDots()
-                                Text(
-                                    text = "JARVIS is thinking",
-                                    color = JarvisColors.TextSecondary,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
     }
 }
 
-// ── Chat Message Item (mockup 03: glass bubbles, cyan edge for JARVIS) ─────
+// ── Chat Message Item ─────────────────────────────────────────────────────
 
 @Composable
 private fun ChatMessageItem(
     message: AssistantMessage,
-    showStreamingCursor: Boolean = false,
     onConfirmTool: (com.jarvis.core.model.ToolExecutionRequest) -> Unit,
     onRejectTool: (() -> Unit)? = null
 ) {
     val isUser = message.role == MessageRole.USER
     val isSystem = message.role == MessageRole.SYSTEM
 
+    val timeStr = remember(message.timestamp) {
+        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (!isUser && !isSystem) {
-                // Cyan left edge accent for JARVIS bubbles (per mockup)
-                Box(
-                    modifier = Modifier
-                        .width(2.dp)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(JarvisColors.Presence)
+        Box(
+            modifier = Modifier
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isUser) 16.dp else 4.dp,
+                        bottomEnd = if (isUser) 4.dp else 16.dp
+                    )
                 )
-            }
-            Box(
-                modifier = Modifier
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (isUser) 16.dp else 4.dp,
-                            bottomEnd = if (isUser) 4.dp else 16.dp
-                        )
-                    )
-                    .background(
-                        when {
-                            isUser -> JarvisColors.SurfaceGlassElevated
-                            isSystem -> JarvisColors.SurfaceGlass
-                            else -> JarvisColors.SurfaceGlassCyan   // faint cyan tint
-                        }
-                    )
-                    .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Column {
+                .background(
+                    if (isUser) JarvisColors.Presence.copy(alpha = 0.08f)
+                    else if (isSystem) JarvisColors.SurfaceGlass
+                    else JarvisColors.DarkSpace
+                )
+                .border(
+                    0.5.dp,
+                    JarvisColors.Hairline,
+                    RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
-                        text = message.text,
-                        color = if (isSystem) JarvisColors.TextSecondary
-                        else JarvisColors.TextPrimary,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
+                        text = if (isUser) "You" else if (isSystem) "System" else "Jarvis",
+                        color = if (isUser) JarvisColors.Presence
+                        else if (isSystem) JarvisColors.TextMuted
+                        else JarvisColors.Warmth.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Default,
+                        fontWeight = FontWeight.Medium
                     )
-                    if (showStreamingCursor && message.text.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        StreamingCursor()
-                    }
+                    Text(
+                        text = timeStr,
+                        color = JarvisColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Default
+                    )
+                }
 
-                    // Tool confirmation card (risk >= 2)
-                    if (message.toolCall != null &&
-                        message.toolCall.requiresConfirmation &&
-                        message.toolResult == null
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = message.text,
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.Default,
+                    lineHeight = 22.sp
+                )
+
+                // Tool confirmation card
+                if (message.toolCall != null && message.toolCall.requiresConfirmation && message.toolResult == null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(JarvisColors.Warmth.copy(alpha = 0.08f))
+                            .border(0.5.dp, JarvisColors.Warmth.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
                     ) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(JarvisColors.Warmth.copy(alpha = 0.08f))
-                                .border(
-                                    0.5.dp,
-                                    JarvisColors.Warmth.copy(alpha = 0.25f),
-                                    RoundedCornerShape(12.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = JarvisColors.Warmth,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                .padding(12.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                Text(
+                                    text = message.toolCall.name,
+                                    color = JarvisColors.Warmth,
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Default,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(JarvisColors.Warmth)
+                                        .clickable { onConfirmTool(message.toolCall) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = null,
-                                        tint = JarvisColors.Warmth,
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                     Text(
-                                        text = message.toolCall.name,
-                                        color = JarvisColors.Warmth,
+                                        text = "Confirm",
+                                        color = JarvisColors.VoidBlack,
                                         fontSize = 13.sp,
+                                        fontFamily = FontFamily.Default,
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(JarvisColors.StateError.copy(alpha = 0.10f))
+                                        .border(0.5.dp, JarvisColors.StateError.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                                        .clickable { onRejectTool?.invoke() }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(JarvisColors.Presence)
-                                            .clickable { onConfirmTool(message.toolCall) }
-                                            .padding(vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "Confirm",
-                                            color = JarvisColors.VoidBlack,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(JarvisColors.StateError.copy(alpha = 0.10f))
-                                            .border(
-                                                0.5.dp,
-                                                JarvisColors.StateError.copy(alpha = 0.3f),
-                                                RoundedCornerShape(10.dp)
-                                            )
-                                            .clickable { onRejectTool?.invoke() }
-                                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "Cancel",
-                                            color = JarvisColors.StateError,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
+                                    Text(
+                                        text = "Cancel",
+                                        color = JarvisColors.StateError,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Default,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -782,7 +908,7 @@ private fun ChatMessageItem(
     }
 }
 
-// ── Chat Input Bar (mockup 03: floating glass pill + glowing mic) ──────────
+// ── Chat Input Bar ────────────────────────────────────────────────────────
 
 @Composable
 private fun ChatInputBar(
@@ -797,7 +923,7 @@ private fun ChatInputBar(
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 4.dp)
     ) {
-        // Shortcut chips floating above the pill
+        // Quick action chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -806,12 +932,14 @@ private fun ChatInputBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(
-                "What's on screen?",
                 "Read notifications",
+                "What's on screen?",
                 "Battery status",
                 "Flashlight",
+                "Volume up",
                 "Set alarm",
-                "Open WhatsApp"
+                "Open WhatsApp",
+                "Remember this"
             ).forEach { query ->
                 Box(
                     modifier = Modifier
@@ -824,23 +952,38 @@ private fun ChatInputBar(
                     Text(
                         text = query,
                         color = JarvisColors.TextSecondary,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Default
                     )
                 }
             }
         }
 
-        // The glass pill
-        GlassCard(
-            shape = RoundedCornerShape(26.dp),
-            backgroundColor = JarvisColors.SurfaceGlassElevated
+        // Input field
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(JarvisColors.DarkSpace)
+                .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(20.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                IconButton(
+                    onClick = onVoiceClick,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                        contentDescription = "Voice",
+                        tint = if (isListening) JarvisColors.StateError else JarvisColors.Presence,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -848,9 +991,10 @@ private fun ChatInputBar(
                 ) {
                     if (value.isEmpty()) {
                         Text(
-                            text = "Ask JARVIS anything…",
+                            text = "Ask Jarvis anything...",
                             color = JarvisColors.TextMuted,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            fontFamily = FontFamily.Default
                         )
                     }
                     BasicTextField(
@@ -859,6 +1003,7 @@ private fun ChatInputBar(
                         textStyle = TextStyle(
                             color = JarvisColors.TextPrimary,
                             fontSize = 15.sp,
+                            fontFamily = FontFamily.Default,
                             lineHeight = 22.sp
                         ),
                         cursorBrush = SolidColor(JarvisColors.Presence),
@@ -868,22 +1013,17 @@ private fun ChatInputBar(
                     )
                 }
 
-                if (value.isNotBlank()) {
-                    IconButton(onClick = onSend, modifier = Modifier.size(34.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Send",
-                            tint = JarvisColors.Presence,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                IconButton(
+                    onClick = onSend,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = if (value.isNotBlank()) JarvisColors.Presence else JarvisColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
-
-                GlowMicButton(
-                    isListening = isListening,
-                    onClick = onVoiceClick,
-                    size = 42.dp
-                )
             }
         }
     }

@@ -43,14 +43,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     var onSpeechResult: ((String) -> Unit)? = null
 
-    // ── Barge-in / streaming speech state ─────────────────────────────────
-    // While JARVIS is speaking we keep a SECOND recognizer running ("hot
-    // mic"). It listens only for stop-phrases ("stop", "quiet", "silence"…)
-    // and cuts audio the instant one is heard. Previously speak() called
-    // stopListening() first, which made interruption physically impossible.
-    @Volatile private var bargeInActive = false
-    @Volatile private var speakGeneration = 0
-
     init {
         mainHandler.post {
             try {
@@ -121,32 +113,17 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     }
 
     fun startListening() {
-        startListeningInternal(bargeIn = false)
-    }
-
-    /**
-     * Starts speech recognition.
-     *
-     * @param bargeIn true = the hot-mic recognizer that runs WHILE JARVIS is
-     * speaking; it only reacts to stop-phrases (see [isStopPhrase]) and never
-     * changes the visual state or the live transcript.
-     */
-    private fun startListeningInternal(bargeIn: Boolean) {
         mainHandler.post {
             try {
-                if (!bargeIn) {
-                    stopSpeaking()
-                }
+                stopSpeaking()
                 safeDestroyRecognizer()
 
                 if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                    if (!bargeIn) setState(JarvisVisualState.ERROR)
+                    setState(JarvisVisualState.ERROR)
                     return@post
                 }
-
-                if (!bargeIn) requestAudioFocus()
-
-                bargeInActive = bargeIn
+                
+                requestAudioFocus()
 
                 val recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                     setRecognitionListener(this@JarvisVoiceEngine)
@@ -159,23 +136,15 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    if (bargeIn) {
-                        // Hot mic: settle quickly so a spoken "stop" cuts audio fast.
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500L)
-                    } else {
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
-                    }
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
                 }
 
                 recognizer.startListening(intent)
-                if (!bargeIn) setState(JarvisVisualState.LISTENING)
+                setState(JarvisVisualState.LISTENING)
             } catch (e: Throwable) {
-                if (!bargeIn) {
-                    setState(JarvisVisualState.ERROR)
-                    abandonAudioFocus()
-                }
+                setState(JarvisVisualState.ERROR)
+                abandonAudioFocus()
             }
         }
     }
@@ -191,7 +160,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     fun stopListening() {
         mainHandler.post {
-            bargeInActive = false
             safeDestroyRecognizer()
             if (_engineState.value == JarvisVisualState.LISTENING) {
                 setState(JarvisVisualState.IDLE)
@@ -199,29 +167,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
             }
             _audioRms.value = 0f
         }
-    }
-
-    /**
-     * True when [text] is an interruption command spoken while JARVIS is
-     * talking — "stop", "quiet", "shut up", "that's enough", "never mind"…
-     * Word-boundary matching so "stopwatch" doesn't cut the voice off.
-     */
-    private fun isStopPhrase(text: String?): Boolean {
-        if (text.isNullOrBlank()) return false
-        val t = text.lowercase().replace("[^a-z0-9\\s']".toRegex(), " ").trim()
-        if (t.isEmpty()) return false
-        val tokens = t.split("\\s+".toRegex())
-        val stopTokens = setOf(
-            "stop", "stops", "stopping", "stopped", "quiet", "silence", "hush",
-            "halt", "cease", "enough", "cancel", "shh", "shhh", "nevermind", "stopit"
-        )
-        if (tokens.any { it in stopTokens }) return true
-        val phrases = listOf(
-            "shut up", "never mind", "that's enough", "thats enough",
-            "be quiet", "okay stop", "ok stop", "stop talking", "stop speaking",
-            "stop it", "enough already"
-        )
-        return phrases.any { t.contains(it) }
     }
 
     fun updateVoiceConfig() {
@@ -256,15 +201,13 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     fun speak(text: String) {
         if (text.isBlank()) return
-        val generation = ++speakGeneration
         mainHandler.post {
-            // BARGE-IN FIX: no stopListening() here. The mic stays open while
-            // JARVIS speaks so the user can interrupt with "stop" / "quiet".
+            stopListening()
             setState(JarvisVisualState.SPEAKING)
-
+            
             // Re-apply latest voice config
             updateVoiceConfig()
-
+            
             // Launch coroutine to try preferred voice engine, fallback if needed
             CoroutineScope(Dispatchers.IO).launch {
                 val useElevenLabs = com.jarvis.app.config.ApiConfig.voiceEngineType == "elevenlabs"
@@ -274,13 +217,8 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                     false
                 }
 
-                // Stale guard: if stopSpeaking() (or a newer speak) ran while
-                // we were synthesizing, drop this audio instead of playing it.
-                if (generation != speakGeneration) return@launch
-
                 if (!success) {
                     mainHandler.post {
-                        if (generation != speakGeneration) return@post
                         if (isTtsReady) {
                             requestAudioFocus()
                             com.jarvis.app.voice.VoiceDiagnostics.success("Android TTS")
@@ -294,62 +232,19 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                     }
                 }
             }
-
-            // HOT MIC: start the barge-in recognizer while speaking.
-            startListeningInternal(bargeIn = true)
-        }
-    }
-
-    /**
-     * Streaming speech: queues a single sentence for sequential playback.
-     * Called by the orchestrator as streamed text forms complete sentences,
-     * so JARVIS starts talking while the rest of the reply is still arriving.
-     * Falls back to Android TTS (queued) when ElevenLabs is unavailable.
-     */
-    fun speakQueued(sentence: String) {
-        if (sentence.isBlank()) return
-        setState(JarvisVisualState.SPEAKING)
-        CoroutineScope(Dispatchers.IO).launch {
-            val accepted = try {
-                com.jarvis.app.voice.ElevenLabsVoicePlayer.enqueueSentence(
-                    context, sentence, com.jarvis.app.config.ApiConfig.selectedVoiceId
-                )
-            } catch (_: Exception) {
-                false
-            }
-            if (!accepted) {
-                mainHandler.post {
-                    if (isTtsReady) {
-                        requestAudioFocus()
-                        tts?.speak(sentence, TextToSpeech.QUEUE_ADD, null, "JARVIS_TTS_${System.currentTimeMillis()}")
-                    }
-                }
-            }
         }
     }
 
     fun stopSpeaking() {
-        // Synchronous on purpose: every path that starts new audio must first
-        // observe this generation bump, and the mic/recognizer teardown order
-        // matters (a posted variant could destroy a recognizer that a newer
-        // call had just started).
-        speakGeneration++
-        try {
-            // FIX: this never stopped ElevenLabs audio before — only the
-            // Android TTS engine. "Stop" had no effect on the British voice.
-            com.jarvis.app.voice.ElevenLabsVoicePlayer.stop()
-        } catch (_: Exception) {}
-        if (bargeInActive) {
-            bargeInActive = false
-            safeDestroyRecognizer()
+        mainHandler.post {
+            try {
+                tts?.stop()
+            } catch (_: Exception) {}
+            if (_engineState.value == JarvisVisualState.SPEAKING) {
+                setState(JarvisVisualState.IDLE)
+            }
+            abandonAudioFocus()
         }
-        try {
-            tts?.stop()
-        } catch (_: Exception) {}
-        if (_engineState.value == JarvisVisualState.SPEAKING) {
-            setState(JarvisVisualState.IDLE)
-        }
-        abandonAudioFocus()
     }
 
     override fun onInit(status: Int) {
@@ -388,17 +283,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         val text = matches?.firstOrNull()
         _audioRms.value = 0f
-
-        // Hot-mic result while JARVIS is speaking: only stop-phrases act
-        // (anything else the mic hears is usually the speaker's own voice).
-        if (bargeInActive) {
-            bargeInActive = false
-            if (isStopPhrase(text)) {
-                stopSpeaking()
-            }
-            return
-        }
-
         abandonAudioFocus()
         if (!text.isNullOrBlank()) {
             _lastRecognizedText.value = text
@@ -410,9 +294,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
-        // During barge-in listening, partials are the TTS output echoing in
-        // the mic — never show them as the user's transcript.
-        if (bargeInActive) return
         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         matches?.firstOrNull()?.let { 
             _lastRecognizedText.value = it
@@ -428,17 +309,6 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     override fun onError(error: Int) {
         _audioRms.value = 0f
-
-        // The hot-mic recognizer failing while JARVIS is speaking (mic busy,
-        // timeout, no-match) is normal — it must never knock the SPEAKING
-        // state back to IDLE.
-        if (bargeInActive) {
-            bargeInActive = false
-            safeDestroyRecognizer()
-            if (_engineState.value != JarvisVisualState.SPEAKING) setState(JarvisVisualState.IDLE)
-            return
-        }
-
         abandonAudioFocus()
         safeDestroyRecognizer()
         

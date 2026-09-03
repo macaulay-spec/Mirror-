@@ -48,7 +48,7 @@ jobs:
         env:
           # Fully hands-off CI: the project toolkit key ships with the build so
           # every APK has a working AI brain, ElevenLabs voice and cloud STT.
-          EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY: ''
+          EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY: 'rork_sk_yeafptr7q986eddfavd22hriwn2bv588'
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload Debug APK

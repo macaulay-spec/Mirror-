@@ -197,7 +197,7 @@ class AssistantOrchestrator(
                 val engineResult = aiEngine.processCommand(
                     userInput,
                     onChunk = { chunk ->
-                        if (chunk.isEmpty()) return@processCommand
+                        if (chunk.isNotEmpty()) {
                         streamedAny = true
                         streamBuf.append(chunk)
 
@@ -226,6 +226,7 @@ class AssistantOrchestrator(
                             val sentence = streamBuf.substring(spokenUpTo, end + 1).trim()
                             if (sentence.isNotBlank()) voiceEngine?.speakQueued(sentence)
                             spokenUpTo = end + 1
+                        }
                         }
                     },
                     onStepUpdate = { steps, stepIndex ->

@@ -104,17 +104,11 @@ fun OnboardingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF0B0F17),
-                        Color(0xFF0E1420),
-                        Color(0xFF0B0F17)
-                    )
-                )
-            )
+            .background(JarvisColors.VoidBlack)
             .padding(24.dp)
     ) {
+        // Faint HUD grid + top cyan bleed (v3 mockup background)
+        com.jarvis.core.ui.HudBackground(modifier = Modifier.matchParentSize())
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -266,7 +260,7 @@ fun OnboardingScreen(
                         containerColor = JarvisColors.Presence,
                         contentColor = JarvisColors.VoidBlack
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(50),
                     modifier = Modifier.height(48.dp)
                 ) {
                     Text(

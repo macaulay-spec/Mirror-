@@ -98,6 +98,7 @@ class AssistantOrchestrator(
     fun rejectToolExecution() {
         _pendingConfirmation.value = null
         dialogueManager.cancel()
+        com.jarvis.app.tools.MessagingAutomation.clearPending()
         setVisualState(JarvisVisualState.IDLE)
         val msg = "Understood. Action cancelled."
         addMessage(AssistantMessage(role = MessageRole.JARVIS, text = msg))
@@ -122,6 +123,7 @@ class AssistantOrchestrator(
         setVisualState(JarvisVisualState.IDLE)
         _pendingConfirmation.value = null
         dialogueManager.cancel()
+        com.jarvis.app.tools.MessagingAutomation.clearPending()
         addMessage(AssistantMessage(role = MessageRole.SYSTEM, text = "All active tasks halted."))
         resetTaskExecution()
     }

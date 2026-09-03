@@ -190,31 +190,12 @@ object ToolRegistry {
             }
         )
 
-        // 5. Send Message (Level 2 - Requires confirmation)
-        register(
-            ToolDefinition(
-                id = "communication_send",
-                name = "Send Message",
-                description = "Sends a message via SMS or messenger.",
-                category = "COMMUNICATION",
-                riskLevel = RiskLevel.LEVEL_2
-            ) { context, args ->
-                val recipient = args["recipient"]?.toString() ?: "Unknown"
-                val message = args["message"]?.toString() ?: ""
-                val uri = Uri.parse("smsto:${Uri.encode(recipient)}")
-                val intent = Intent(Intent.ACTION_SENDTO, uri).apply {
-                    putExtra("sms_body", message)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                ToolExecutionResult(
-                    toolId = "communication_send",
-                    success = true,
-                    data = mapOf("recipient" to recipient, "message" to message),
-                    verificationDetails = "Message draft prepared for $recipient: '$message'"
-                )
-            }
-        )
+        // 5. REMOVED duplicate "communication_send" tool.
+        // It duplicated send_message (#18) and only performed a shallow SMS
+        // composer launch (no contact resolution, no Accessibility-driven
+        // verification). send_message now owns all SMS sending via
+        // MessagingAutomation. Keeping it would also crash ToolRegistry because
+        // require() hard-fails on duplicate ids if anything ever reused this id.
 
         // 6. Get Recent Notifications (Level 0)
         register(
@@ -513,12 +494,16 @@ object ToolRegistry {
             }
         )
 
-        // 18. Send Message / SMS (Level 2)
+        // 18. Send Message / SMS (Level 2) \u2014 Accessibility-driven via MessagingAutomation
+        // Per the JARVIS vision (HOW_JARVIS_IS_SUPPOSED_TO_WORK): open the real
+        // messaging app, resolve the contact, type the message, VERIFY it landed,
+        // then STOP and ask the user "send now?" (pendingSendApp). The existing
+        // LEVEL_2 confirmation system calls confirmSendSms() when the user says yes.
         register(
             ToolDefinition(
                 id = "send_message",
                 name = "Send Direct Message",
-                description = "Sends an SMS or direct message to a contact.",
+                description = "Sends an SMS or direct message to a contact. Resolves the contact from the address book, opens the messaging app, types the message, and asks for confirmation before sending.",
                 category = "COMMUNICATION",
                 riskLevel = RiskLevel.LEVEL_2
             ) { context, args ->
@@ -528,32 +513,38 @@ object ToolRegistry {
                     return@ToolDefinition ToolExecutionResult("send_message", false, null, "Both recipient and message body are required.")
                 }
 
-                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactName)
-                val topMatch = matches.firstOrNull()
-                val phone = topMatch?.numbers?.firstOrNull()?.value ?: run {
-                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactName)
-                    phoneContact?.phone
-                } ?: contactName
-                val displayName = topMatch?.person?.displayName ?: contactName
+                // Stateful: first call types & verifies the draft and returns
+                // pending confirmation; the orchestrator re-invokes this same
+                // tool on "yes", which then performs the real send tap.
+                val result = com.jarvis.app.tools.MessagingAutomation.executeSend(
+                    context,
+                    com.jarvis.app.tools.MessagingAutomation.TargetApp.SMS,
+                    contactName,
+                    body
+                )
+                if (!result.success) {
+                    return@ToolDefinition ToolExecutionResult("send_message", false, null, result.verificationDetails.ifBlank { result.error ?: "Failed to prepare the message." })
+                }
 
-                val result = com.jarvis.app.tools.DeviceToolkit(context).sendSms(phone, body)
-                if (result.startsWith("Sent")) {
-                    ToolExecutionResult(
+                if (result.preparedOnly) {
+                    return@ToolDefinition ToolExecutionResult(
                         toolId = "send_message",
                         success = true,
-                        data = mapOf("recipient" to displayName, "body" to body),
-                        verificationDetails = "Message sent to $displayName: \"$body\""
-                    )
-                } else {
-                    // Fallback to drafting in SMS app
-                    com.jarvis.app.tools.DeviceToolkit(context).openSmsApp(phone, body)
-                    ToolExecutionResult(
-                        toolId = "send_message",
-                        success = true,
-                        data = mapOf("recipient" to displayName, "body" to body),
-                        verificationDetails = "Opened SMS composer for $displayName with draft: \"$body\""
+                        data = mapOf("recipient" to contactName, "body" to body, "preparedOnly" to true),
+                        verificationDetails = result.verificationDetails
                     )
                 }
+
+                ToolExecutionResult(
+                    toolId = "send_message",
+                    success = true,
+                    data = mapOf(
+                        "recipient" to contactName,
+                        "body" to body,
+                        "pendingSendApp" to (result.pendingSendApp ?: "your messaging app")
+                    ),
+                    verificationDetails = result.verificationDetails
+                )
             }
         )
 
@@ -584,12 +575,16 @@ object ToolRegistry {
             }
         )
 
-        // 21. Send WhatsApp (Level 2)
+        // 21. Send WhatsApp (Level 2) \u2014 Accessibility-driven via MessagingAutomation
+        // Per the JARVIS vision worked example: open WhatsApp, resolve the
+        // contact, open the conversation, TYPE the message, VERIFY it landed in
+        // the input field, then STOP and ask "send now?". On confirmation the
+        // orchestrator calls confirmSendWhatsApp() to tap the real send button.
         register(
             ToolDefinition(
                 id = "send_whatsapp",
                 name = "Send WhatsApp Message",
-                description = "Sends a message to a contact via WhatsApp. Requires 'contact' or 'number' and 'message'.",
+                description = "Opens WhatsApp, resolves the contact, opens the conversation, types the message and verifies it, then asks for confirmation before sending. Requires 'contact' or 'number' and 'message'.",
                 category = "MESSAGING",
                 riskLevel = RiskLevel.LEVEL_2
             ) { context, args ->
@@ -598,45 +593,39 @@ object ToolRegistry {
                 if (contactQuery.isBlank() || message.isBlank()) {
                     return@ToolDefinition ToolExecutionResult("send_whatsapp", false, null, "Contact and message are required.")
                 }
-                val matches = com.jarvis.app.people.PeopleGraph.resolve(context, contactQuery)
-                val topMatch = matches.firstOrNull()
-                val rawNumber = topMatch?.numbers?.firstOrNull()?.value ?: run {
-                    val phoneContact = com.jarvis.app.tools.ContactsToolkit(context).search(contactQuery)
-                    phoneContact?.phone
-                } ?: contactQuery
-                val displayName = topMatch?.person?.displayName ?: contactQuery
-                val cleanNumber = rawNumber.replace(Regex("[^0-9+]"), "")
 
-                try {
-                    val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(message)}")
-                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                        setPackage("com.whatsapp")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                    ToolExecutionResult(
+                // Stateful: first call types & verifies the draft and returns
+                // pending confirmation; the orchestrator re-invokes this same
+                // tool on "yes", which then taps the real send button.
+                val result = com.jarvis.app.tools.MessagingAutomation.executeSend(
+                    context,
+                    com.jarvis.app.tools.MessagingAutomation.TargetApp.WHATSAPP,
+                    contactQuery,
+                    message
+                )
+                if (!result.success) {
+                    return@ToolDefinition ToolExecutionResult("send_whatsapp", false, null, result.verificationDetails.ifBlank { result.error ?: "Failed to prepare the WhatsApp message." })
+                }
+
+                if (result.preparedOnly) {
+                    return@ToolDefinition ToolExecutionResult(
                         toolId = "send_whatsapp",
                         success = true,
-                        data = mapOf("contact" to displayName, "number" to cleanNumber, "message" to message),
-                        verificationDetails = "WhatsApp message dispatched to $displayName."
+                        data = mapOf("contact" to contactQuery, "message" to message, "preparedOnly" to true),
+                        verificationDetails = result.verificationDetails
                     )
-                } catch (_: Exception) {
-                    try {
-                        val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode(message)}")
-                        val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(fallbackIntent)
-                        ToolExecutionResult(
-                            toolId = "send_whatsapp",
-                            success = true,
-                            data = mapOf("contact" to displayName, "number" to cleanNumber, "message" to message),
-                            verificationDetails = "WhatsApp link opened for $displayName."
-                        )
-                    } catch (e2: Exception) {
-                        ToolExecutionResult("send_whatsapp", false, null, "Could not launch WhatsApp: ${e2.localizedMessage}")
-                    }
                 }
+
+                ToolExecutionResult(
+                    toolId = "send_whatsapp",
+                    success = true,
+                    data = mapOf(
+                        "contact" to contactQuery,
+                        "message" to message,
+                        "pendingSendApp" to (result.pendingSendApp ?: "WhatsApp")
+                    ),
+                    verificationDetails = result.verificationDetails
+                )
             }
         )
 

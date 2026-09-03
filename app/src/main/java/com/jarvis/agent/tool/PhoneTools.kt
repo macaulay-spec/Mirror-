@@ -136,38 +136,47 @@ object PhoneTools {
             ToolDefinition(
                 id = "send_sms",
                 name = "Send SMS",
-                description = "Sends a text message to a contact or number. Reads the draft back and requires confirmation first.",
+                description = "Sends a text message to a contact or number by opening the messaging app, typing the message, and asking for confirmation before sending. Requires the JARVIS Accessibility Service for full automation; falls back to a drafted composer otherwise.",
                 category = "MESSAGING",
                 riskLevel = RiskLevel.LEVEL_2
             ) { context, args ->
                 val body = firstArg(args, "message", "text", "body", "content")
                 if (body.isBlank()) return@ToolDefinition fail("send_sms", "What should I say?")
+                val contactQuery = firstArg(args, "contact", "recipient", "name", "number")
+                if (contactQuery.isBlank()) return@ToolDefinition fail("send_sms", "Who should I send it to?")
 
-                when (val target = resolveTarget(context, args)) {
-                    is Resolution.Blocked -> fail("send_sms", target.message)
-                    is Resolution.NotFound -> fail("send_sms", target.message)
-                    is Resolution.Ambiguous -> fail("send_sms", target.question)
-                    is Resolution.Ready -> {
-                        val denied = missingPermission(context, Manifest.permission.SEND_SMS, "SMS")
-                        if (denied != null) return@ToolDefinition denied
-                        return@ToolDefinition try {
-                            val sms = defaultSmsManager(context)
-                            val parts = sms.divideMessage(body)
-                            if (parts.size > 1) {
-                                sms.sendMultipartTextMessage(target.number, null, parts, null, null)
-                            } else {
-                                sms.sendTextMessage(target.number, null, body, null, null)
-                            }
-                            ToolExecutionResult(
-                                toolId = "send_sms",
-                                success = true,
-                                data = mapOf("name" to target.name, "number" to target.number, "message" to body),
-                                verificationDetails = "Message sent to ${target.name}."
-                            )
-                        } catch (e: Exception) {
-                            fail("send_sms", "The message didn't send: ${e.localizedMessage}")
-                        }
-                    }
+                // Route through the unified, Accessibility-driven MessagingAutomation
+                // instead of a headless SmsManager call. This is the vision's worked
+                // example: open the real app, type, verify, confirm, then send.
+                // The same stateful entry point the send_message tool uses, so the
+                // typed-intent path and the LLM path behave identically.
+                val result = com.jarvis.app.tools.MessagingAutomation.executeSend(
+                    context,
+                    com.jarvis.app.tools.MessagingAutomation.TargetApp.SMS,
+                    contactQuery,
+                    body
+                )
+                if (!result.success) {
+                    return@ToolDefinition fail("send_sms", result.verificationDetails.ifBlank { result.error ?: "I couldn't prepare the message." })
+                }
+                if (result.preparedOnly) {
+                    ToolExecutionResult(
+                        toolId = "send_sms",
+                        success = true,
+                        data = mapOf("recipient" to contactQuery, "message" to body, "preparedOnly" to true),
+                        verificationDetails = result.verificationDetails
+                    )
+                } else {
+                    ToolExecutionResult(
+                        toolId = "send_sms",
+                        success = true,
+                        data = mapOf(
+                            "recipient" to contactQuery,
+                            "message" to body,
+                            "pendingSendApp" to (result.pendingSendApp ?: "your messaging app")
+                        ),
+                        verificationDetails = result.verificationDetails
+                    )
                 }
             }
         )

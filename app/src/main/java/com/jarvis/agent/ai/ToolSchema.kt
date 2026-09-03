@@ -55,7 +55,7 @@ object ToolSchema {
         "calendar_create" to listOf("title", "when", "notes"),
         "memory_remember" to listOf("content"),
         "memory_recall" to listOf("query"),
-        "communication_send" to listOf("recipient", "message"),
+        "send_message" to listOf("contact", "recipient", "body", "message"),
         "get_daily_usage" to listOf("app_name"),
         "get_recent_apps" to listOf("limit")
     )

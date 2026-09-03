@@ -101,7 +101,9 @@ class JarvisApiClient(
         var emitted = false
         val track: (String) -> Unit = { d -> emitted = true; onDelta(d) }
 
-        fun fallbackBlocking(): Result<AiResponse> {
+        // NOTE: must be `suspend` — local functions do NOT inherit the
+        // suspend context of the enclosing withContext lambda.
+        suspend fun fallbackBlocking(): Result<AiResponse> {
             val blocked = chat(systemPrompt, history, userMessage, provider, model)
             blocked.getOrNull()?.message?.takeIf { it.isNotBlank() }?.let(track)
             return blocked

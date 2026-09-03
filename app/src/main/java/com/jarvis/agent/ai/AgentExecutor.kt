@@ -72,7 +72,19 @@ class AgentExecutor(
         var stepIndex = 0
 
         for (stepCount in 0 until MAX_STEPS) {
-            val aiResult = apiClient.chat(systemPrompt, history, currentInput)
+            // STREAMING: tokens flow to the UI the moment the model emits
+            // them. streamedChars lets us skip the legacy whole-message
+            // onChunk below when the text already arrived as deltas.
+            var streamedChars = 0
+            val aiResult = apiClient.chatStream(
+                systemPrompt = systemPrompt,
+                history = history,
+                userMessage = currentInput,
+                onDelta = { delta ->
+                    streamedChars += delta.length
+                    onChunk?.invoke(delta)
+                }
+            )
             if (aiResult.isFailure) {
                 val detail = aiResult.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
                 val errorMsg = detail ?: "I am operating under local core protocols. How may I assist you?"
@@ -99,8 +111,12 @@ class AgentExecutor(
                 return@withContext JarvisEngineResult(reply = cleanReply, state = JarvisVisualState.SUCCESS)
             }
 
-            aiResponse.message?.takeIf { it.isNotBlank() }?.let {
-                onChunk?.invoke(ReplySanitizer.sanitize(it))
+            // Non-streamed interim narration (only when nothing arrived as
+            // deltas — otherwise this would duplicate the streamed text).
+            if (streamedChars == 0) {
+                aiResponse.message?.takeIf { it.isNotBlank() }?.let {
+                    onChunk?.invoke(ReplySanitizer.sanitize(it))
+                }
             }
 
             val riskyCall = aiResponse.toolCalls.firstOrNull { call ->

@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -35,6 +36,14 @@ object ElevenLabsVoicePlayer {
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
+
+    // ── Streaming sentence queue ──────────────────────────────────────────
+    // Real-time replies arrive as text deltas; completed sentences are queued
+    // here and spoken back-to-back so JARVIS starts talking while the rest of
+    // the reply is still generating. stop() flushes the whole queue (barge-in).
+    private val speechQueue = ArrayDeque<String>()
+    private val queueLock = Any()
+    @Volatile private var queueGeneration = 0
 
     // Voice fallback chain — tried in order if the first ID fails
     private val BRITISH_FALLBACK_IDS = listOf(
@@ -78,7 +87,52 @@ object ElevenLabsVoicePlayer {
             return@withContext false
         }
 
-    private suspend fun trySpeak(context: Context, text: String, voiceId: String, apiKey: String): Boolean =
+    /**
+     * Queue one sentence for sequential playback (streaming mode). Synthesis
+     * and playback happen in the background; sentences play in order.
+     * Returns false only when ElevenLabs is not configured (caller should use
+     * Android TTS for this sentence instead).
+     */
+    fun enqueueSentence(context: Context, sentence: String, voiceId: String = ApiConfig.selectedVoiceId): Boolean {
+        if (sentence.isBlank()) return true
+        val apiKey = ApiConfig.ELEVENLABS_API_KEY
+        if (apiKey.isBlank()) return false
+        synchronized(queueLock) { speechQueue.add(sentence.trim()) }
+        playNextFromQueue(context, voiceId, apiKey)
+        return true
+    }
+
+    /** Plays the next queued sentence if nothing is currently playing. */
+    private fun playNextFromQueue(context: Context, voiceId: String, apiKey: String) {
+        var next: String? = null
+        var generation = -1
+        synchronized(queueLock) {
+            if (mediaPlayer == null) {
+                next = speechQueue.removeFirstOrNull()
+                if (next == null) {
+                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                } else {
+                    generation = ++queueGeneration
+                }
+            }
+        }
+        val sentence = next ?: return   // still playing, or queue empty
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            val ok = trySpeak(context, sentence, voiceId, apiKey, generation) {
+                playNextFromQueue(context, voiceId, apiKey)
+            }
+            if (!ok) playNextFromQueue(context, voiceId, apiKey)   // don't stall the queue
+        }
+    }
+
+    private suspend fun trySpeak(
+        context: Context,
+        text: String,
+        voiceId: String,
+        apiKey: String,
+        generation: Int = -1,
+        onCompleted: (() -> Unit)? = null
+    ): Boolean =
         withContext(Dispatchers.IO) {
             try {
                 val url = "https://api.elevenlabs.io/v1/text-to-speech/$voiceId"
@@ -118,6 +172,12 @@ object ElevenLabsVoicePlayer {
 
                 withContext(Dispatchers.Main) {
                     try {
+                        // Stale guard: if stop() was called while this sentence
+                        // was synthesizing, drop it instead of playing it.
+                        if (generation >= 0 && generation != queueGeneration) {
+                            tempFile.delete()
+                            return@withContext false
+                        }
                         mediaPlayer?.release()
                         mediaPlayer = MediaPlayer().apply {
                             setAudioAttributes(
@@ -131,10 +191,24 @@ object ElevenLabsVoicePlayer {
                             start()
                             setOnCompletionListener {
                                 try {
-                                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                                    mediaPlayer = null
                                     it.release()
                                     tempFile.delete()
                                 } catch (_: Exception) {}
+                                if (onCompleted != null) {
+                                    onCompleted()          // queue: drain the next sentence
+                                } else {
+                                    VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                                }
+                            }
+                            setOnErrorListener { mp, _ ->
+                                try {
+                                    mediaPlayer = null
+                                    mp.release()
+                                    tempFile.delete()
+                                } catch (_: Exception) {}
+                                if (onCompleted != null) onCompleted() else VoiceBus.setEngineState(JarvisVisualState.IDLE)
+                                true
                             }
                         }
                         VoiceBus.setEngineState(JarvisVisualState.SPEAKING)
@@ -150,8 +224,12 @@ object ElevenLabsVoicePlayer {
             }
         }
 
-    /** Stop current playback immediately (supports barge-in). */
+    /** Stop current playback immediately and flush the sentence queue (barge-in). */
     fun stop() {
+        synchronized(queueLock) {
+            queueGeneration++
+            speechQueue.clear()
+        }
         try {
             mediaPlayer?.let {
                 if (it.isPlaying) it.stop()

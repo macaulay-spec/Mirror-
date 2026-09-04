@@ -74,6 +74,14 @@ object ApiConfig {
     val ELEVENLABS_API_KEY: String
         get() = BuildConfig.ELEVENLABS_API_KEY
 
+    /**
+     * Rork toolkit key — still used by the voice stack (ElevenLabs proxy TTS,
+     * cloud STT via toolkit.rork.com). Build-time injected only; blank means
+     * those proxy paths are skipped and the direct/Android fallbacks are used.
+     */
+    val rorkApiKey: String
+        get() = BuildConfig.RORK_TOOLKIT_KEY
+
     // Provider/key resolution
     val activeProvider: String
         get() {

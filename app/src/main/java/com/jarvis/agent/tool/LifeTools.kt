@@ -14,6 +14,7 @@ import com.jarvis.app.tools.LocationToolkit
 import com.jarvis.app.tools.TimeParser
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionResult
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -414,7 +415,10 @@ object LifeTools {
                                 ) {
                                     if (cont.isCompleted) return
                                     val bitmap = bitmapFrom(result)
-                                    cont.resumeWith(Result.success(describeBitmap(context, bitmap)))
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        val res = describeBitmap(context, bitmap)
+                                        cont.resumeWith(Result.success(res))
+                                    }
                                 }
 
                                 override fun onFailure(errorCode: Int) {
@@ -457,13 +461,12 @@ object LifeTools {
         null
     }
 
-    private fun describeBitmap(context: Context, bitmap: Bitmap?): ToolExecutionResult {
+    private suspend fun describeBitmap(context: Context, bitmap: Bitmap?): ToolExecutionResult {
         if (bitmap == null) return error("screen_capture", "The screen returned nothing.")
         return try {
             val file = File(context.cacheDir, "jarvis_screen_${System.currentTimeMillis()}.png")
             FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
-            val analysis = com.jarvis.app.tools.ImageAnalyzer.analyze(bitmap)
-            val described = com.jarvis.app.tools.ImageAnalyzer.describe(analysis)
+            val described = com.jarvis.app.tools.ImageAnalyzer.analyzeWithAI(bitmap)
             ToolExecutionResult(
                 toolId = "screen_capture",
                 success = true,

@@ -73,6 +73,80 @@ class AssistantOrchestrator(
     private val _taskFinalResult = MutableStateFlow<String?>(null)
     val taskFinalResult: StateFlow<String?> = _taskFinalResult.asStateFlow()
 
+    private val _currentSessionId = MutableStateFlow<String>(java.util.UUID.randomUUID().toString())
+    val currentSessionId: StateFlow<String> = _currentSessionId.asStateFlow()
+
+    private val _sessions = MutableStateFlow<List<com.jarvis.app.memory.ChatSessionEntity>>(emptyList())
+    val sessions: StateFlow<List<com.jarvis.app.memory.ChatSessionEntity>> = _sessions.asStateFlow()
+
+    init {
+        loadSessions()
+    }
+
+    fun loadSessions() {
+        scope.launch(Dispatchers.IO) {
+            val list = aiEngine.memoryManager.allSessions()
+            _sessions.value = list
+            if (list.isNotEmpty() && _messages.value.isEmpty()) {
+                val latest = list.first()
+                _currentSessionId.value = latest.sessionId
+                loadMessagesForSession(latest.sessionId)
+            } else if (list.isEmpty()) {
+                startNewChat()
+            }
+        }
+    }
+
+    fun startNewChat() {
+        val newId = java.util.UUID.randomUUID().toString()
+        _currentSessionId.value = newId
+        _messages.value = emptyList()
+        scope.launch(Dispatchers.IO) {
+            val session = com.jarvis.app.memory.ChatSessionEntity(
+                sessionId = newId,
+                title = "New Chat",
+                createdAt = System.currentTimeMillis()
+            )
+            aiEngine.memoryManager.saveSession(session)
+            _sessions.value = aiEngine.memoryManager.allSessions()
+        }
+    }
+
+    fun switchSession(sessionId: String) {
+        _currentSessionId.value = sessionId
+        scope.launch(Dispatchers.IO) {
+            loadMessagesForSession(sessionId)
+        }
+    }
+
+    private suspend fun loadMessagesForSession(sessionId: String) {
+        val entities = aiEngine.memoryManager.conversationForSession(sessionId)
+        val assistantMessages = entities.map { entity ->
+            val role = when (entity.role.lowercase()) {
+                "user" -> MessageRole.USER
+                "system" -> MessageRole.SYSTEM
+                else -> MessageRole.JARVIS
+            }
+            AssistantMessage(role = role, text = entity.text, timestamp = entity.createdAt)
+        }
+        _messages.value = assistantMessages
+    }
+
+    fun deleteSession(sessionId: String) {
+        scope.launch(Dispatchers.IO) {
+            aiEngine.memoryManager.deleteSession(sessionId)
+            val updated = aiEngine.memoryManager.allSessions()
+            _sessions.value = updated
+            if (_currentSessionId.value == sessionId) {
+                if (updated.isNotEmpty()) {
+                    switchSession(updated.first().sessionId)
+                } else {
+                    startNewChat()
+                }
+            }
+        }
+    }
+
     //  Public API 
 
     fun setVisualState(state: JarvisVisualState) {
@@ -147,6 +221,16 @@ class AssistantOrchestrator(
         addMessage(AssistantMessage(role = MessageRole.USER, text = userInput))
         setVisualState(JarvisVisualState.THINKING)
 
+        val activeSessionId = _currentSessionId.value
+        scope.launch(Dispatchers.IO) {
+            val cur = _sessions.value.find { it.sessionId == activeSessionId }
+            if (cur == null || cur.title == "New Chat") {
+                val title = userInput.take(35).replace("\n", " ").trim()
+                aiEngine.memoryManager.updateSessionTitle(activeSessionId, title)
+                _sessions.value = aiEngine.memoryManager.allSessions()
+            }
+        }
+
         try {
             val turnResult = dialogueManager.handle(userInput)
 
@@ -196,6 +280,7 @@ class AssistantOrchestrator(
 
                 val engineResult = aiEngine.processCommand(
                     userInput,
+                    sessionId = activeSessionId,
                     onChunk = { chunk ->
                         if (chunk.isNotEmpty()) {
                         streamedAny = true

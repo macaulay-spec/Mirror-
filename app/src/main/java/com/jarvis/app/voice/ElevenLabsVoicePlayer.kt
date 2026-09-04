@@ -52,6 +52,14 @@ object ElevenLabsVoicePlayer {
     @Volatile
     private var playbackDone: CompletableDeferred<Boolean>? = null
 
+    /** Cooldown timestamp if ElevenLabs returned quota/auth error (401/402/403). */
+    @Volatile
+    private var quotaExceededUntil: Long = 0L
+
+    fun resetCooldown() {
+        quotaExceededUntil = 0L
+    }
+
     /** Incremented on every new play/stop; stale completions are ignored. */
     private val generation = AtomicInteger(0)
 
@@ -62,13 +70,6 @@ object ElevenLabsVoicePlayer {
     )
 
     private fun endpoints(): List<Endpoint> = buildList {
-        add(
-            Endpoint(
-                label = "proxy",
-                url = { voiceId -> "https://toolkit.rork.com/v2/elevenlabs/v1/text-to-speech/$voiceId" },
-                auth = { builder -> builder.header("Authorization", "Bearer ${ApiConfig.rorkApiKey}") }
-            )
-        )
         if (ApiConfig.ELEVENLABS_API_KEY.isNotBlank()) {
             add(
                 Endpoint(
@@ -97,11 +98,17 @@ object ElevenLabsVoicePlayer {
         withContext(Dispatchers.IO) {
             if (text.isBlank()) return@withContext false
 
+            if (System.currentTimeMillis() < quotaExceededUntil) {
+                // Cooldown active after quota error; fall back directly to device TTS without delay
+                return@withContext false
+            }
+
             val myGen = generation.incrementAndGet()
             stop()  // barge-in: stop any current playback before starting
 
             for (endpoint in endpoints()) {
                 for (vid in voiceOrder(voiceId)) {
+                    if (System.currentTimeMillis() < quotaExceededUntil) break
                     if (myGen != generation.get()) return@withContext true  // superseded by a newer utterance
                     val outcome = tryPlay(context, text, vid, endpoint, myGen)
                     if (outcome != null) {
@@ -179,7 +186,12 @@ object ElevenLabsVoicePlayer {
 
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    VoiceDiagnostics.report("ElevenLabs ${endpoint.label} HTTP ${response.code} for voice $voiceId")
+                    val code = response.code
+                    VoiceDiagnostics.report("ElevenLabs ${endpoint.label} HTTP $code for voice $voiceId")
+                    if (code in 401..403) {
+                        quotaExceededUntil = System.currentTimeMillis() + 60_000L
+                        VoiceDiagnostics.report("ElevenLabs quota/auth error ($code). Instant fallback to device voice.")
+                    }
                     return@use null
                 }
 
@@ -213,43 +225,8 @@ object ElevenLabsVoicePlayer {
         text: String,
         myGen: Int
     ): Boolean? = withContext(Dispatchers.IO) {
-        val apiKey = ApiConfig.rorkApiKey
-        if (apiKey.isBlank()) return@withContext null
-        try {
-            val payload = JSONObject()
-                .put("text", text)
-                .put("voice", GATEWAY_VOICE)
-                .put("outputFormat", "mp3")
-
-            val request = Request.Builder()
-                .url("https://toolkit.rork.com/v2/vercel/v4/ai/speech-model")
-                .header("Authorization", "Bearer $apiKey")
-                .header("Content-Type", "application/json")
-                .header("ai-model-id", "xai/grok-tts")
-                .header("ai-gateway-protocol-version", "0.0.1")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    VoiceDiagnostics.report("Gateway speech HTTP ${response.code}")
-                    return@use null
-                }
-
-                val audioB64 = JSONObject(response.body?.string() ?: "").optString("audio")
-                if (audioB64.isBlank()) return@use null
-                val audioBytes = android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
-                if (audioBytes.size <= 512) return@use null
-
-                val tempFile = File.createTempFile("jarvis_gw_", ".mp3", context.cacheDir)
-                tempFile.deleteOnExit()
-                FileOutputStream(tempFile).use { it.write(audioBytes) }
-                startPlayback(tempFile, myGen)
-            }
-        } catch (e: Exception) {
-            VoiceDiagnostics.report("Gateway speech error: ${e.message}")
-            null
-        }
+        // Disabled during NVIDIA migration as proxy keys are removed
+        return@withContext null
     }
 
     private suspend fun startPlayback(tempFile: File, myGen: Int): Boolean? =

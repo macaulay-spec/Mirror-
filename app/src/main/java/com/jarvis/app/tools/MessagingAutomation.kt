@@ -325,10 +325,19 @@ object MessagingAutomation {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return runCatching { context.startActivity(intent); true }.getOrElse {
-            // WhatsApp not installed — try the generic intent (opens WhatsApp
-            // Business or a browser, whichever can handle it).
-            val fallback = Intent(Intent.ACTION_VIEW, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-            runCatching { context.startActivity(fallback); true }.getOrDefault(false)
+            // WhatsApp standard not installed — try WhatsApp Business or system handler
+            val pm = context.packageManager
+            val w4bInstalled = runCatching { pm.getPackageInfo("com.whatsapp.w4b", 0); true }.getOrDefault(false)
+            if (w4bInstalled) {
+                val w4bIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                    setPackage("com.whatsapp.w4b")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { context.startActivity(w4bIntent); true }.getOrDefault(false)
+            } else {
+                val fallback = Intent(Intent.ACTION_VIEW, uri).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                runCatching { context.startActivity(fallback); true }.getOrDefault(false)
+            }
         }
     }
 
@@ -360,7 +369,8 @@ object MessagingAutomation {
     private suspend fun waitForPackage(service: JarvisAccessibilityService, pkg: String, timeoutMs: Long) {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
-            if (service.currentPackageName.equals(pkg, true)) return
+            val cur = service.currentPackageName
+            if (cur.equals(pkg, true) || (pkg == "com.whatsapp" && cur.startsWith("com.whatsapp", true))) return
             delay(150)
         }
     }

@@ -56,7 +56,8 @@ class JarvisApiClient(
         history: List<Pair<String, String>>,
         userMessage: String,
         provider: String = ApiConfig.activeProvider,
-        model: String = ApiConfig.resolveModel(provider)
+        model: String = ApiConfig.resolveModel(provider),
+        allowTools: Boolean = true
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         if (BackendConfig.isBackendReady) {
             chatViaProxy(systemPrompt, history, userMessage, provider, model)
@@ -66,7 +67,7 @@ class JarvisApiClient(
                 "Deploy Convex and set the URL, or set USE_BACKEND=false."
             ))
         } else {
-            chatDirect(systemPrompt, history, userMessage, provider, model)
+            chatDirect(systemPrompt, history, userMessage, provider, model, allowTools)
         }
     }
 
@@ -77,6 +78,7 @@ class JarvisApiClient(
         userMessage: String,
         provider: String = ApiConfig.activeProvider,
         model: String = ApiConfig.resolveModel(provider),
+        allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         var emitted = false
@@ -84,7 +86,7 @@ class JarvisApiClient(
         val track: (String) -> Unit = { d -> emitted = true; onDelta(d) }
 
         suspend fun fallbackBlocking(): Result<AiResponse> {
-            val blocked = chat(systemPrompt, history, userMessage, provider, model)
+            val blocked = chat(systemPrompt, history, userMessage, provider, model, allowTools)
             blocked.getOrNull()?.message?.takeIf { it.isNotBlank() }?.let(track)
             return blocked
         }
@@ -109,14 +111,14 @@ class JarvisApiClient(
 
             val streamed = streamNVIDIA(
                 currentApiKey, providerToTry, currentModel,
-                systemPrompt, history, userMessage, track
+                systemPrompt, history, userMessage, allowTools, track
             )
 
             return streamed
         }
 
         // Try providers in fallback chain order
-        var currentProvider = provider
+        var currentProvider: String? = provider
         var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
 
         while (currentProvider != null) {
@@ -142,6 +144,7 @@ class JarvisApiClient(
         systemPrompt: String,
         history: List<Pair<String, String>>,
         userMessage: String,
+        allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
         val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
@@ -160,10 +163,12 @@ class JarvisApiClient(
             .put("messages", messages)
             .put("stream", true)
 
-        val tools = ToolSchema.forOpenAI()
-        if (tools.length() > 0) {
-            payload.put("tools", tools)
-            payload.put("tool_choice", "auto")
+        if (allowTools) {
+            val tools = ToolSchema.forOpenAI()
+            if (tools.length() > 0) {
+                payload.put("tools", tools)
+                payload.put("tool_choice", "auto")
+            }
         }
 
         val request = Request.Builder()
@@ -424,7 +429,8 @@ class JarvisApiClient(
         history: List<Pair<String, String>>,
         userMessage: String,
         provider: String,
-        model: String
+        model: String,
+        allowTools: Boolean = true
     ): Result<AiResponse> {
         val apiKey = when (provider) {
             in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") ->
@@ -440,7 +446,7 @@ class JarvisApiClient(
 
         return try {
             when (provider) {
-                else -> executeNVIDIA(apiKey, provider, model, systemPrompt, history, userMessage)
+                else -> executeNVIDIA(apiKey, provider, model, systemPrompt, history, userMessage, allowTools)
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -454,7 +460,8 @@ class JarvisApiClient(
         model: String,
         systemPrompt: String,
         history: List<Pair<String, String>>,
-        userMessage: String
+        userMessage: String,
+        allowTools: Boolean = true
     ): Result<AiResponse> {
         val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
 
@@ -471,10 +478,12 @@ class JarvisApiClient(
             .put("model", model)
             .put("messages", messages)
 
-        val tools = ToolSchema.forOpenAI()
-        if (tools.length() > 0) {
-            payload.put("tools", tools)
-            payload.put("tool_choice", "auto")
+        if (allowTools) {
+            val tools = ToolSchema.forOpenAI()
+            if (tools.length() > 0) {
+                payload.put("tools", tools)
+                payload.put("tool_choice", "auto")
+            }
         }
 
         val request = Request.Builder()

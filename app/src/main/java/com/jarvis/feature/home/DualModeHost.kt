@@ -95,6 +95,8 @@ import com.jarvis.core.ui.HudBackground
 import com.jarvis.core.ui.JarvisCore
 import com.jarvis.core.ui.StreamingCursor
 import com.jarvis.core.ui.ThinkingDots
+import com.jarvis.feature.actions.ActionCard
+import com.jarvis.feature.actions.toActionCardData
 
 enum class StageMode {
     VOICE_STAGE,
@@ -289,6 +291,10 @@ fun DualModeHost(
                         }
                         Spacer(modifier = Modifier.height(18.dp))
                         DrawerItem(Icons.Default.Dashboard, "Command Deck") {
+                            drawerOpen = false
+                        }
+                        DrawerItem(Icons.Default.ChatBubbleOutline, "Chat History") {
+                            onNavigate("history")
                             drawerOpen = false
                         }
                         DrawerItem(Icons.Default.FlashlightOn, "Device Control") {
@@ -885,6 +891,12 @@ private fun ChatMessageItem(
                                 }
                             }
                         }
+                    }
+
+                    // Device Action Card (result of hardware/phone actions)
+                    if (message.toolResult != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ActionCard(action = message.toolResult.toActionCardData())
                     }
                 }
             }

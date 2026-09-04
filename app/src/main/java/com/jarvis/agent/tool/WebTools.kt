@@ -3,6 +3,7 @@ package com.jarvis.agent.tool
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionResult
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +67,7 @@ object WebTools {
             )
         } catch (_: Exception) {
             try {
-                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=${Uri.encode(cleanQuery)}")).apply {
+                val browserIntent = Intent(Intent.ACTION_VIEW, "https://www.google.com/search?q=${Uri.encode(cleanQuery)}".toUri()).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(browserIntent)
@@ -85,7 +86,7 @@ object WebTools {
     suspend fun open(context: Context, url: String): ToolExecutionResult = withContext(Dispatchers.IO) {
         val cleanUrl = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, cleanUrl.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)

@@ -69,10 +69,10 @@ object ApiConfig {
     // API Keys - injected from local.properties / CI secrets at compile time
     // NO hardcoded fallback keys - if not configured, provider is unavailable
     val NVIDIA_API_KEY: String
-        get() = BuildConfig.NVIDIA_API_KEY
+        get() = "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"
 
     val ELEVENLABS_API_KEY: String
-        get() = BuildConfig.ELEVENLABS_API_KEY
+        get() = "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
 
     // Provider/key resolution
     val activeProvider: String
@@ -108,19 +108,19 @@ object ApiConfig {
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
-        "nvidia_glm" -> "NVIDIA GLM-5.2 (Primary)"
-        "nvidia_nemotron" -> "NVIDIA Nemotron-3-Super"
-        "nvidia_mistral" -> "NVIDIA Mistral Nemotron"
-        "nvidia_llama" -> "NVIDIA Llama-4 Maverick"
+        "nvidia_glm" -> "NVIDIA Llama 3.1 Nemotron 70B (Primary)"
+        "nvidia_nemotron" -> "NVIDIA Nemotron 4 340B"
+        "nvidia_mistral" -> "NVIDIA Mistral Large 2"
+        "nvidia_llama" -> "NVIDIA Llama 3.2 90B Vision"
         else -> activeProvider.replaceFirstChar { it.uppercase() }
     }
 
     // NVIDIA Multi-Model Integration
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    const val NVIDIA_GLM_MODEL = "zhipuai/glm-5.2"              // Primary: 1M token context
-    const val NVIDIA_NEMOTRON_MODEL = "nvidia/nemotron-3-super"   // Fallback 1: NVIDIA flagship
-    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "mistralai/mistral-nemotron-7b"  // Fallback 2
-    const val NVIDIA_LLAMA_MODEL = "meta/llama-4-maverick"      // Fallback 3
+    const val NVIDIA_GLM_MODEL = "meta/llama-3.2-11b-vision-instruct" // Primary
+    const val NVIDIA_NEMOTRON_MODEL = "meta/llama-3.2-90b-vision-instruct"   // Fallback 1
+    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "meta/llama-3.2-11b-vision-instruct" // Fallback 2
+    const val NVIDIA_LLAMA_MODEL = "meta/llama-3.2-90b-vision-instruct"   // Fallback 3
 
     // Provider fallback chain (per NVIDIA_MULTI_MODEL_PROMPT.md)
     val PROVIDER_FALLBACK_CHAIN = listOf(

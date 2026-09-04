@@ -26,9 +26,26 @@ class MemoryRepository(private val db: AppDatabase) {
         return all.filter { m -> terms.any { it.length > 2 && m.content.lowercase().contains(it) } }
     }
 
-    suspend fun addConversation(role: String, text: String) =
-        conversationDao.insert(ConversationEntity(role = role, text = text))
+    suspend fun addConversation(role: String, text: String, sessionId: String = "default") =
+        conversationDao.insert(ConversationEntity(sessionId = sessionId, role = role, text = text))
 
     suspend fun recentConversation(): List<ConversationEntity> =
         conversationDao.recent().reversed()
+
+    suspend fun conversationForSession(sessionId: String): List<ConversationEntity> =
+        conversationDao.forSession(sessionId)
+
+    suspend fun allSessions(): List<ChatSessionEntity> =
+        conversationDao.allSessions()
+
+    suspend fun saveSession(session: ChatSessionEntity) =
+        conversationDao.insertSession(session)
+
+    suspend fun updateSessionTitle(sessionId: String, title: String) =
+        conversationDao.updateSessionTitle(sessionId, title)
+
+    suspend fun deleteSession(sessionId: String) {
+        conversationDao.deleteSession(sessionId)
+        conversationDao.clearSession(sessionId)
+    }
 }

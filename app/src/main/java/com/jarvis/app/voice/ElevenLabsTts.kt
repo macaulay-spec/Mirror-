@@ -104,11 +104,6 @@ class ElevenLabsTts(private val context: Context) {
      */
     suspend fun refreshVoices(): Result<List<Voice>> = withContext(Dispatchers.IO) {
         val attempts = buildList<Pair<String, (Request.Builder) -> Request.Builder>> {
-            val gatewayKey = ApiConfig.rorkApiKey
-            if (gatewayKey.isNotBlank()) {
-                add("https://toolkit.rork.com/v2/elevenlabs/v1/voices" to
-                    { b: Request.Builder -> b.header("Authorization", "Bearer $gatewayKey") })
-            }
             val directKey = ApiConfig.ELEVENLABS_API_KEY
             if (directKey.isNotBlank()) {
                 add("https://api.elevenlabs.io/v1/voices" to
@@ -195,11 +190,6 @@ class ElevenLabsTts(private val context: Context) {
         Log.d(TAG, "Synthesizing with voice: $voiceId")
 
         val attempts = buildList<Pair<String, (Request.Builder) -> Request.Builder>> {
-            val gatewayKey = ApiConfig.rorkApiKey
-            if (gatewayKey.isNotBlank()) {
-                add("https://toolkit.rork.com/v2/elevenlabs/v1/text-to-speech/$voiceId" to
-                    { b: Request.Builder -> b.header("Authorization", "Bearer $gatewayKey") })
-            }
             val directKey = ApiConfig.ELEVENLABS_API_KEY
             if (directKey.isNotBlank()) {
                 add("https://api.elevenlabs.io/v1/text-to-speech/$voiceId" to

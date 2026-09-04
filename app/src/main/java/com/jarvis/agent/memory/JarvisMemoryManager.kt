@@ -56,16 +56,11 @@ class JarvisMemoryManager(context: Context) {
         )
     }
 
-    suspend fun addConversation(role: String, text: String) {
+    suspend fun addConversation(role: String, text: String, sessionId: String = "default") {
         if (!memoryEnabled) return
-        repository.addConversation(role, text)
+        repository.addConversation(role, text, sessionId)
 
-        // CHANGED (production repair): this used to store ANY user message
-        // mentioning "like"/"always"/"remember" as a permanent preference --
-        // flooding memory with conversational noise ("I like how you work"
-        // became a stored fact). The LLM already has memory_remember/
-        // memory_recall tools for explicit saves, so the deterministic path
-        // only catches the explicit "remember ..." phrasing.
+        // Only explicitly flagged memory statements are saved to long-term memory
         if (role == "user") {
             val lower = text.lowercase().trimStart()
             val explicitRemember = lower.startsWith("remember") || lower.startsWith("keep in mind")
@@ -84,6 +79,26 @@ class JarvisMemoryManager(context: Context) {
 
     suspend fun recentConversation(): List<ConversationEntity> {
         return if (memoryEnabled) repository.recentConversation() else emptyList()
+    }
+
+    suspend fun conversationForSession(sessionId: String): List<ConversationEntity> {
+        return repository.conversationForSession(sessionId)
+    }
+
+    suspend fun allSessions(): List<com.jarvis.app.memory.ChatSessionEntity> {
+        return repository.allSessions()
+    }
+
+    suspend fun saveSession(session: com.jarvis.app.memory.ChatSessionEntity) {
+        repository.saveSession(session)
+    }
+
+    suspend fun updateSessionTitle(sessionId: String, title: String) {
+        repository.updateSessionTitle(sessionId, title)
+    }
+
+    suspend fun deleteSession(sessionId: String) {
+        repository.deleteSession(sessionId)
     }
 
     suspend fun recallRelevant(query: String): List<MemoryEntity> {

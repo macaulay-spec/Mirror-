@@ -3,6 +3,7 @@ package com.jarvis.agent.tool
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import android.os.BatteryManager
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
@@ -58,7 +59,21 @@ object ToolRegistry {
      * Those redirects are gone; the canonical tools now run.
      */
     private val aliases = mapOf(
-        "memory_save" to "memory_remember"
+        "memory_save" to "memory_remember",
+        "read_screen" to "screen_read",
+        "see_screen" to "screen_read",
+        "get_screen" to "screen_read",
+        "find_on_screen" to "find_text",
+        "search_screen" to "find_text",
+        "tap_on_screen" to "click_element",
+        "click" to "click_element",
+        "click_screen" to "click_element",
+        "click_text" to "click_element",
+        "click_button" to "click_element",
+        "tap_button" to "click_element",
+        "type" to "type_text",
+        "enter_text" to "type_text",
+        "tap_screen" to "tap"
     )
 
     suspend fun execute(context: Context, request: ToolExecutionRequest): ToolExecutionResult {
@@ -176,7 +191,7 @@ object ToolRegistry {
                 riskLevel = RiskLevel.LEVEL_1
             ) { context, args ->
                 val query = args["query"]?.toString() ?: ""
-                val uri = Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}")
+                val uri = "https://www.google.com/search?q=${Uri.encode(query)}".toUri()
                 val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
@@ -428,7 +443,7 @@ object ToolRegistry {
                         toolId = "memory_recall",
                         success = true,
                         data = mapOf("memories" to contents),
-                        verificationDetails = if (contents.isNotEmpty()) "Recalled: ${contents.joinToString("; ")}" else "No matching memories found."
+                        verificationDetails = if (contents.isNotEmpty()) "Recalled: ${contents.joinToString("; ")}" else "Memory check complete. No specific memories found."
                     )
                 } catch (e: Exception) {
                     ToolExecutionResult("memory_recall", false, null, "Memory recall failed: ${e.message}")

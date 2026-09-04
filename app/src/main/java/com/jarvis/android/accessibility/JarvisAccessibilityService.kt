@@ -411,7 +411,12 @@ class JarvisAccessibilityService : AccessibilityService() {
                     riskLevel = RiskLevel.LEVEL_1
                 ) { _, args ->
                     val service = instance
-                    val target = args["text"]?.toString() ?: args["target"]?.toString() ?: ""
+                    val target = args["text"]?.toString()
+                        ?: args["target"]?.toString()
+                        ?: args["element"]?.toString()
+                        ?: args["button"]?.toString()
+                        ?: args["label"]?.toString()
+                        ?: ""
                     if (service == null) {
                         ToolExecutionResult(
                             toolId = "click_element",
@@ -466,8 +471,16 @@ class JarvisAccessibilityService : AccessibilityService() {
                     riskLevel = RiskLevel.LEVEL_1
                 ) { _, args ->
                     val service = instance
-                    val marker = args["marker"]?.toString() ?: args["hint"]?.toString() ?: ""
-                    val text = args["text"]?.toString() ?: args["content"]?.toString() ?: ""
+                    val marker = args["marker"]?.toString()
+                        ?: args["hint"]?.toString()
+                        ?: args["field"]?.toString()
+                        ?: args["input"]?.toString()
+                        ?: ""
+                    val text = args["text"]?.toString()
+                        ?: args["content"]?.toString()
+                        ?: args["message"]?.toString()
+                        ?: args["value"]?.toString()
+                        ?: ""
                     if (service == null) {
                         ToolExecutionResult(
                             toolId = "type_text",

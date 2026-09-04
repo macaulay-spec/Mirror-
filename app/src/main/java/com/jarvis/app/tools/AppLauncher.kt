@@ -18,8 +18,8 @@ object AppLauncher {
 
     /** Common names and nicknames -> preferred packages, in priority order. */
     private val nicknames: Map<String, List<String>> = mapOf(
-        "whatsapp" to listOf("com.whatsapp", "com.whatsapp.w4b"),
         "whatsapp business" to listOf("com.whatsapp.w4b"),
+        "whatsapp" to listOf("com.whatsapp"),
         "telegram" to listOf("org.telegram.messenger"),
         "instagram" to listOf("com.instagram.android"),
         "facebook" to listOf("com.facebook.katana", "com.facebook.lite"),
@@ -38,12 +38,12 @@ object AppLauncher {
         "x" to listOf("com.twitter.android"),
         "tiktok" to listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill"),
         "snapchat" to listOf("com.snapchat.android"),
-        "camera" to listOf("com.android.camera", "com.android.camera2"),
-        "settings" to listOf("com.android.settings"),
+        "camera" to listOf("com.android.camera", "com.android.camera2", "com.google.android.GoogleCamera"),
         "calculator" to listOf("com.google.android.calculator", "com.android.calculator2"),
+        "clock" to listOf("com.google.android.deskclock", "com.android.deskclock"),
         "music" to listOf("com.google.android.music", "com.spotify.music"),
         "files" to listOf("com.google.android.apps.nbu.files", "com.android.documentsui"),
-        "photos" to listOf("com.google.android.apps.photos"),
+        "photos" to listOf("com.google.android.apps.photos", "com.android.gallery3d"),
         "drive" to listOf("com.google.android.apps.docs"),
         "calendar" to listOf("com.google.android.calendar"),
         "contacts" to listOf("com.android.contacts", "com.google.android.contacts"),
@@ -74,10 +74,45 @@ object AppLauncher {
             }
         }
 
+        // WhatsApp specific disambiguation:
+        if (lowerRaw.contains("whatsapp business")) {
+            if (startPackage(context, "com.whatsapp.w4b")) {
+                return Result(true, "Opened WhatsApp Business.", "com.whatsapp.w4b")
+            }
+        } else if (lowerRaw.contains("whatsapp")) {
+            // User asked for regular WhatsApp
+            if (startPackage(context, "com.whatsapp")) {
+                return Result(true, "Opened WhatsApp.", "com.whatsapp")
+            } else if (startPackage(context, "com.whatsapp.w4b")) {
+                return Result(true, "Opened WhatsApp Business (regular WhatsApp is not installed).", "com.whatsapp.w4b")
+            }
+        }
+
+        // System Settings directly handled without package visibility restrictions
+        if (lowerRaw.contains("setting") || lowerRaw == "settings") {
+            val settingsIntent = getSettingsIntent(lowerRaw)
+            return try {
+                context.startActivity(settingsIntent)
+                Result(true, "Opened settings.", "com.android.settings")
+            } catch (e: Exception) {
+                Result(false, "Could not open settings: ${e.message}")
+            }
+        }
+
         val query = normalize(rawQuery)
         if (query.isBlank()) return Result(false, "Which app should I open?")
 
-        // 1. Known nickname ("chrome", "the bank app" -> bank)
+        // 1. Specific System Intents (Camera, Clock, Calculator, etc.)
+        systemIntent(query)?.let { intent ->
+            try {
+                context.startActivity(intent)
+                return Result(true, "Opened $query.")
+            } catch (_: Exception) {
+                // fall through to package lookup
+            }
+        }
+
+        // 2. Known nickname ("chrome", "the bank app" -> bank)
         val known = nicknames[query]
             ?: nicknames.entries.firstOrNull { entry -> query.contains(entry.key) }?.value
         if (known != null) {
@@ -89,22 +124,10 @@ object AppLauncher {
             }
         }
 
-        // 2. A full package name was given
+        // 3. A full package name was given
         val looksLikePackage = query.contains(".") && !query.contains(" ")
         if (looksLikePackage && startPackage(context, query)) {
             return Result(true, "Opened ${appLabel(context, query) ?: query}.", query)
-        }
-
-        // 3. Standard system intents
-        systemIntent(query)?.let { intent ->
-            if (intent.resolveActivity(context.packageManager) != null) {
-                return try {
-                    context.startActivity(intent)
-                    Result(true, "Opened $query.")
-                } catch (_: Exception) {
-                    Result(false, "I couldn't open $query.")
-                }
-            }
         }
 
         // 4. Best-scoring installed launcher
@@ -122,6 +145,25 @@ object AppLauncher {
         } catch (_: Exception) {
             Result(false, "I couldn't find an app called \"$rawQuery\" on this phone.")
         }
+    }
+
+    private fun getSettingsIntent(raw: String): Intent {
+        val action = when {
+            raw.contains("wifi") || raw.contains("wi-fi") || raw.contains("internet") -> Settings.ACTION_WIFI_SETTINGS
+            raw.contains("bluetooth") -> Settings.ACTION_BLUETOOTH_SETTINGS
+            raw.contains("display") || raw.contains("screen") || raw.contains("brightness") -> Settings.ACTION_DISPLAY_SETTINGS
+            raw.contains("sound") || raw.contains("volume") || raw.contains("audio") -> Settings.ACTION_SOUND_SETTINGS
+            raw.contains("battery") || raw.contains("power") -> Intent.ACTION_POWER_USAGE_SUMMARY
+            raw.contains("app") || raw.contains("application") -> Settings.ACTION_APPLICATION_SETTINGS
+            raw.contains("accessibility") -> Settings.ACTION_ACCESSIBILITY_SETTINGS
+            raw.contains("developer") -> Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+            raw.contains("storage") -> Settings.ACTION_INTERNAL_STORAGE_SETTINGS
+            raw.contains("network") || raw.contains("cellular") -> Settings.ACTION_WIRELESS_SETTINGS
+            raw.contains("location") || raw.contains("gps") -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
+            raw.contains("security") -> Settings.ACTION_SECURITY_SETTINGS
+            else -> Settings.ACTION_SETTINGS
+        }
+        return Intent(action).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
     }
 
     fun resolve(context: Context, rawQuery: String): String? {
@@ -194,7 +236,8 @@ object AppLauncher {
 
     private fun systemIntent(q: String): Intent? {
         val intent = when {
-            q.contains("camera") -> Intent("android.media.action.IMAGE_CAPTURE")
+            q.contains("camera") -> Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            q.contains("clock") || q.contains("alarm") -> Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)
             q.contains("setting") -> Intent(Settings.ACTION_SETTINGS)
             q.contains("calculator") -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALCULATOR)
             q.contains("map") -> Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MAPS)

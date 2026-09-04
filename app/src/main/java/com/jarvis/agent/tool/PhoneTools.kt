@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.net.toUri
 import android.os.Build
 import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
@@ -105,7 +106,7 @@ object PhoneTools {
                         val denied = missingPermission(context, Manifest.permission.CALL_PHONE, "phone")
                         if (denied != null) return@ToolDefinition denied
 
-                        val uri = Uri.parse("tel:${Uri.encode(target.number)}")
+                        val uri = "tel:${Uri.encode(target.number)}".toUri()
                         val canCallDirectly = ContextCompat.checkSelfPermission(
                             context, Manifest.permission.CALL_PHONE
                         ) == PackageManager.PERMISSION_GRANTED

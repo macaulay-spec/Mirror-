@@ -23,7 +23,7 @@ import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisTheme
 import com.jarvis.feature.home.DualModeHost
 import com.jarvis.feature.onboarding.OnboardingScreen
-import com.jarvis.feature.setup.SetupScreen
+import com.jarvis.feature.settings.SettingsHubScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                         onOpenNotificationListener = { PermissionAndSetupHelper.openNotificationListenerSettings(this@MainActivity) }
                     )
                 } else if (showSettings) {
-                    SetupScreen(
+                    SettingsHubScreen(
                         onClose = { showSettings = false },
                         onRequestPermissions = { requestCorePermissions() },
                         onOpenAccessibility = { PermissionAndSetupHelper.openAccessibilitySettings(this@MainActivity) },
@@ -94,6 +94,10 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     when (currentDest) {
+                        "history" -> com.jarvis.feature.history.ChatHistoryScreen(
+                            orchestrator = orchestrator,
+                            onBack = { currentDest = "home" }
+                        )
                         "device" -> com.jarvis.feature.control.DeviceControlScreen(
                             onBack = { currentDest = "home" }
                         )

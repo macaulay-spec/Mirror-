@@ -10,6 +10,7 @@ import com.jarvis.app.voice.VoiceDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -50,9 +51,9 @@ object CloudSttEngine {
     @SuppressLint("MissingPermission") // every caller checks RECORD_AUDIO first
     suspend fun listenAndTranscribe(onLevel: (Float) -> Unit = {}): String? =
         withContext(Dispatchers.IO) {
-            val apiKey = ApiConfig.rorkApiKey
+            val apiKey = ApiConfig.ELEVENLABS_API_KEY
             if (apiKey.isBlank()) {
-                VoiceDiagnostics.report("Cloud STT unavailable: no toolkit key configured")
+                VoiceDiagnostics.report("Cloud STT unavailable: no ElevenLabs key configured")
                 return@withContext null
             }
 
@@ -125,20 +126,19 @@ object CloudSttEngine {
             transcribe(pcm.toByteArray(), apiKey)
         }
 
-    /** Send a WAV-encoded recording to the Gateway and return the transcript. */
+    /** Send a WAV-encoded recording to ElevenLabs Speech-to-Text and return the transcript. */
     private fun transcribe(pcm: ByteArray, apiKey: String): String? {
-        val b64 = Base64.encodeToString(wavBytes(pcm), Base64.NO_WRAP)
-        val payload = JSONObject()
-            .put("audio", b64)
-            .put("mediaType", "audio/wav")
+        val wavData = wavBytes(pcm)
+        
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", "audio.wav", wavData.toRequestBody("audio/wav".toMediaType()))
+            .build()
 
         val request = Request.Builder()
-            .url("https://toolkit.rork.com/v2/vercel/v4/ai/transcription-model")
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .header("ai-model-id", "xai/grok-stt")
-            .header("ai-gateway-protocol-version", "0.0.1")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .url("https://api.elevenlabs.io/v1/speech-to-text")
+            .header("xi-api-key", apiKey)
+            .post(requestBody)
             .build()
 
         return try {

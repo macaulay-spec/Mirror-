@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.edit
 import android.os.Build
 import java.util.Calendar
 
@@ -31,13 +32,13 @@ object ProactiveScheduler {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_ENABLED, enabled).apply()
+            .edit { putBoolean(KEY_ENABLED, enabled) }
         if (enabled) schedule(context) else cancel(context)
     }
 
     fun setTime(context: Context, hour: Int, minute: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_HOUR, hour).putInt(KEY_MINUTE, minute).apply()
+            .edit { putInt(KEY_HOUR, hour).putInt(KEY_MINUTE, minute) }
         if (isEnabled(context)) schedule(context)
     }
 

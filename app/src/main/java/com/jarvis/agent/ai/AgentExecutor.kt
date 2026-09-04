@@ -10,6 +10,7 @@ import com.jarvis.app.assistant.JarvisApiClient
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
+import com.jarvis.core.model.ToolExecutionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -58,6 +59,7 @@ class AgentExecutor(
         systemPrompt: String,
         initialHistory: List<Pair<String, String>>,
         userMessage: String,
+        allowTools: Boolean = true,
         onStateChange: ((JarvisVisualState) -> Unit)? = null,
         onChunk: ((String) -> Unit)? = null,
         onStepUpdate: ((List<AgentStep>, Int) -> Unit)? = null,
@@ -69,17 +71,22 @@ class AgentExecutor(
         val history = initialHistory.toMutableList()
         var currentInput = userMessage
         var lastToolVerification: String? = null
+        var lastToolResult: ToolExecutionResult? = null
         var stepIndex = 0
 
         for (stepCount in 0 until MAX_STEPS) {
             // STREAMING: tokens flow to the UI the moment the model emits
-            // them. streamedChars lets us skip the legacy whole-message
-            // onChunk below when the text already arrived as deltas.
+            // them. Tools are allowed for up to (MAX_STEPS - 1) iterations so the model
+            // can read the screen and then click an element or type text.
+            // On the final step, tools are disabled to force a clean summary reply.
             var streamedChars = 0
+            val shouldAllowTools = if (stepCount < (MAX_STEPS - 1)) allowTools else false
+
             val aiResult = apiClient.chatStream(
                 systemPrompt = systemPrompt,
                 history = history,
                 userMessage = currentInput,
+                allowTools = shouldAllowTools,
                 onDelta = { delta ->
                     streamedChars += delta.length
                     onChunk?.invoke(delta)
@@ -101,14 +108,18 @@ class AgentExecutor(
             if (aiResponse.toolCalls.isEmpty()) {
                 val replyText = aiResponse.message?.takeIf { it.isNotBlank() }
                     ?: lastToolVerification
-                    ?: "Task completed."
+                    ?: "All systems operational, sir. How may I assist you?"
                 val cleanReply = ReplySanitizer.sanitize(replyText)
                 
                 onComplete?.invoke(cleanReply, true)
                 onStepUpdate?.invoke(plan.steps, plan.steps.lastIndex)
                 
                 history.add("jarvis" to cleanReply)
-                return@withContext JarvisEngineResult(reply = cleanReply, state = JarvisVisualState.SUCCESS)
+                return@withContext JarvisEngineResult(
+                    reply = cleanReply,
+                    state = JarvisVisualState.SUCCESS,
+                    toolResult = lastToolResult
+                )
             }
 
             // Non-streamed interim narration (only when nothing arrived as
@@ -118,6 +129,11 @@ class AgentExecutor(
                     onChunk?.invoke(ReplySanitizer.sanitize(it))
                 }
             }
+
+            // Explicitly track the AI's tool calling intent in the history to prevent infinite loops.
+            val toolIntents = aiResponse.toolCalls.joinToString(", ") { "${it.toolName}(${it.arguments})" }
+            val intentText = (aiResponse.message ?: "") + "\n[Action: Calling tools: $toolIntents]"
+            history.add("jarvis" to intentText.trim())
 
             val riskyCall = aiResponse.toolCalls.firstOrNull { call ->
                 (ToolRegistry.getTool(call.toolName)?.riskLevel ?: RiskLevel.LEVEL_1) >= RiskLevel.LEVEL_2
@@ -152,6 +168,7 @@ class AgentExecutor(
 
                 val req = ToolExecutionRequest(toolName, toolName, argsMap, riskLevel)
                 val result = ToolRegistry.execute(context, req)
+                lastToolResult = result
                 memoryManager.recordToolExecution(toolName, argsMap, result)
 
                 val summary = if (result.success) {
@@ -184,7 +201,7 @@ class AgentExecutor(
         onComplete?.invoke(fallback, true)
         onStepUpdate?.invoke(plan.steps, plan.steps.lastIndex)
         
-        JarvisEngineResult(fallback, JarvisVisualState.SUCCESS)
+        JarvisEngineResult(reply = fallback, state = JarvisVisualState.SUCCESS, toolResult = lastToolResult)
     }
 
     /**

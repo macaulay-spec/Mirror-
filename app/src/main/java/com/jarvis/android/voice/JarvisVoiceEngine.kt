@@ -147,6 +147,14 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     }
 
     private suspend fun speakWithAndroidTts(text: String): Boolean {
+        if (!isTtsReady) {
+            var waited = 0
+            while (!isTtsReady && waited < 15) {
+                delay(100)
+                waited++
+            }
+        }
+
         val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
         val utteranceId = "JARVIS_TTS_${System.currentTimeMillis()}"
         ttsUtteranceDone[utteranceId] = done
@@ -156,7 +164,10 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                 updateVoiceConfig()
                 requestAudioFocus()
                 com.jarvis.app.voice.VoiceDiagnostics.success("Android TTS")
-                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                val res = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                if (res != TextToSpeech.SUCCESS) {
+                    done.complete(false)
+                }
             } else {
                 com.jarvis.app.voice.VoiceDiagnostics.report("Android TTS is not ready — nothing was spoken")
                 done.complete(false)

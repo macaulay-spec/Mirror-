@@ -152,7 +152,7 @@ class JarvisFloatingOrbService : Service() {
         var touchStartX = 0f; var touchStartY = 0f
         var isDragging = false
 
-        composeView.setOnTouchListener { _, event ->
+        composeView.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = params.x; startY = params.y
@@ -182,6 +182,7 @@ class JarvisFloatingOrbService : Service() {
                         windowManager?.updateViewLayout(composeView, params)
                         true
                     } else {
+                        view.performClick()
                         false
                     }
                 }

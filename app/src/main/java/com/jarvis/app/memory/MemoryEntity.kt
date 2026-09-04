@@ -18,7 +18,16 @@ data class MemoryEntity(
 @Entity(tableName = "conversation")
 data class ConversationEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: String = "default",
     val role: String,
     val text: String,
     val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "chat_sessions")
+data class ChatSessionEntity(
+    @PrimaryKey val sessionId: String,
+    val title: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )

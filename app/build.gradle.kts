@@ -20,6 +20,7 @@ android {
         // Keys are injected from CI secrets / local env at compile time — never committed.
         buildConfigField("String", "NVIDIA_API_KEY", "\"${System.getenv("NVIDIA_API_KEY") ?: ""}\"")
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"${System.getenv("ELEVENLABS_API_KEY") ?: ""}\"")
+        buildConfigField("String", "RORK_TOOLKIT_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")
     }
 
     buildTypes {

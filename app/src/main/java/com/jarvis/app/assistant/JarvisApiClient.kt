@@ -116,7 +116,7 @@ class JarvisApiClient(
         }
 
         // Try providers in fallback chain order
-        var currentProvider = provider
+        var currentProvider: String? = provider
         var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
 
         while (currentProvider != null) {

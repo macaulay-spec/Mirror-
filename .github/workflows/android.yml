@@ -37,7 +37,11 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
       - name: Create local.properties for CI
-        run: cp local.properties.example local.properties
+        run: |
+          cat > local.properties << 'EOF'
+          NVIDIA_API_KEY=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
+          ELEVENLABS_API_KEY=sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53
+          EOF
 
       - name: Make gradlew executable
         run: |
@@ -45,11 +49,6 @@ jobs:
           chmod +x ./gradlew
 
       - name: Build Debug APK
-        env:
-          # NVIDIA API key for AI (OpenAI-compatible endpoint)
-          NVIDIA_API_KEY: '${{ secrets.NVIDIA_API_KEY }}'
-          # ElevenLabs API key for TTS voices
-          ELEVENLABS_API_KEY: '${{ secrets.ELEVENLABS_API_KEY }}'
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload Debug APK

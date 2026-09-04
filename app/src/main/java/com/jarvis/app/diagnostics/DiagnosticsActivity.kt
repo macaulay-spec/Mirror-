@@ -128,7 +128,10 @@ private fun DiagnosticsScreen(
                     scope.launch {
                         val client = JarvisApiClient()
                         val results = mutableListOf<ProviderStatus>()
-                        val providersToTest = listOf("gemini", "xai", "openai", "groq", "anthropic")
+                        val providersToTest = listOf(
+                            "nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama",
+                            "gemini", "xai", "openai", "groq", "anthropic"
+                        )
                         
                         for (p in providersToTest) {
                             val start = System.currentTimeMillis()

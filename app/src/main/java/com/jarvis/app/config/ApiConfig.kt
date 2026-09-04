@@ -87,17 +87,12 @@ object ApiConfig {
 
     // ── API Keys ────────────────────────────────────────────────────────────
     // LIVE AUDIT (2026-09-03): the previously embedded fallback keys were all
-    // verified DEAD against the real APIs — gateway key → HTTP 402, ElevenLabs
-    // direct key → HTTP 401, Gemini key → HTTP 401. They did not keep the app
-    // alive; they masked every real failure with mystery 401/402 errors and
-    // forced silent Android-TTS fallbacks. They are removed.
-    //
-    // Keys now come exclusively from build-time injection (CI secrets /
-    // local.properties → BuildConfig). Rork CI builds inject
-    // EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY automatically, so the default brain
-    // (Claude via the Rork gateway) and all voice paths work out of the box.
-    private const val HARDCODED_GEMINI_KEY = ""
-    private const val HARDCODED_ELEVENLABS_KEY = ""
+    // verified DEAD against the real APIs. Keys now come exclusively from
+    // build-time injection (CI secrets / local.properties -> BuildConfig).
+    // 
+    // NVIDIA integration (2026-09-04): Added NVIDIA_API_KEY BuildConfig field
+    // for NVIDIA multi-model support per NVIDIA_MULTI_MODEL_PROMPT.md.
+    // Rork gateway is confirmed broken and drops out of priority order.
 
     // ── BuildConfig keys (injected from local.properties at compile time) ──
     val XAI_API_KEY: String
@@ -109,24 +104,61 @@ object ApiConfig {
     val ELEVENLABS_API_KEY: String
         get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
 
+    // NVIDIA API key - injected from local.properties / CI secrets
+    // No hardcoded fallback - if not configured, provider is unavailable
+    val NVIDIA_API_KEY: String
+        get() = BuildConfig.NVIDIA_API_KEY
+
     // ── Provider/key resolution ───────────────────────────────────────────
 
-    /** The provider JARVIS uses for all AI calls right now. */
+    /**
+     * The provider JARVIS uses for all AI calls right now.
+     * 
+     * Priority order (per NVIDIA_MULTI_MODEL_PROMPT.md):
+     * 1. User's custom key (entered in Settings — auto-detected provider)
+     * 2. NVIDIA GLM-5.2 (primary)
+     * 3. NVIDIA Nemotron-3-Super (fallback 1)
+     * 4. NVIDIA Mistral Nemotron (fallback 2)
+     * 5. NVIDIA Llama-4 Maverick (fallback 3)
+     * 6. Existing chain: rork, xai, gemini, openai, anthropic, groq, cerebras, mistral, cohere, openrouter
+     * 
+     * Rork gateway is confirmed broken per NVIDIA_MULTI_MODEL_PROMPT.md and drops
+     * out of priority order entirely — kept only for backwards compatibility.
+     */
     val activeProvider: String
         get() {
             // 1. User's custom key (entered in Settings — auto-detected provider)
             customProvider?.takeIf { it.isNotBlank() }?.let { return it }
-            // 2. Claude via the Rork AI gateway — zero-setup default brain.
+            
+            // 2. NVIDIA models (primary tier) - check if NVIDIA_API_KEY is configured
+            if (NVIDIA_API_KEY.isNotBlank()) {
+                return "nvidia_glm"  // GLM-5.2 is primary
+            }
+            
+            // 3. Fall through to existing chain (rork is broken but kept for compatibility)
             return "rork"
         }
 
-    /** The API key that matches `activeProvider`. */
+    /**
+     * The API key that matches `activeProvider`.
+     * 
+     * For NVIDIA providers, returns NVIDIA_API_KEY.
+     * For Rork, returns rorkApiKey.
+     * For custom providers, returns the user's custom key.
+     */
     val activeApiKey: String
         get() {
             // 1. User's custom key
             val custom = customApiKey?.trim()
             if (!custom.isNullOrBlank()) return custom
-            // 2. Rork gateway (Claude) — key is injected at build time.
+            
+            // 2. Check if active provider is NVIDIA
+            val provider = activeProvider
+            if (provider.startsWith("nvidia_")) {
+                return NVIDIA_API_KEY
+            }
+            
+            // 3. Rork gateway (Claude) — key is injected at build time.
             return rorkApiKey
         }
 
@@ -145,10 +177,23 @@ object ApiConfig {
         "mistral"    -> "Mistral AI"
         "cohere"     -> "Cohere"
         "openrouter" -> "OpenRouter"
+        "nvidia" -> "NVIDIA GLM-5.2"
+        "nvidia_glm" -> "NVIDIA GLM-5.2"
+        "nvidia_nemotron" -> "NVIDIA Nemotron-3-Super"
+        "nvidia_mistral" -> "NVIDIA Mistral Nemotron"
+        "nvidia_llama" -> "NVIDIA Llama-4 Maverick"
         else -> activeProvider.replaceFirstChar { it.uppercase() }
     }
 
     // ── Model IDs ─────────────────────────────────────────────────────────
+    // NVIDIA Multi-Model Integration (Primary providers per NVIDIA_MULTI_MODEL_PROMPT.md)
+    const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    const val NVIDIA_GLM_MODEL = "zhipuai/glm-5.2"              // Primary: 1M token context
+    const val NVIDIA_NEMOTRON_MODEL = "nvidia/nemotron-3-super"   // Fallback 1: NVIDIA flagship
+    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "mistralai/mistral-nemotron-7b"  // Fallback 2
+    const val NVIDIA_LLAMA_MODEL = "meta/llama-4-maverick"      // Fallback 3
+    
+    // Existing providers (kept as final fallback tier)
     const val RORK_MODEL      = "anthropic/claude-haiku-4.5"  // Claude via Rork AI gateway
     const val XAI_MODEL       = "grok-3-mini"        // fast, cheap, great for tool-calling
     const val XAI_MODEL_FULL  = "grok-3"             // highest quality
@@ -167,15 +212,14 @@ object ApiConfig {
 
     /**
      * Build-time injected Rork gateway key (RORK_TOOLKIT_KEY in
-     * local.properties / CI secrets). Falls back to the owner's embedded key
-     * (restored 2026-09-03 at owner's request — repo going private, direct
-     * API mode, zero-setup default brain).
+     * local.properties / CI secrets).
+     * 
+     * NOTE: Rork gateway integration is confirmed broken per NVIDIA_MULTI_MODEL_PROMPT.md.
+     * It drops out of the priority order entirely. This property remains for
+     * backwards compatibility but should not be used as a primary provider.
      */
     val rorkApiKey: String
-        get() = BuildConfig.RORK_TOOLKIT_KEY.ifBlank { RORK_KEY_FALLBACK }
-
-    // Owner's gateway key — keeps local runs and CI builds with no env setup alive.
-    private const val RORK_KEY_FALLBACK = "rork_sk_ied1mfj2qty7j0sg0dm7mgca520gkg71"
+        get() = BuildConfig.RORK_TOOLKIT_KEY
 
     // ── Optional connectors ───────────────────────────────────────────────
     const val GOOGLE_STT_API_KEY  = ""

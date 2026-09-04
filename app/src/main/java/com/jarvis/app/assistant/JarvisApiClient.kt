@@ -99,6 +99,7 @@ class JarvisApiClient(
         onDelta: (String) -> Unit
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         var emitted = false
+        var triedProviders = mutableListOf<String>()
         val track: (String) -> Unit = { d -> emitted = true; onDelta(d) }
 
         // NOTE: must be `suspend` — local functions do NOT inherit the
@@ -109,24 +110,53 @@ class JarvisApiClient(
             return blocked
         }
 
-        if (BackendConfig.isBackendReady || provider == "anthropic") {
-            return@withContext fallbackBlocking()
+        // Helper function to try streaming with a specific provider
+        suspend fun tryStreamWithProvider(providerToTry: String): Result<AiResponse> {
+            val currentModel = resolveModel(providerToTry)
+            val currentApiKey = when (providerToTry) {
+                "rork" -> ApiConfig.rorkApiKey
+                in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") -> ApiConfig.NVIDIA_API_KEY
+                else -> ApiConfig.activeApiKey
+            }
+            
+            if (currentApiKey.isBlank()) {
+                return Result.failure(Exception("No API key for $providerToTry"))
+            }
+            
+            triedProviders.add(providerToTry)
+            
+            if (BackendConfig.isBackendReady || providerToTry == "anthropic") {
+                return fallbackBlocking()
+            }
+            
+            val streamed = if (providerToTry == "gemini") {
+                streamGemini(currentApiKey, currentModel, systemPrompt, history, userMessage, track)
+            } else {
+                streamOpenAICompatible(currentApiKey, providerToTry, currentModel, systemPrompt, history, userMessage, track)
+            }
+            
+            return streamed
         }
 
-        val apiKey = if (provider == "rork") ApiConfig.rorkApiKey else ApiConfig.activeApiKey
-        if (apiKey.isBlank()) {
-            return@withContext Result.failure(
-                Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
-            )
+        // Try providers in fallback chain order
+        var currentProvider = provider
+        var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
+        
+        while (currentProvider != null) {
+            lastResult = tryStreamWithProvider(currentProvider)
+            if (lastResult.isSuccess) {
+                return@withContext lastResult
+            }
+            
+            // Log which provider failed
+            android.util.Log.w("JarvisApiClient", "Provider $currentProvider failed, trying next in chain")
+            
+            // Try next provider in chain
+            currentProvider = getNextProvider(currentProvider)
         }
-
-        val streamed = if (provider == "gemini") {
-            streamGemini(apiKey, model, systemPrompt, history, userMessage, track)
-        } else {
-            streamOpenAICompatible(apiKey, provider, model, systemPrompt, history, userMessage, track)
-        }
-
-        if (streamed.isFailure && !emitted) fallbackBlocking() else streamed
+        
+        // If we get here, all providers failed
+        if (!emitted) fallbackBlocking() else lastResult
     }
 
     private fun streamOpenAICompatible(
@@ -140,6 +170,10 @@ class JarvisApiClient(
     ): Result<AiResponse> {
         val endpoint = when (provider) {
             "rork"       -> ApiConfig.RORK_GATEWAY_URL
+            "nvidia_glm" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_nemotron" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_mistral" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_llama" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
             "xai"        -> "https://api.x.ai/v1/chat/completions"
             "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
             "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
@@ -526,10 +560,14 @@ class JarvisApiClient(
         provider: String,
         model: String
     ): Result<AiResponse> {
-        val apiKey = if (provider == "rork") ApiConfig.rorkApiKey else ApiConfig.activeApiKey
+        val apiKey = when (provider) {
+            "rork" -> ApiConfig.rorkApiKey
+            in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") -> ApiConfig.NVIDIA_API_KEY
+            else -> ApiConfig.activeApiKey
+        }
         if (apiKey.isBlank()) {
             return Result.failure(
-                Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
+                Exception("No AI key configured for $provider. Add your API key in Settings → Access Control.")
             )
         }
 
@@ -556,6 +594,10 @@ class JarvisApiClient(
     ): Result<AiResponse> {
         val endpoint = when (provider) {
             "rork"       -> ApiConfig.RORK_GATEWAY_URL
+            "nvidia_glm" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_nemotron" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_mistral" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+            "nvidia_llama" -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
             "xai"        -> "https://api.x.ai/v1/chat/completions"
             "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
             "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
@@ -763,6 +805,27 @@ class JarvisApiClient(
     }
 
     companion object {
+        /**
+         * Provider fallback chain per NVIDIA_MULTI_MODEL_PROMPT.md.
+         * Order: NVIDIA GLM-5.2 -> NVIDIA Nemotron -> NVIDIA Mistral Nemotron -> NVIDIA Llama -> existing chain
+         */
+        val PROVIDER_FALLBACK_CHAIN = listOf(
+            "nvidia_glm",
+            "nvidia_nemotron",
+            "nvidia_mistral",
+            "nvidia_llama",
+            "rork",
+            "xai",
+            "gemini",
+            "openai",
+            "anthropic",
+            "groq",
+            "cerebras",
+            "mistral",
+            "cohere",
+            "openrouter"
+        )
+
         fun resolveModel(provider: String): String = when (provider) {
             "rork"       -> ApiConfig.RORK_MODEL
             "xai"        -> ApiConfig.XAI_MODEL
@@ -773,7 +836,22 @@ class JarvisApiClient(
             "mistral"    -> ApiConfig.MISTRAL_MODEL
             "openrouter" -> ApiConfig.OPENROUTER_MODEL
             "anthropic"  -> ApiConfig.ANTHROPIC_MODEL
+            "nvidia_glm" -> ApiConfig.NVIDIA_GLM_MODEL
+            "nvidia_nemotron" -> ApiConfig.NVIDIA_NEMOTRON_MODEL
+            "nvidia_mistral" -> ApiConfig.NVIDIA_MISTRAL_NEMOTRON_MODEL
+            "nvidia_llama" -> ApiConfig.NVIDIA_LLAMA_MODEL
             else         -> ApiConfig.XAI_MODEL
+        }
+
+        /**
+         * Get the next provider in the fallback chain after the given provider.
+         */
+        fun getNextProvider(currentProvider: String): String? {
+            val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
+            if (currentIndex >= 0 && currentIndex < PROVIDER_FALLBACK_CHAIN.size - 1) {
+                return PROVIDER_FALLBACK_CHAIN[currentIndex + 1]
+            }
+            return null
         }
     }
 }

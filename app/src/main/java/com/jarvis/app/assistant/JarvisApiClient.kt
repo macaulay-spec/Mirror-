@@ -1,5 +1,6 @@
 package com.jarvis.app.assistant
 
+import android.util.Log
 import com.jarvis.agent.ai.ToolSchema
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.app.config.BackendConfig
@@ -25,31 +26,26 @@ data class AiResponse(
 )
 
 /**
- * JARVIS AI Client — routes requests through the Convex backend proxy.
+ * JARVIS AI Client — NVIDIA-focused with automatic provider fallback.
  *
- * When BackendConfig.isBackendReady (USE_BACKEND true AND WORKER_URL configured):
- *   All API calls go through Convex HTTP actions.
- *   API keys are stored server-side as Convex environment variables — the app never sees them.
+ * When BackendConfig.isBackendReady:
+ *   All API calls go through Convex HTTP actions (API keys server-side).
  *
- * When USE_BACKEND is true but WORKER_URL is still the placeholder:
- *   chat() fails fast with an explicit "backend not configured" error instead
- *   of silently POSTing to a non-existent host.
+ * When not using backend:
+ *   Direct API calls to NVIDIA's OpenAI-compatible endpoint with keys from BuildConfig.
+ *   Automatic fallback through the NVIDIA provider chain on failures.
  *
- * When BackendConfig.USE_BACKEND is false:
- *   Direct API calls (for development/testing without a backend).
- *   API keys must be in local.properties → BuildConfig.
- *
- * Supported providers:
- *   xai, gemini, openai, groq, cerebras, openrouter, mistral, anthropic
+ * Provider fallback chain (per NVIDIA_MULTI_MODEL_PROMPT.md):
+ *   1. NVIDIA GLM-5.2 (primary)
+ *   2. NVIDIA Nemotron-3-Super
+ *   3. NVIDIA Mistral Nemotron
+ *   4. NVIDIA Llama-4 Maverick
  */
 class JarvisApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build(),
-    // Dedicated client for SSE streams: the connection stays open while the
-    // model thinks between tokens, which would trip the normal 60s read
-    // timeout and cut long replies in half.
     private val streamClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
@@ -60,76 +56,86 @@ class JarvisApiClient(
         history: List<Pair<String, String>>,
         userMessage: String,
         provider: String = ApiConfig.activeProvider,
-        model: String = resolveModel(provider)
+        model: String = ApiConfig.resolveModel(provider)
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         if (BackendConfig.isBackendReady) {
             chatViaProxy(systemPrompt, history, userMessage, provider, model)
         } else if (BackendConfig.USE_BACKEND && !BackendConfig.isWorkerUrlConfigured) {
-            // Backend was enabled but WORKER_URL is still the placeholder.
-            // Fail explicitly instead of silently POSTing to a non-existent host.
             Result.failure(IllegalStateException(
-                "Backend mode is enabled (USE_BACKEND=true) but BackendConfig.WORKER_URL is still the placeholder. " +
-                "Run `npx convex deploy` and set the real deployment URL in BackendConfig, or set USE_BACKEND=false to use direct API mode with keys from local.properties."
+                "Backend mode is enabled but BackendConfig.WORKER_URL is not configured. " +
+                "Deploy Convex and set the URL, or set USE_BACKEND=false."
             ))
         } else {
             chatDirect(systemPrompt, history, userMessage, provider, model)
         }
     }
 
-    // ─── Real-time streaming (SSE) ─────────────────────────────────────────
-    //
-    // TRUE token streaming for every OpenAI-compatible provider (xai, openai,
-    // groq, cerebras, openrouter, mistral, rork) and for Gemini
-    // (streamGenerateContent?alt=sse). Deltas are handed to [onDelta] the
-    // moment the model produces them, so the chat UI types live and JARVIS
-    // can begin speaking the first sentence while the rest is still
-    // generating.
-    //
-    // If the stream fails BEFORE any delta was emitted, we transparently fall
-    // back to the blocking chat() call — streaming is an upgrade, never a
-    // regression. Anthropic and the (unused) Convex proxy path degrade to
-    // blocking with the full text emitted as a single delta.
-
+    // Real-time streaming (SSE) with automatic provider fallback
     suspend fun chatStream(
         systemPrompt: String,
         history: List<Pair<String, String>>,
         userMessage: String,
         provider: String = ApiConfig.activeProvider,
-        model: String = resolveModel(provider),
+        model: String = ApiConfig.resolveModel(provider),
         onDelta: (String) -> Unit
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
         var emitted = false
+        var triedProviders = mutableListOf<String>()
         val track: (String) -> Unit = { d -> emitted = true; onDelta(d) }
 
-        // NOTE: must be `suspend` — local functions do NOT inherit the
-        // suspend context of the enclosing withContext lambda.
         suspend fun fallbackBlocking(): Result<AiResponse> {
             val blocked = chat(systemPrompt, history, userMessage, provider, model)
             blocked.getOrNull()?.message?.takeIf { it.isNotBlank() }?.let(track)
             return blocked
         }
 
-        if (BackendConfig.isBackendReady || provider == "anthropic") {
-            return@withContext fallbackBlocking()
-        }
+        suspend fun tryStreamWithProvider(providerToTry: String): Result<AiResponse> {
+            val currentModel = ApiConfig.resolveModel(providerToTry)
+            val currentApiKey = when (providerToTry) {
+                in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") ->
+                    ApiConfig.NVIDIA_API_KEY
+                else -> ApiConfig.activeApiKey
+            }
 
-        val apiKey = if (provider == "rork") ApiConfig.rorkApiKey else ApiConfig.activeApiKey
-        if (apiKey.isBlank()) {
-            return@withContext Result.failure(
-                Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
+            if (currentApiKey.isBlank()) {
+                return Result.failure(Exception("No API key for $providerToTry"))
+            }
+
+            triedProviders.add(providerToTry)
+
+            if (BackendConfig.isBackendReady || providerToTry == "anthropic") {
+                return fallbackBlocking()
+            }
+
+            val streamed = streamNVIDIA(
+                currentApiKey, providerToTry, currentModel,
+                systemPrompt, history, userMessage, track
             )
+
+            return streamed
         }
 
-        val streamed = if (provider == "gemini") {
-            streamGemini(apiKey, model, systemPrompt, history, userMessage, track)
-        } else {
-            streamOpenAICompatible(apiKey, provider, model, systemPrompt, history, userMessage, track)
+        // Try providers in fallback chain order
+        var currentProvider = provider
+        var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
+
+        while (currentProvider != null) {
+            lastResult = tryStreamWithProvider(currentProvider)
+            if (lastResult.isSuccess) {
+                Log.i("JarvisApiClient", "Provider $currentProvider succeeded")
+                return@withContext lastResult
+            }
+
+            Log.w("JarvisApiClient", "Provider $currentProvider failed, trying next in chain")
+            currentProvider = ApiConfig.getNextProvider(currentProvider)
         }
 
-        if (streamed.isFailure && !emitted) fallbackBlocking() else streamed
+        // If we get here, all providers failed
+        if (!emitted) fallbackBlocking() else lastResult
     }
 
-    private fun streamOpenAICompatible(
+    // NVIDIA streaming (OpenAI-compatible endpoint)
+    private fun streamNVIDIA(
         apiKey: String,
         provider: String,
         model: String,
@@ -138,15 +144,7 @@ class JarvisApiClient(
         userMessage: String,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
-        val endpoint = when (provider) {
-            "rork"       -> ApiConfig.RORK_GATEWAY_URL
-            "xai"        -> "https://api.x.ai/v1/chat/completions"
-            "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
-            "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
-            "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"
-            "mistral"    -> "https://api.mistral.ai/v1/chat/completions"
-            else         -> "https://api.openai.com/v1/chat/completions"
-        }
+        val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -168,15 +166,10 @@ class JarvisApiClient(
             payload.put("tool_choice", "auto")
         }
 
-        val requestBuilder = Request.Builder()
+        val request = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
             .header("Accept", "text/event-stream")
-        if (provider == "openrouter") {
-            requestBuilder.header("HTTP-Referer", "https://github.com/macaulay-spec/Mirror-")
-            requestBuilder.header("X-Title", "JARVIS")
-        }
-        val request = requestBuilder
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -184,10 +177,10 @@ class JarvisApiClient(
             streamClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     val err = response.body?.string()?.take(200) ?: ""
-                    return Result.failure(Exception("$provider stream error (HTTP ${response.code}): $err"))
+                    return Result.failure(Exception("NVIDIA stream error (HTTP ${response.code}): $err"))
                 }
                 val source = response.body?.source()
-                    ?: return Result.failure(Exception("$provider stream returned an empty body"))
+                    ?: return Result.failure(Exception("NVIDIA stream returned an empty body"))
 
                 val text = StringBuilder()
                 val toolNames = HashMap<Int, String>()
@@ -209,9 +202,7 @@ class JarvisApiClient(
                         text.append(it)
                         onDelta(it)
                     }
-                    // Tool calls stream in fragments: name first, then the
-                    // arguments JSON split across many deltas — accumulate by
-                    // the fragment index and merge at the end.
+
                     delta.optJSONArray("tool_calls")?.let { tcs ->
                         for (i in 0 until tcs.length()) {
                             val tc = tcs.getJSONObject(i)
@@ -243,97 +234,11 @@ class JarvisApiClient(
                 )
             }
         } catch (e: Exception) {
-            Result.failure(Exception("$provider stream failed: ${e.localizedMessage}"))
+            Result.failure(Exception("NVIDIA stream failed: ${e.localizedMessage}"))
         }
     }
 
-    private fun streamGemini(
-        apiKey: String,
-        model: String,
-        systemPrompt: String,
-        history: List<Pair<String, String>>,
-        userMessage: String,
-        onDelta: (String) -> Unit
-    ): Result<AiResponse> {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse&key=$apiKey"
-
-        val contents = JSONArray()
-        for ((role, text) in history) {
-            if (text.isBlank()) continue
-            val geminiRole = if (role == "jarvis" || role == "model" || role == "assistant") "model" else "user"
-            contents.put(
-                JSONObject()
-                    .put("role", geminiRole)
-                    .put("parts", JSONArray().put(JSONObject().put("text", text)))
-            )
-        }
-        contents.put(
-            JSONObject()
-                .put("role", "user")
-                .put("parts", JSONArray().put(JSONObject().put("text", userMessage)))
-        )
-
-        val payload = JSONObject()
-            .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
-            .put("contents", contents)
-            .put("tools", ToolSchema.forGemini())
-
-        val request = Request.Builder()
-            .url(url)
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            streamClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val err = response.body?.string()?.take(200) ?: ""
-                    return Result.failure(Exception("Gemini stream error (HTTP ${response.code}): $err"))
-                }
-                val source = response.body?.source()
-                    ?: return Result.failure(Exception("Gemini stream returned an empty body"))
-
-                val text = StringBuilder()
-                val toolCalls = mutableListOf<ToolCallRequest>()
-
-                while (true) {
-                    val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.substring(5).trim()
-                    if (data.isEmpty()) continue
-                    val obj = try { JSONObject(data) } catch (_: Exception) { continue }
-                    val parts = obj.optJSONArray("candidates")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("content")
-                        ?.optJSONArray("parts") ?: continue
-                    for (i in 0 until parts.length()) {
-                        val part = parts.getJSONObject(i)
-                        part.optString("text").takeIf { it.isNotEmpty() }?.let {
-                            text.append(it)
-                            onDelta(it)
-                        }
-                        part.optJSONObject("functionCall")?.let { fn ->
-                            val args = mutableMapOf<String, Any?>()
-                            val fnArgs = fn.optJSONObject("args") ?: JSONObject()
-                            fnArgs.keys().forEach { k -> args[k] = fnArgs.get(k) }
-                            toolCalls.add(ToolCallRequest(fn.getString("name"), args))
-                        }
-                    }
-                }
-
-                Result.success(
-                    AiResponse(
-                        message = text.toString().trim().takeIf { it.isNotBlank() },
-                        toolCalls = toolCalls
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Gemini stream failed: ${e.localizedMessage}"))
-        }
-    }
-
-    // ─── Backend Proxy Path (Convex) ──────────────────────────────────
-
+    // Backend Proxy Path (Convex)
     private suspend fun chatViaProxy(
         systemPrompt: String,
         history: List<Pair<String, String>>,
@@ -355,7 +260,6 @@ class JarvisApiClient(
                 .put("systemPrompt", systemPrompt)
                 .put("messages", messagesArray)
 
-            // Add tool schemas if available
             val tools = ToolSchema.forOpenAI()
             if (tools.length() > 0) {
                 payload.put("tools", tools)
@@ -401,8 +305,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Save Voice Preferences via Convex ────────────────────────────
-
+    // Save Voice Preferences via Convex
     suspend fun saveVoicePreferences(
         userId: String,
         voiceId: String,
@@ -441,8 +344,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Load Voice Preferences via Convex ────────────────────────────
-
+    // Load Voice Preferences via Convex
     suspend fun loadVoicePreferences(userId: String): Result<VoicePreferences?> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -479,8 +381,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Fetch Available ElevenLabs Voices ────────────────────────────
-
+    // Fetch Available ElevenLabs Voices
     suspend fun fetchElevenLabsVoices(): Result<List<ElevenLabsVoice>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -517,8 +418,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Direct Path (development/testing only) ────────────────────────
-
+    // Direct Path (development/testing only)
     private fun chatDirect(
         systemPrompt: String,
         history: List<Pair<String, String>>,
@@ -526,27 +426,29 @@ class JarvisApiClient(
         provider: String,
         model: String
     ): Result<AiResponse> {
-        val apiKey = if (provider == "rork") ApiConfig.rorkApiKey else ApiConfig.activeApiKey
+        val apiKey = when (provider) {
+            in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") ->
+                ApiConfig.NVIDIA_API_KEY
+            else -> ApiConfig.activeApiKey
+        }
+
         if (apiKey.isBlank()) {
             return Result.failure(
-                Exception("No AI key configured. Add your xAI or Gemini key in Settings → Access Control.")
+                Exception("No AI key configured for $provider. Add your NVIDIA key in Settings.")
             )
         }
 
         return try {
             when (provider) {
-                "gemini" -> executeGemini(apiKey, model, systemPrompt, history, userMessage)
-                "anthropic" -> executeAnthropic(apiKey, model, systemPrompt, history, userMessage)
-                else -> executeOpenAICompatible(apiKey, provider, model, systemPrompt, history, userMessage)
+                else -> executeNVIDIA(apiKey, provider, model, systemPrompt, history, userMessage)
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // ─── xAI Grok + OpenAI-compatible providers ────────────────────────
-
-    private fun executeOpenAICompatible(
+    // NVIDIA execution (OpenAI-compatible)
+    private fun executeNVIDIA(
         apiKey: String,
         provider: String,
         model: String,
@@ -554,15 +456,7 @@ class JarvisApiClient(
         history: List<Pair<String, String>>,
         userMessage: String
     ): Result<AiResponse> {
-        val endpoint = when (provider) {
-            "rork"       -> ApiConfig.RORK_GATEWAY_URL
-            "xai"        -> "https://api.x.ai/v1/chat/completions"
-            "groq"       -> "https://api.groq.com/openai/v1/chat/completions"
-            "cerebras"   -> "https://api.cerebras.ai/v1/chat/completions"
-            "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"
-            "mistral"    -> "https://api.mistral.ai/v1/chat/completions"
-            else         -> "https://api.openai.com/v1/chat/completions"
-        }
+        val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -583,16 +477,9 @@ class JarvisApiClient(
             payload.put("tool_choice", "auto")
         }
 
-        val requestBuilder = Request.Builder()
+        val request = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
-
-        if (provider == "openrouter") {
-            requestBuilder.header("HTTP-Referer", "https://github.com/macaulay-spec/Mirror-")
-            requestBuilder.header("X-Title", "JARVIS")
-        }
-
-        val request = requestBuilder
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -600,9 +487,9 @@ class JarvisApiClient(
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
                 val msg = when (response.code) {
-                    401 -> "$provider API key is invalid or expired (HTTP 401). Check Settings → Access Control."
-                    429 -> "$provider rate limit reached. Please wait a moment and try again."
-                    else -> "$provider API error (HTTP ${response.code}): ${bodyString.take(200)}"
+                    401 -> "NVIDIA API key is invalid or expired (HTTP 401). Check Settings."
+                    429 -> "NVIDIA rate limit reached. Please wait a moment and try again."
+                    else -> "NVIDIA API error (HTTP ${response.code}): ${bodyString.take(200)}"
                 }
                 return@use Result.failure(Exception(msg))
             }
@@ -623,129 +510,7 @@ class JarvisApiClient(
         }
     }
 
-    // ─── Google Gemini (native format) ─────────────────────────────────
-
-    private fun executeGemini(
-        apiKey: String,
-        model: String,
-        systemPrompt: String,
-        history: List<Pair<String, String>>,
-        userMessage: String
-    ): Result<AiResponse> {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-
-        val contents = JSONArray()
-        for ((role, text) in history) {
-            if (text.isBlank()) continue
-            val geminiRole = if (role == "jarvis" || role == "model" || role == "assistant") "model" else "user"
-            contents.put(
-                JSONObject()
-                    .put("role", geminiRole)
-                    .put("parts", JSONArray().put(JSONObject().put("text", text)))
-            )
-        }
-        contents.put(
-            JSONObject()
-                .put("role", "user")
-                .put("parts", JSONArray().put(JSONObject().put("text", userMessage)))
-        )
-
-        val payload = JSONObject()
-            .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
-            .put("contents", contents)
-            .put("tools", ToolSchema.forGemini())
-
-        val request = Request.Builder()
-            .url(url)
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return client.newCall(request).execute().use { response ->
-            val bodyString = response.body?.string() ?: ""
-            if (!response.isSuccessful) {
-                val msg = when (response.code) {
-                    401 -> "Gemini key is invalid (HTTP 401). Check Settings → Access Control."
-                    429 -> "Gemini rate limit reached. Try again in a moment."
-                    else -> "Gemini error (HTTP ${response.code}): ${bodyString.take(200)}"
-                }
-                return@use Result.failure(Exception(msg))
-            }
-
-            val json = JSONObject(bodyString)
-            val candidates = json.optJSONArray("candidates")
-            if (candidates == null || candidates.length() == 0) {
-                return@use Result.success(AiResponse(message = "Standing by."))
-            }
-
-            val content = candidates.getJSONObject(0).optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-
-            val toolCalls = mutableListOf<ToolCallRequest>()
-            val textBuilder = StringBuilder()
-
-            if (parts != null) {
-                for (i in 0 until parts.length()) {
-                    val part = parts.getJSONObject(i)
-                    part.optString("text").takeIf { it.isNotBlank() }?.let { textBuilder.append(it) }
-                    part.optJSONObject("functionCall")?.let { fn ->
-                        val args = mutableMapOf<String, Any?>()
-                        val fnArgs = fn.optJSONObject("args") ?: JSONObject()
-                        fnArgs.keys().forEach { k -> args[k] = fnArgs.get(k) }
-                        toolCalls.add(ToolCallRequest(fn.getString("name"), args))
-                    }
-                }
-            }
-
-            Result.success(AiResponse(message = textBuilder.toString().trim().takeIf { it.isNotBlank() }, toolCalls = toolCalls))
-        }
-    }
-
-    // ─── Anthropic Claude (unique format) ─────────────────────────────
-
-    private fun executeAnthropic(
-        apiKey: String,
-        model: String,
-        systemPrompt: String,
-        history: List<Pair<String, String>>,
-        userMessage: String
-    ): Result<AiResponse> {
-        val messages = JSONArray()
-        for ((role, text) in history) {
-            if (text.isBlank()) continue
-            val claudeRole = if (role == "jarvis" || role == "assistant") "assistant" else "user"
-            messages.put(JSONObject().put("role", claudeRole).put("content", text))
-        }
-        messages.put(JSONObject().put("role", "user").put("content", userMessage))
-
-        val payload = JSONObject()
-            .put("model", model)
-            .put("max_tokens", 4096)
-            .put("system", systemPrompt)
-            .put("messages", messages)
-
-        val request = Request.Builder()
-            .url("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", apiKey)
-            .header("anthropic-version", "2023-06-01")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return client.newCall(request).execute().use { response ->
-            val bodyString = response.body?.string() ?: ""
-            if (!response.isSuccessful) {
-                return@use Result.failure(Exception("Anthropic error (HTTP ${response.code}): ${bodyString.take(200)}"))
-            }
-            val json = JSONObject(bodyString)
-            val content = json.optJSONArray("content")
-            val text = if (content != null && content.length() > 0)
-                content.getJSONObject(0).optString("text").takeIf { it.isNotBlank() }
-            else null
-            Result.success(AiResponse(message = text))
-        }
-    }
-
-    // ─── Helpers ───────────────────────────────────────────────────────
-
+    // Helpers
     private fun parseOpenAIToolCalls(toolCallsArray: JSONArray?): List<ToolCallRequest> {
         if (toolCallsArray == null) return emptyList()
         val result = mutableListOf<ToolCallRequest>()
@@ -763,24 +528,11 @@ class JarvisApiClient(
     }
 
     companion object {
-        fun resolveModel(provider: String): String = when (provider) {
-            "rork"       -> ApiConfig.RORK_MODEL
-            "xai"        -> ApiConfig.XAI_MODEL
-            "gemini"     -> ApiConfig.GEMINI_MODEL
-            "openai"     -> ApiConfig.OPENAI_MODEL
-            "groq"       -> ApiConfig.GROQ_MODEL
-            "cerebras"   -> ApiConfig.CEREBRAS_MODEL
-            "mistral"    -> ApiConfig.MISTRAL_MODEL
-            "openrouter" -> ApiConfig.OPENROUTER_MODEL
-            "anthropic"  -> ApiConfig.ANTHROPIC_MODEL
-            else         -> ApiConfig.XAI_MODEL
-        }
+        fun resolveModel(provider: String): String = ApiConfig.resolveModel(provider)
     }
 }
 
-/**
- * Data classes for voice preferences and ElevenLabs voices.
- */
+/** Data classes for voice preferences and ElevenLabs voices. */
 data class VoicePreferences(
     val voiceId: String,
     val voiceName: String,

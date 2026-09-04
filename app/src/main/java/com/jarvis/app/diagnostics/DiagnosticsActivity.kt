@@ -40,9 +40,7 @@ import com.jarvis.core.theme.JarvisColors
 import com.jarvis.core.theme.JarvisTheme
 import kotlinx.coroutines.launch
 
-/**
- * Settings → "Diagnostics".
- */
+/** Settings -> "Diagnostics". */
 class DiagnosticsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,21 +102,26 @@ private fun DiagnosticsScreen(
     ) {
         Text("DIAGNOSTICS", color = JarvisColors.Presence, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
         Text(
-            "Everything JARVIS needs, and whether it is actually working.",
+            "NVIDIA AI and ElevenLabs Voice status.",
             color = JarvisColors.TextSecondary, fontSize = 12.sp
         )
 
         Spacer(Modifier.height(8.dp))
 
-        // ---------------------------------------------------------------- AI
-        Section("AI CORE") {
+        // AI CORE
+        Section("NVIDIA AI CORE") {
             Text(
-                "Active provider: ${ApiConfig.getProviderLabel()}  ·  key: ${maskKey(ApiConfig.activeApiKey)}",
+                "Active provider: ${ApiConfig.getProviderLabel()}",
                 color = JarvisColors.TextPrimary, fontSize = 12.sp
             )
             Text(
-                "Gemini key present: ${if (ApiConfig.activeApiKey.isBlank()) "NO — configure in Access Control settings" else "yes"}",
-                color = if (ApiConfig.activeApiKey.isBlank()) JarvisColors.Warmth else JarvisColors.TextPrimary,
+                "NVIDIA key present: ${if (ApiConfig.NVIDIA_API_KEY.isBlank()) "NO - configure in Settings" else "YES"}",
+                color = if (ApiConfig.NVIDIA_API_KEY.isBlank()) JarvisColors.Warmth else JarvisColors.TextPrimary,
+                fontSize = 12.sp
+            )
+            Text(
+                "AI available: ${if (ApiConfig.hasAI) "YES" else "NO"}",
+                color = if (ApiConfig.hasAI) JarvisColors.StateSuccess else JarvisColors.StateError,
                 fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))
@@ -128,7 +131,10 @@ private fun DiagnosticsScreen(
                     scope.launch {
                         val client = JarvisApiClient()
                         val results = mutableListOf<ProviderStatus>()
-                        val providersToTest = listOf("gemini", "xai", "openai", "groq", "anthropic")
+                        // Test all NVIDIA providers
+                        val providersToTest = listOf(
+                            "nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama"
+                        )
                         
                         for (p in providersToTest) {
                             val start = System.currentTimeMillis()
@@ -137,13 +143,19 @@ private fun DiagnosticsScreen(
                                 history = emptyList(),
                                 userMessage = "Test connection.",
                                 provider = p,
-                                model = JarvisApiClient.resolveModel(p)
+                                model = ApiConfig.resolveModel(p)
                             )
                             val elapsed = System.currentTimeMillis() - start
                             if (res.isSuccess) {
-                                results.add(ProviderStatus(p, JarvisApiClient.resolveModel(p), true, "OK - ${res.getOrNull()?.message?.take(30) ?: "No msg"}", elapsed))
+                                results.add(ProviderStatus(
+                                    p, ApiConfig.resolveModel(p), true, 
+                                    "OK - ${res.getOrNull()?.message?.take(30) ?: "No msg"}", elapsed
+                                ))
                             } else {
-                                results.add(ProviderStatus(p, JarvisApiClient.resolveModel(p), false, res.exceptionOrNull()?.message ?: "Failed", elapsed))
+                                results.add(ProviderStatus(
+                                    p, ApiConfig.resolveModel(p), false, 
+                                    res.exceptionOrNull()?.message ?: "Failed", elapsed
+                                ))
                             }
                         }
                         providerResults = results
@@ -151,7 +163,7 @@ private fun DiagnosticsScreen(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Presence)
-            ) { Text(if (testing) "TESTING..." else "TEST ALL PROVIDERS", color = androidx.compose.ui.graphics.Color.Black) }
+            ) { Text(if (testing) "TESTING..." else "TEST ALL NVIDIA PROVIDERS", color = androidx.compose.ui.graphics.Color.Black) }
 
             for (status in providerResults.orEmpty()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
@@ -172,9 +184,10 @@ private fun DiagnosticsScreen(
             }
         }
 
-        // ------------------------------------------------------------- VOICE
-        Section("VOICE") {
+        // VOICE
+        Section("ELEVENLABS VOICE") {
             Text("Engine: ${ApiConfig.voiceEngineType}", color = JarvisColors.TextPrimary, fontSize = 12.sp)
+            Text("Voice: ${ApiConfig.selectedVoiceId}", color = JarvisColors.TextSecondary, fontSize = 12.sp)
             Text(voiceStatus, color = JarvisColors.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
             Button(
@@ -188,13 +201,13 @@ private fun DiagnosticsScreen(
             ) { Text("TEST VOICE", color = androidx.compose.ui.graphics.Color.Black) }
         }
 
-        // ------------------------------------------------------------ PEOPLE
+        // PEOPLE
         Section("PEOPLE") {
             val granted = androidx.core.content.ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.READ_CONTACTS
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
             Text(
-                if (!granted) "Contacts permission: NOT granted — JARVIS cannot learn who anyone is."
+                if (!granted) "Contacts permission: NOT granted - JARVIS cannot learn who anyone is."
                 else "Contacts imported: ${peopleCount ?: 0}",
                 color = if (!granted) JarvisColors.Warmth else JarvisColors.TextPrimary,
                 fontSize = 12.sp
@@ -205,11 +218,11 @@ private fun DiagnosticsScreen(
             }) { Text("RE-SYNC CONTACTS", color = JarvisColors.Presence, fontSize = 11.sp) }
         }
 
-        // ------------------------------------------------------- BACKGROUND
+        // ALWAYS LISTENING
         Section("ALWAYS LISTENING") {
             Text(
                 if (alwaysListening) "\"Hey JARVIS\" service is enabled."
-                else "Always-on listening is off — use the mic button.",
+                else "Always-on listening is off - use the mic button.",
                 color = JarvisColors.TextPrimary, fontSize = 12.sp
             )
             Spacer(Modifier.height(6.dp))
@@ -233,7 +246,7 @@ private fun DiagnosticsScreen(
             }
         }
 
-        // ------------------------------------------------- DEFAULT ASSISTANT
+        // DEFAULT ASSISTANT
         Section("DEFAULT ASSISTANT") {
             Text(assistantStatus, color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
@@ -246,7 +259,7 @@ private fun DiagnosticsScreen(
             )
         }
 
-        // ------------------------------------------------------------- TOOLS
+        // TOOLS
         Section("TOOLS") {
             Text("$toolCount actions registered.", color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Text(
@@ -269,8 +282,3 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         content()
     }
 }
-
-private fun maskKey(key: String): String =
-    if (key.isBlank()) "none"
-    else if (key.length <= 10) "****"
-    else key.take(6) + "..." + key.takeLast(4)

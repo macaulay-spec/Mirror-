@@ -5,10 +5,8 @@
 #
 # Where to get them:
 #
-#   XAI         https://console.x.ai/          -> key starts with "AQ."
-#   GEMINI      https://aistudio.google.com/apikey   -> key starts with "AIzaSy"
-#   ELEVENLABS  https://elevenlabs.io                -> key starts with "sk_"
+#   NVIDIA      https://build.nvidia.com        -> key for NIM endpoint (OpenAI-compatible)
+#   ELEVENLABS  https://elevenlabs.io            -> key starts with "sk_"
 
-XAI_API_KEY=
-GEMINI_API_KEY=
+NVIDIA_API_KEY=
 ELEVENLABS_API_KEY=

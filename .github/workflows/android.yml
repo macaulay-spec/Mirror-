@@ -46,9 +46,10 @@ jobs:
 
       - name: Build Debug APK
         env:
-          # Fully hands-off CI: the project toolkit key ships with the build so
-          # every APK has a working AI brain, ElevenLabs voice and cloud STT.
-          EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY: 'rork_sk_yeafptr7q986eddfavd22hriwn2bv588'
+          # NVIDIA API key for AI (OpenAI-compatible endpoint)
+          NVIDIA_API_KEY: '${{ secrets.NVIDIA_API_KEY }}'
+          # ElevenLabs API key for TTS voices
+          ELEVENLABS_API_KEY: '${{ secrets.ELEVENLABS_API_KEY }}'
         run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload Debug APK

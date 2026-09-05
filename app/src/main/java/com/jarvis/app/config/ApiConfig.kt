@@ -37,15 +37,19 @@ object ApiConfig {
         val description: String
     )
 
+    // Cloud voice presets (2026-09-05): xAI grok-tts + OpenAI tts-1 via the
+    // managed gateway. The preset id IS the gateway voice parameter, so the
+    // selection in Settings maps 1:1 to what actually speaks.
     val PRESET_VOICES = listOf(
-        VoicePreset("JBFqnCBsd6RMkjVDRZzb", "George",    "British", "Male",   "Warm & Refined (Classic JARVIS)"),
-        VoicePreset("21m00Tcm4TlvDq8ikWAM", "Rachel",    "US",      "Female", "Calm & Natural"),
-        VoicePreset("pNInz6obpgDQGcFmaJgB", "Adam",      "US",      "Male",   "Deep & Authoritative"),
-        VoicePreset("N2lVS1w4EtoT3dr4eOWO", "Callum",    "British", "Male",   "Intense & Articulate"),
-        VoicePreset("Xb7hH8MSUJpSbSDYk0k2", "Alice",     "British", "Female", "Confident & Professional"),
-        VoicePreset("XB0fDUnXU5ikbmg1I5A3", "Charlotte", "Swedish", "Female", "Expressive & Pleasant"),
-        VoicePreset("nPczCjzI2devNBz1zQrb", "Brian",     "US",      "Male",   "Deep & Resonant Narrator"),
-        VoicePreset("ErXwobaYiN019PkySvjV", "Antoni",    "US",      "Male",   "Energetic & Crisp")
+        VoicePreset("rex",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
+        VoicePreset("eve",     "Eve",     "British", "Female", "Warm & Composed"),
+        VoicePreset("ara",     "Ara",     "US",      "Female", "Bright & Friendly"),
+        VoicePreset("sal",     "Sal",     "US",      "Male",   "Smooth & Casual"),
+        VoicePreset("leo",     "Leo",     "British", "Male",   "Youthful & Energetic"),
+        VoicePreset("onyx",    "Onyx",    "US",      "Male",   "Deep & Authoritative"),
+        VoicePreset("nova",    "Nova",    "US",      "Female", "Calm & Natural"),
+        VoicePreset("shimmer", "Shimmer", "US",      "Female", "Soft & Expressive"),
+        VoicePreset("echo",    "Echo",    "US",      "Male",   "Balanced & Clear")
     )
 
     // Runtime state
@@ -55,9 +59,9 @@ object ApiConfig {
         private set
     var isOnboardingCompleted: Boolean = false
         private set
-    var voiceEngineType: String = "elevenlabs"
+    var voiceEngineType: String = "cloud"
         private set
-    var selectedVoiceId: String = "JBFqnCBsd6RMkjVDRZzb"
+    var selectedVoiceId: String = "rex"
         private set
 
     // Custom key entered by the user in Settings
@@ -108,19 +112,24 @@ object ApiConfig {
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
-        "nvidia_glm" -> "NVIDIA Llama 3.1 Nemotron 70B (Primary)"
-        "nvidia_nemotron" -> "NVIDIA Nemotron 4 340B"
-        "nvidia_mistral" -> "NVIDIA Mistral Large 2"
-        "nvidia_llama" -> "NVIDIA Llama 3.2 90B Vision"
+        "nvidia_glm" -> "NVIDIA Nemotron 3 Super 120B (Primary)"
+        "nvidia_nemotron" -> "NVIDIA Nemotron 3 Ultra 550B (Deep Think)"
+        "nvidia_mistral" -> "Mistral Nemotron"
+        "nvidia_llama" -> "MiniMax M3"
         else -> activeProvider.replaceFirstChar { it.uppercase() }
     }
 
-    // NVIDIA Multi-Model Integration
+    // NVIDIA Multi-Model Integration — two-tier brain (2026-09-05).
+    // Tier 1: Nemotron 3 Super 120B — measured ~250ms on live calls; fast enough
+    //   for human-pace conversation while staying fully agentic.
+    // Tier 2: Nemotron 3 Ultra 550B — flagship reasoning for deep-think requests.
+    // Tier 3/4: fallbacks verified live on 2026-09-05. mistral-large-2-instruct
+    // and kimi-k2.6 returned 404 Not Found on NVIDIA's platform and are removed.
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    const val NVIDIA_GLM_MODEL = "meta/llama-3.2-11b-vision-instruct" // Primary
-    const val NVIDIA_NEMOTRON_MODEL = "meta/llama-3.2-90b-vision-instruct"   // Fallback 1
-    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "meta/llama-3.2-11b-vision-instruct" // Fallback 2
-    const val NVIDIA_LLAMA_MODEL = "meta/llama-3.2-90b-vision-instruct"   // Fallback 3
+    const val NVIDIA_GLM_MODEL = "nvidia/nemotron-3-super-120b-a12b"          // Tier 1 primary (verified live)
+    const val NVIDIA_NEMOTRON_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"     // Tier 2 deep think
+    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "mistralai/mistral-nemotron"    // Fallback 2 (verified live)
+    const val NVIDIA_LLAMA_MODEL = "minimaxai/minimax-m3"                     // Fallback 3 (verified live)
 
     // Provider fallback chain (per NVIDIA_MULTI_MODEL_PROMPT.md)
     val PROVIDER_FALLBACK_CHAIN = listOf(
@@ -147,6 +156,42 @@ object ApiConfig {
         "nvidia_llama" -> NVIDIA_LLAMA_MODEL
         else -> NVIDIA_GLM_MODEL
     }
+
+    // ---- Two-tier brain routing -------------------------------------------
+
+    /** Utterance fragments that warrant the deep-think tier. Kept conservative. */
+    private val DEEP_THINK_HINTS = listOf(
+        "explain ", "why does", "why do", "why is", "how does", "compare ",
+        "analyze", "analyse", "pros and cons", "step by step", "walk me through",
+        "write me", "write a", "draft a", "compose", "essay", "strategy",
+        "solve", "calculate", "proof", "design a", "plan out"
+    )
+
+    /**
+     * Routes a user utterance to the right brain tier. Short conversational or
+     * command-style input stays on the fast tier (~250ms); long or reasoning-
+     * heavy requests are escalated to the 550B deep-think tier. The provider
+     * fallback chain still rescues a slow or dead tier automatically.
+     */
+    fun providerForUtterance(text: String): String {
+        if (text.length > 160) return "nvidia_nemotron"
+        val t = text.lowercase()
+        return if (DEEP_THINK_HINTS.any { it in t }) "nvidia_nemotron" else activeProvider
+    }
+
+    // ---- Rork Toolkit gateway (managed cloud voice) ------------------------
+
+    /** Toolkit base URL — hardcoded into the app (repo gets privated). */
+    const val TOOLKIT_URL: String = "https://toolkit.rork.com"
+
+    /**
+     * Gateway key — compiled into the app binary at build time from the project
+     * environment (EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY). Per the hardcode-
+     * everything decision the APK is self-contained; the repo keeps only this
+     * build-time reference until privatization.
+     */
+    val TOOLKIT_SECRET_KEY: String
+        get() = BuildConfig.TOOLKIT_SECRET_KEY
 
     // Optional connectors
     const val GOOGLE_STT_API_KEY = ""
@@ -210,8 +255,8 @@ object ApiConfig {
         userName = p.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         personalityTone = p.getString(PREF_KEY_AI_TONE, "jarvis_protocol") ?: "jarvis_protocol"
         isOnboardingCompleted = p.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
-        voiceEngineType = p.getString(PREF_KEY_VOICE_ENGINE, "elevenlabs") ?: "elevenlabs"
-        selectedVoiceId = p.getString(PREF_KEY_VOICE_ID, "JBFqnCBsd6RMkjVDRZzb") ?: "JBFqnCBsd6RMkjVDRZzb"
+        voiceEngineType = p.getString(PREF_KEY_VOICE_ENGINE, "cloud") ?: "cloud"
+        selectedVoiceId = p.getString(PREF_KEY_VOICE_ID, "rex") ?: "rex"
         customApiKey = p.getString(PREF_KEY_CUSTOM_API_KEY, null)?.takeIf { it.isNotBlank() }
         customProvider = p.getString(PREF_KEY_CUSTOM_PROVIDER, null)?.takeIf { it.isNotBlank() }
     }

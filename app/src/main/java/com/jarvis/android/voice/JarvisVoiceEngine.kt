@@ -178,11 +178,38 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         return ok
     }
 
-    /** Flush anything queued, then speak [text]. One-shot semantics. */
+    /** Flush anything queued, then speak [text]. One-shot semantics.
+     *
+     * Wave A latency fix: long replies are split into sentences BEFORE
+     * synthesis, so the first sentence starts playing while later ones
+     * are still being synthesized — perceived time-to-first-word drops
+     * by seconds on any reply longer than one sentence.
+     */
     fun speak(text: String) {
         if (text.isBlank()) return
         drainQueue()
-        speakQueued(text)
+        splitIntoSentences(text).forEach { speakQueued(it) }
+    }
+
+    /**
+     * Split a reply into natural spoken chunks (~<=220 chars) at sentence
+     * boundaries so each chunk synthesizes and plays independently.
+     */
+    private fun splitIntoSentences(text: String): List<String> {
+        val clean = text.replace(Regex("\\s+"), " ").trim()
+        val parts = Regex("(?<=[.!?])\\s+").split(clean).map { it.trim() }.filter { it.isNotBlank() }
+        if (parts.size <= 1) return listOf(clean)
+        val chunks = mutableListOf<String>()
+        val buffer = StringBuilder()
+        for (part in parts) {
+            if (buffer.isNotEmpty() && buffer.length + part.length + 1 > 220) {
+                chunks.add(buffer.toString().trim())
+                buffer.clear()
+            }
+            buffer.append(if (buffer.isEmpty()) part else " $part")
+        }
+        if (buffer.isNotBlank()) chunks.add(buffer.toString().trim())
+        return chunks.ifEmpty { listOf(clean) }
     }
 
     /** Queue a sentence without flushing what is already playing (streaming TTS). */

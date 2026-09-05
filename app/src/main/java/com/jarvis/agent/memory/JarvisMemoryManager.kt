@@ -74,6 +74,59 @@ class JarvisMemoryManager(context: Context) {
                     repository.remember(clean, type = "preference", importance = 80)
                 }
             }
+            // Wave B learning: durable self-facts surface from ordinary
+            // conversation — memory grows even when the user never says "remember".
+            if (!containsSensitive(lower)) {
+                extractImplicitFacts(text)
+            }
+        }
+    }
+
+    /**
+     * Quietly lifts durable self-facts ("my name is…", "I live in…",
+     * "my sister is…", "I work at…", "I'm allergic to…") out of ordinary
+     * conversation and files them as long-term facts. No extra model call:
+     * pattern-based, near-zero cost, deduplicated by the repository.
+     */
+    private suspend fun extractImplicitFacts(raw: String) {
+        val text = raw.trim()
+        if (text.length < 8) return
+        val namePattern = Regex("""(?i)\b(?:my name is|call me)\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)""")
+        val placePattern = Regex("""(?i)\bI live in\s+([^.,!?\n]{2,60})""")
+        val basedPattern = Regex("""(?i)\bI(?:'| a)m (?:based in|moving to)\s+([^.,!?\n]{2,60})""")
+        val workPattern = Regex("""(?i)\bI work (?:at|for)\s+([^.,!?\n]{2,60})""")
+        val relationPattern = Regex(
+            """(?i)\bmy (?:sister|brother|wife|husband|mother|father|mom|dad|daughter|son|partner|boss|best friend|friend)('s name)?\s+is\s+([A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*)?)""")
+        val allergyPattern = Regex("""(?i)\bI(?:'| a)m allergic to\s+([^.,!?\n]{2,60})""")
+
+        namePattern.find(text)?.let { match ->
+            val name = match.groupValues[1].trim()
+            if (name.isNotBlank()) {
+                val fact = if (match.value.contains("call me", ignoreCase = true))
+                    "The user likes to be called $name" else "The user's name is $name"
+                repository.remember(fact, type = "fact", importance = 85)
+            }
+        }
+        placePattern.find(text)?.let {
+            repository.remember("The user lives in ${it.groupValues[1].trim()}", type = "fact", importance = 75)
+        }
+        basedPattern.find(text)?.let {
+            repository.remember("The user is based in/moving to ${it.groupValues[1].trim()}", type = "fact", importance = 75)
+        }
+        workPattern.find(text)?.let {
+            repository.remember("The user works at ${it.groupValues[1].trim()}", type = "fact", importance = 75)
+        }
+        relationPattern.find(text)?.let { match ->
+            val name = (if (match.groupValues[2].isNotBlank()) match.groupValues[2] else match.groupValues[1]).trim()
+            if (name.isNotBlank() && !name.equals("is", ignoreCase = true)) {
+                repository.remember(
+                    match.value.trim().replaceFirstChar { it.uppercase() },
+                    type = "fact", importance = 78
+                )
+            }
+        }
+        allergyPattern.find(text)?.let {
+            repository.remember("The user is allergic to ${it.groupValues[1].trim()}", type = "fact", importance = 90)
         }
     }
 

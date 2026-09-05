@@ -30,6 +30,9 @@ object ToolRegistration {
         // Events, reminders, alarms, navigation, clipboard, screenshots
         LifeTools.registerAll()
 
+        // Boost mode, app hogs, storage pressure — JARVIS keeps the phone fast
+        PhoneOptimizationTools.registerAll()
+
         // The switches JARVIS controls about itself, reachable by voice
         ProactiveTools.registerAll()
     }

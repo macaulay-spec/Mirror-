@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
@@ -80,6 +81,7 @@ class JarvisFloatingOrbService : Service() {
 
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
+    private var overlayLifecycleOwner: ServiceLifecycleOwner? = null
     private lateinit var params: WindowManager.LayoutParams
 
     /** Direct reference to the orchestrator — lives on the Application, not the Activity. */
@@ -111,6 +113,7 @@ class JarvisFloatingOrbService : Service() {
 
         val composeView = ComposeView(this)
         val lifecycleOwner = ServiceLifecycleOwner()
+        overlayLifecycleOwner = lifecycleOwner
         lifecycleOwner.start()
         composeView.setViewTreeLifecycleOwner(lifecycleOwner)
         composeView.setViewTreeViewModelStoreOwner(null)
@@ -173,12 +176,15 @@ class JarvisFloatingOrbService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (isDragging) {
-                        // Snap to nearest edge (design spec: within ~48dp of edge)
+                        // Snap to nearest edge. params.x is the view's LEFT edge,
+                        // so the right-edge snap must subtract the view width —
+                        // otherwise the orb parks fully off-screen and is lost.
                         val metrics = resources.displayMetrics
-                        val screenWidth = metrics.widthPixels
-                        val snapX = if (params.x + (composeView.width / 2) > screenWidth / 2)
-                            screenWidth else 0
+                        val viewWidth = if (composeView.width > 0) composeView.width else 200
+                        val snapX = if (params.x + (viewWidth / 2) > metrics.widthPixels / 2)
+                            metrics.widthPixels - viewWidth else 0
                         params.x = snapX
+                        params.y = params.y.coerceIn(0, metrics.heightPixels - viewWidth)
                         windowManager?.updateViewLayout(composeView, params)
                         true
                     } else {
@@ -241,8 +247,14 @@ class JarvisFloatingOrbService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        // Tear the composition down properly: without DESTROYED + dispose, the
+        // recomposer and JarvisCore's infinite animations keep running against
+        // a detached window after the orb is dismissed.
+        overlayLifecycleOwner?.markDestroyed()
+        (floatingView as? ComposeView)?.let { try { it.disposeComposition() } catch (_: Exception) {} }
         floatingView?.let { try { windowManager?.removeView(it) } catch (_: Exception) {} }
         floatingView = null
+        overlayLifecycleOwner = null
         isRunning = false
         super.onDestroy()
     }
@@ -318,10 +330,11 @@ private fun OrbOverlayContent(
             if (!lastReply.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(5.dp))
                 Text(
-                    text = lastReply.take(42),
+                    text = lastReply.replace("\n", " ").take(42),
                     color = JarvisColors.TextSecondary,
                     fontSize = 11.sp,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -384,5 +397,9 @@ private class ServiceLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
         savedStateController.performAttach()
         savedStateController.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
+    }
+
+    fun markDestroyed() {
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 }

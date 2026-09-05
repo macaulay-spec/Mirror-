@@ -20,10 +20,25 @@ class MemoryRepository(private val db: AppDatabase) {
     suspend fun forget(q: String) = memoryDao.deleteWhere("%$q%")
     suspend fun wipe() = memoryDao.clear()
 
+    /**
+     * Wave B recall fix: rank memories by how many query terms they hit,
+     * then importance, then recency — instead of unranked substring filtering.
+     * Top 8 keeps the prompt budget tight while surfacing what matters.
+     */
     suspend fun recall(q: String): List<MemoryEntity> {
         val all = memoryDao.snapshot()
-        val terms = q.lowercase().split(" ")
-        return all.filter { m -> terms.any { it.length > 2 && m.content.lowercase().contains(it) } }
+        val terms = q.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
+        if (terms.isEmpty()) return emptyList()
+        return all
+            .map { memory -> memory to terms.count { memory.content.lowercase().contains(it) } }
+            .filter { (_, hits) -> hits > 0 }
+            .sortedWith(
+                compareByDescending<Pair<MemoryEntity, Int>> { it.second }
+                    .thenByDescending { it.first.importance }
+                    .thenByDescending { it.first.updatedAt }
+            )
+            .take(8)
+            .map { it.first }
     }
 
     suspend fun addConversation(role: String, text: String, sessionId: String = "default") =

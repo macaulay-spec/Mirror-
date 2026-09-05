@@ -71,12 +71,25 @@ class JarvisAIEngine(private val context: Context) {
                 """.trimIndent()
             } else {
                 """
-                [SCREEN ACCESSIBILITY: DISABLED]
-                - Jarvis Accessibility Service is NOT currently enabled in Android Settings.
-                - You CANNOT see what is on screen or tap UI elements.
-                - If the user asks you to see the screen, tap a button, or asks if you see text, DO NOT GUESS OR LIE. Explicitly inform the user: "My Accessibility Service is currently disabled in Android settings. Please enable Jarvis in Accessibility settings so I can see and interact with your screen."
+                [SCREEN ACCESSIBILITY: UNAVAILABLE THIS SESSION]
+                - The Jarvis Accessibility Service is not enabled, so screen reading and UI tapping are unavailable right now.
+                - This is background capability info ONLY — it is NOT a topic of conversation.
+                - NEVER bring this up on its own. Do not mention it for greetings, small talk, questions, memories, or anything that does not need the screen. Respond normally to those.
+                - Mention it ONLY if the user's current request explicitly requires seeing or touching the screen (e.g. "read my screen", "tap the button"), and then in one short natural sentence at the END of your reply.
+                - Never open a reply with it. Never repeat it every turn.
                 """.trimIndent()
             }
+
+            // Wave A brain-context fix: the model previously had NO idea what
+            // time it was, so "tomorrow 8am" / "in 20 minutes" were guessed.
+            val timeFmt = java.text.SimpleDateFormat("EEEE, d MMMM yyyy 'at' h:mm a", java.util.Locale.US)
+            val now = java.util.Calendar.getInstance().time
+            val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? android.os.BatteryManager
+            val batteryPct = batteryManager?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            val isCharging = try { batteryManager?.isCharging == true } catch (_: Exception) { false }
+            val batteryLine = if (batteryPct > 0)
+                "- Battery: $batteryPct percent${if (isCharging) " (charging)" else ""}."
+            else ""
 
             return """
 You are JARVIS, an elite, highly intelligent, and proactive autonomous AI operating layer for Android.
@@ -84,7 +97,11 @@ Your primary user is $name.
 
 $toneInstruction
 
+CURRENT TIME (authoritative): ${timeFmt.format(now)} ${java.util.TimeZone.getDefault().id}
+Resolve every relative time ("tomorrow", "tonight", "in 20 minutes") against this. Never ask the user what time or day it is.
+
 Current device context:
+$batteryLine
 - Active package/app: ${session.currentApp}
 - Ongoing background task: ${session.currentTask}
 - Last executed action: ${session.lastAction} (Result: ${session.lastActionResult})
@@ -94,7 +111,7 @@ $a11yStatus
 CRITICAL INSTRUCTIONS:
 1. CAPABILITY: You are deeply integrated into the Android system. You can interact with UI elements, read screen contents, toggle hardware states, send messages, fetch data from the web, and synthesize memories.
 2. PROACTIVITY & MEMORY: Utilize your long-term memory graph to remember preferences, people, and context. If asked about previous events, check your context graph.
-3. REAL SCREEN GROUNDING: Never hallucinate seeing on-screen buttons or text that are not listed in your active screen context. If accessibility is disabled, tell the user to enable it.
+3. REAL SCREEN GROUNDING: Never hallucinate seeing on-screen buttons or text that are not listed in your active screen context. Only bring up the accessibility service when the user's request actually needs the screen — never volunteer it, never open with it, never nag.
 4. TOOL CALLING: You have native function-calling abilities. ONLY call a tool if it is absolutely necessary to fulfill the user's specific request. If the user is just saying hello or making general conversation, DO NOT call any tools. Just reply directly.
 5. PROBLEM SOLVING: Think step-by-step for complex requests. If a tool fails, dynamically adapt and try an alternative approach.
 6. SAFETY: For irreversible or high-risk actions (sending emails, making calls, modifying critical settings), prompt the user for confirmation.
@@ -119,10 +136,11 @@ CRITICAL INSTRUCTIONS:
             memoryManager.updateSessionContext(app = activeApp, task = "processing", action = null, result = null, details = null)
             memoryManager.addConversation("user", input, sessionId)
 
-            val isChat = isConversational(input)
-
-            // Retrieve memory context only if not a pure greeting/chat
-            val relevantMemories = if (isChat) emptyList() else memoryManager.recallRelevant(input)
+            // A-002 fix: every utterance gets the same treatment — memory recall
+            // and tool access. The model decides conversational vs. action (its
+            // system prompt already forbids tool calls for pure chat); no keyword
+            // buckets deciding what the user "meant" before the AI sees it.
+            val relevantMemories = memoryManager.recallRelevant(input)
             val recentConv = memoryManager.conversationForSession(sessionId).takeLast(10)
             val history = recentConv.map { it.role to it.text }.toMutableList()
             // Inject real-time screen inspection into history
@@ -133,7 +151,10 @@ CRITICAL INSTRUCTIONS:
                 val textSummary = if (texts.isNotEmpty()) texts.joinToString(" | ") else "No text detected"
                 "[Active Screen: app=$pkg, visible_texts=[$textSummary]]"
             } else {
-                "[Active Screen: Accessibility Service DISABLED in system settings. Cannot read screen or click elements.]"
+                // Quiet capability note. A loud "DISABLED" banner injected next to the
+                // user's message made the model parrot the accessibility nag on every
+                // input (e.g. replying to a bare "I" with the enable-it speech).
+                "[Background note: screen reading is unavailable this session. Ignore this unless the request needs the screen — do not mention it unprompted.]"
             }
             history.add(0, "system" to screenContext)
 
@@ -158,13 +179,13 @@ CRITICAL INSTRUCTIONS:
                 )
             }
 
-            // All other commands — LLM with real function calling
-            // For pure conversational queries, disable tools for instant sub-second response
+            // All other commands — LLM with real function calling.
+            // The model, not a keyword list, decides whether tools are needed.
             val agentResult = agentExecutor.executeTask(
                 systemPrompt = systemPrompt,
                 initialHistory = history,
                 userMessage = input,
-                allowTools = !isChat,
+                allowTools = true,
                 onChunk = onChunk,
                 onStepUpdate = onStepUpdate,
                 onComplete = onComplete
@@ -184,30 +205,6 @@ CRITICAL INSTRUCTIONS:
             memoryManager.addConversation("jarvis", finalResult.reply, sessionId)
             finalResult
         }
-
-    private fun isConversational(input: String): Boolean {
-        val lower = input.lowercase().trim()
-        if (lower.contains("screen") || lower.contains("button") || lower.contains("tap") ||
-            lower.contains("click") || lower.contains("press") || lower.contains("read") ||
-            lower.contains("see") || lower.contains("look") || lower.contains("type") ||
-            lower.contains("scroll") || lower.contains("open") || lower.contains("launch") ||
-            lower.contains("send") || lower.contains("message") || lower.contains("call") ||
-            lower.contains("whatsapp") || lower.contains("setting") || lower.contains("turn") ||
-            lower.contains("enable") || lower.contains("disable") || lower.contains("find")
-        ) return false
-
-        val clean = lower.replace(Regex("[?!.,]"), "")
-        val conversationalPhrases = setOf(
-            "hi", "hello", "hey", "howdy", "sup", "yo", "good morning", "good evening", "good afternoon",
-            "how are you", "how are you doing", "how r u", "how is it going", "what's up", "whats up",
-            "who are you", "what is your name", "tell me about yourself", "what can you do", "help",
-            "thank you", "thanks", "ok", "okay", "cool", "nice", "awesome", "great", "good job",
-            "tell me a joke", "what is the meaning of life", "goodnight", "bye", "see you"
-        )
-        if (clean in conversationalPhrases) return true
-        if (clean.startsWith("hi ") || clean.startsWith("hello ") || clean.startsWith("hey ")) return true
-        return false
-    }
 
     /**
      * Fast-path handles only the four commands where sub-100ms matters.

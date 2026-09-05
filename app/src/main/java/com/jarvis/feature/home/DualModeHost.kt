@@ -136,9 +136,15 @@ fun DualModeHost(
         }
     }
 
-    LaunchedEffect(messages.size) {
+    val thinkingIndicatorVisible = visualState == JarvisVisualState.THINKING &&
+            messages.lastOrNull()?.role == MessageRole.USER
+    LaunchedEffect(messages.size, thinkingIndicatorVisible) {
         if (messages.isNotEmpty() && stageMode == StageMode.CONVERSATION) {
-            listState.animateScrollToItem(messages.size - 1)
+            // With the thinking indicator appended, its index IS messages.size;
+            // otherwise the last message is the target.
+            listState.animateScrollToItem(
+                if (thinkingIndicatorVisible) messages.size else messages.size - 1
+            )
         }
     }
 
@@ -502,6 +508,33 @@ private fun VoiceStageView(
     val audioLevel by VoiceBus.audioLevel.collectAsState()
     val transcript by VoiceBus.transcript.collectAsState()
 
+    // Phase 6 micro-interaction: a haptic pulse the moment JARVIS wakes,
+    // listens, or starts doing something — you FEEL the state change.
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    LaunchedEffect(visualState) {
+        when (visualState) {
+            JarvisVisualState.WAKING,
+            JarvisVisualState.LISTENING,
+            JarvisVisualState.EXECUTING -> haptic.performHapticFeedback(
+                androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
+            )
+            else -> {}
+        }
+    }
+
+    // Phase 6: while rex speaks, the orb ripples with a synthesized voice
+    // envelope instead of sitting static — the orb is the speaker.
+    val pulseTransition = rememberInfiniteTransition(label = "speakPulse")
+    val speakPulse by pulseTransition.animateFloat(
+        initialValue = 0.14f,
+        targetValue = 0.58f,
+        animationSpec = infiniteRepeatable(
+            tween(430, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ),
+        label = "speakPulse"
+    )
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -533,9 +566,12 @@ private fun VoiceStageView(
         ) {
             JarvisCore(
                 state = visualState,
-                audioLevel = if (visualState == JarvisVisualState.LISTENING)
-                    (0.3f + audioLevel * 0.7f).coerceIn(0f, 1f)
-                else if (visualState == JarvisVisualState.SPEAKING) 0.35f else 0f,
+                audioLevel = when {
+                    visualState == JarvisVisualState.LISTENING ->
+                        (0.3f + audioLevel * 0.7f).coerceIn(0f, 1f)
+                    visualState == JarvisVisualState.SPEAKING -> speakPulse
+                    else -> 0f
+                },
                 size = 250.dp,
                 onClick = onOrbTap
             )
@@ -673,6 +709,8 @@ private fun ConversationView(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onOrbTap: () -> Unit
 ) {
+    // Only the actively pending request keeps tappable Confirm/Cancel buttons.
+    val pendingConfirmation by orchestrator.pendingConfirmation.collectAsState()
     Column(modifier = Modifier.fillMaxSize()) {
         if (messages.isEmpty()) {
             Box(
@@ -712,6 +750,7 @@ private fun ConversationView(
                                 (visualState == JarvisVisualState.THINKING ||
                                         visualState == JarvisVisualState.SPEAKING ||
                                         visualState == JarvisVisualState.EXECUTING),
+                        confirmationActive = msg.toolCall == pendingConfirmation,
                         onConfirmTool = { req -> orchestrator.confirmToolExecution(req) },
                         onRejectTool = { orchestrator.rejectToolExecution() }
                     )
@@ -754,6 +793,7 @@ private fun ConversationView(
 private fun ChatMessageItem(
     message: AssistantMessage,
     showStreamingCursor: Boolean = false,
+    confirmationActive: Boolean = true,
     onConfirmTool: (com.jarvis.core.model.ToolExecutionRequest) -> Unit,
     onRejectTool: (() -> Unit)? = null
 ) {
@@ -812,7 +852,11 @@ private fun ChatMessageItem(
                     }
 
                     // Tool confirmation card (risk >= 2)
-                    if (message.toolCall != null &&
+                    // Only the actively pending request keeps tappable buttons:
+                    // once confirm/reject clears pendingConfirmation the card
+                    // vanishes, so a risky action can never fire twice.
+                    if (confirmationActive &&
+                        message.toolCall != null &&
                         message.toolCall.requiresConfirmation &&
                         message.toolResult == null
                     ) {

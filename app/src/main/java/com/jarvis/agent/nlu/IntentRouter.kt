@@ -37,7 +37,8 @@ object IntentRouter {
     const val INTENT_REPLY = "reply_to_notification"
 
     private val CANCEL_WORDS = setOf(
-        "stop", "cancel", "nevermind", "never mind", "forget it", "abort", "enough", "quit"
+        "stop", "cancel", "nevermind", "never mind", "forget it", "abort", "enough", "quit",
+        "don't do that", "dont do that", "do not do that", "stop that"
     )
     private val YES_WORDS = setOf("yes", "yeah", "yep", "sure", "go ahead", "do it", "send it", "okay", "ok", "confirm", "fine")
     private val NO_WORDS = setOf("no", "nope", "nah", "don't", "dont", "cancel that", "not now")
@@ -125,6 +126,10 @@ object IntentRouter {
         val verb = listOf("send a message to", "send message to", "send sms to", "text", "message", "sms", "tell")
             .firstOrNull { lower.startsWith("$it ") }
             ?: return null
+
+        // "tell me a joke" / "tell me about yourself" is conversation for the AI,
+        // not an SMS to a contact named "me". ("tell Sarah I'm late" still works.)
+        if (lower.startsWith("tell me")) return null
 
         val rest = raw.substring(verb.length).trim()
         if (rest.isBlank()) return ParsedIntent(INTENT_SMS, mutableMapOf("contact" to "", "message" to ""))

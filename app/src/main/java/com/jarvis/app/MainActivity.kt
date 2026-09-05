@@ -5,11 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -61,11 +63,16 @@ class MainActivity : ComponentActivity() {
         startWakeWordServiceIfAllowed()
 
         setContent {
-            var isOnboarding by remember { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
-            var showSettings by remember { mutableStateOf(false) }
-            var currentDest by remember { mutableStateOf("home") }
-            val voiceTts = remember {
-                runCatching { com.jarvis.app.voice.ElevenLabsTts(applicationContext) }.getOrNull()
+            // rememberSaveable: rotation / process death no longer dumps the
+            // user from Settings or a sub-screen back to the home deck.
+            var isOnboarding by rememberSaveable { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
+            var showSettings by rememberSaveable { mutableStateOf(false) }
+            var currentDest by rememberSaveable { mutableStateOf("home") }
+
+            // System Back leaves a sub-screen instead of finishing the Activity.
+            BackHandler(enabled = showSettings || currentDest != "home") {
+                showSettings = false
+                currentDest = "home"
             }
 
             LaunchedEffect(Unit) {
@@ -104,22 +111,9 @@ class MainActivity : ComponentActivity() {
                         "memory" -> com.jarvis.feature.memory.MemoryPeopleScreen(
                             onBack = { currentDest = "home" }
                         )
-                        "voice" -> {
-                            if (voiceTts != null) {
-                                com.jarvis.feature.voice.VoiceSelectionScreen(
-                                    tts = voiceTts,
-                                    onContinue = { currentDest = "home" },
-                                    onSkip = { currentDest = "home" }
-                                )
-                            } else {
-                                DualModeHost(
-                                    orchestrator = orchestrator,
-                                    onOpenSettings = { showSettings = true },
-                                    onToggleVoice = { handleVoiceToggle() },
-                                    onNavigate = { currentDest = it }
-                                )
-                            }
-                        }
+                        "voice" -> com.jarvis.feature.voice.VoiceRoomScreen(
+                            onDone = { currentDest = "home" }
+                        )
                         else -> DualModeHost(
                             orchestrator = orchestrator,
                             onOpenSettings = { showSettings = true },
@@ -140,7 +134,9 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra("WAKE_WORD_ACTIVATED", false)) {
             // FIX: Delegate to voiceBridge which properly handles wake word detection
             // and connects it to the voice pipeline
-            app.voiceBridge?.onWakeWordDetected()
+            // If the bridge failed to create, fall back to the direct engine
+            // path — a warm-start wake-word tap must never be silently dropped.
+            app.voiceBridge?.onWakeWordDetected() ?: handleVoiceToggle()
             intent.removeExtra("WAKE_WORD_ACTIVATED")
         }
     }

@@ -5,6 +5,7 @@ import com.jarvis.agent.ai.AgentExecutor
 import com.jarvis.agent.ai.JarvisAIEngine
 import com.jarvis.agent.ai.plan.AgentStep
 import com.jarvis.agent.dialogue.DialogueManager
+import com.jarvis.agent.nlu.IntentRouter
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.app.config.ApiConfig
@@ -17,6 +18,7 @@ import com.jarvis.core.model.ToolExecutionRequest
 import com.jarvis.core.model.ToolExecutionResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +49,14 @@ class AssistantOrchestrator(
     private val aiEngine = JarvisAIEngine(context)
     private val dialogueManager = DialogueManager(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // ── Turn generation (master spec §80, L-003/L-004) ──
+    // Every turn owns a generation id. New input or a stop bumps it; every
+    // async callback (stream chunk, tool result, TTS queue) must verify it is
+    // still current before touching UI, memory or speech.
+    @Volatile
+    private var turnGeneration = 0L
+    private var currentTurnJob: Job? = null
 
     private val _visualState = MutableStateFlow(JarvisVisualState.IDLE)
     val visualState: StateFlow<JarvisVisualState> = _visualState.asStateFlow()
@@ -158,13 +168,58 @@ class AssistantOrchestrator(
         addMessage(AssistantMessage(role = MessageRole.SYSTEM, text = text))
     }
 
-    suspend fun submitUserInput(userInput: String) = processUserCommand(userInput)
+    /** True while a user turn (AI stream, tool loop) is still running. */
+    val isTurnActive: Boolean
+        get() = currentTurnJob?.isActive == true
+
+    /**
+     * §80 / L-003: global cancellation. Stops the AI stream, the tool loop,
+     * queued speech, and clears dialogue state. Late callbacks for the old
+     * generation are ignored (L-004).
+     */
+    fun cancelActive() {
+        turnGeneration++
+        currentTurnJob?.cancel()
+        currentTurnJob = null
+        voiceEngine?.stopSpeaking()
+        _pendingConfirmation.value = null
+        dialogueManager.cancel()
+        com.jarvis.app.tools.MessagingAutomation.clearPending()
+        resetTaskExecution()
+    }
+
+    /**
+     * §80: "Stop." / "don't do that" while JARVIS is busy cancels the active
+     * response/task instead of reaching the brain. Any other input barges in:
+     * current speech stops and the in-flight turn is superseded (V-011).
+     */
+    fun submitUserInput(userInput: String) {
+        val text = userInput.trim()
+        if (text.isEmpty()) return
+
+        if (IntentRouter.isCancel(text) && (isTurnActive || voiceEngine?.isSpeaking == true)) {
+            cancelActive()
+            addMessage(AssistantMessage(role = MessageRole.JARVIS, text = "Stopped."))
+            speak("Stopped.")
+            return
+        }
+
+        // Barge-in only when something is actually running. With a confirmation
+        // card pending (turn finished), the input must reach DialogueManager
+        // intact so "yes" / "don't do that" / corrections resolve there.
+        if (isTurnActive || voiceEngine?.isSpeaking == true) {
+            cancelActive()
+        }
+        currentTurnJob = scope.launch { processUserCommand(text) }
+    }
 
     fun confirmToolExecution(request: ToolExecutionRequest) {
-        scope.launch {
+        val generation = ++turnGeneration
+        currentTurnJob = scope.launch {
             _pendingConfirmation.value = null
             setVisualState(JarvisVisualState.EXECUTING)
             val result = ToolRegistry.execute(context, request)
+            if (generation != turnGeneration) return@launch
             handleExecutionResult(result)
         }
     }
@@ -192,14 +247,10 @@ class AssistantOrchestrator(
     }
 
     fun emergencyStop() {
-        voiceEngine?.stopSpeaking()
+        cancelActive()
         voiceEngine?.stopListening()
         setVisualState(JarvisVisualState.IDLE)
-        _pendingConfirmation.value = null
-        dialogueManager.cancel()
-        com.jarvis.app.tools.MessagingAutomation.clearPending()
         addMessage(AssistantMessage(role = MessageRole.SYSTEM, text = "All active tasks halted."))
-        resetTaskExecution()
     }
 
     /**
@@ -218,8 +269,14 @@ class AssistantOrchestrator(
     private suspend fun processUserCommand(userInput: String) {
         if (userInput.isBlank()) return
 
+        val generation = ++turnGeneration
+        fun isCurrent(): Boolean = generation == turnGeneration
+
         addMessage(AssistantMessage(role = MessageRole.USER, text = userInput))
         setVisualState(JarvisVisualState.THINKING)
+
+        // Barge-in (V-011): cut off any speech still playing from the previous turn.
+        voiceEngine?.stopSpeaking()
 
         val activeSessionId = _currentSessionId.value
         scope.launch(Dispatchers.IO) {
@@ -233,6 +290,7 @@ class AssistantOrchestrator(
 
         try {
             val turnResult = dialogueManager.handle(userInput)
+            if (!isCurrent()) return
 
             if (turnResult.handled) {
                 // Dialogue manager handled it (local intent, slot filling, confirmation)
@@ -282,7 +340,7 @@ class AssistantOrchestrator(
                     userInput,
                     sessionId = activeSessionId,
                     onChunk = { chunk ->
-                        if (chunk.isNotEmpty()) {
+                        if (chunk.isNotEmpty() && isCurrent()) {
                         streamedAny = true
                         streamBuf.append(chunk)
 
@@ -315,18 +373,23 @@ class AssistantOrchestrator(
                         }
                     },
                     onStepUpdate = { steps, stepIndex ->
-                        _currentSteps.value = steps
-                        _currentStepIndex.value = stepIndex
+                        if (generation == turnGeneration) {
+                            _currentSteps.value = steps
+                            _currentStepIndex.value = stepIndex
+                        }
                     },
                     onComplete = { result, success ->
-                        _taskFinalResult.value = result
-                        _isTaskExecuting.value = false
-                        if (success) {
-                            _currentStepIndex.value = _currentSteps.value.lastIndex
+                        if (generation == turnGeneration) {
+                            _taskFinalResult.value = result
+                            _isTaskExecuting.value = false
+                            if (success) {
+                                _currentStepIndex.value = _currentSteps.value.lastIndex
+                            }
                         }
                     }
                 )
 
+                if (!isCurrent()) return
                 val finalText = com.jarvis.agent.ai.ReplySanitizer.sanitize(engineResult.reply)
                 if (streamedAny) {
                     // Replace the streamed bubble with the authoritative final
@@ -366,6 +429,7 @@ class AssistantOrchestrator(
                 }
             }
         } catch (e: Exception) {
+            if (generation != turnGeneration) return  // turn was cancelled — no stale error message
             val errorText = "Something went wrong: ${e.localizedMessage ?: "unknown error"}"
             addMessage(AssistantMessage(role = MessageRole.JARVIS, text = errorText))
             _taskFinalResult.value = errorText

@@ -7,6 +7,7 @@ import com.jarvis.agent.ai.plan.StepStatus
 import com.jarvis.agent.memory.JarvisMemoryManager
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.app.assistant.JarvisApiClient
+import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
@@ -70,6 +71,9 @@ class AgentExecutor(
         val plan = AgentPlan(goal = userMessage)
         val history = initialHistory.toMutableList()
         var currentInput = userMessage
+        // Two-tier brain: route hard requests to the deep-think tier up front;
+        // everything else stays on the fast conversation tier.
+        val provider = ApiConfig.providerForUtterance(userMessage)
         var lastToolVerification: String? = null
         var lastToolResult: ToolExecutionResult? = null
         var stepIndex = 0
@@ -86,6 +90,7 @@ class AgentExecutor(
                 systemPrompt = systemPrompt,
                 history = history,
                 userMessage = currentInput,
+                provider = provider,
                 allowTools = shouldAllowTools,
                 onDelta = { delta ->
                     streamedChars += delta.length

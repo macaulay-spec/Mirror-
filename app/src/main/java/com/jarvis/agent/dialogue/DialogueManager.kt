@@ -81,7 +81,14 @@ class DialogueManager(private val context: Context) {
                     val result = ToolRegistry.execute(context, request)
                     TurnResult(true, result.verificationDetails ?: result.error, result)
                 }
-                else -> TurnResult(true, "Yes or no? ${describeRequest(request)}")
+                else -> {
+                    // Not yes/no/cancel — the user changed the request ("actually,
+                    // send it to Daniel instead"). Drop the stale confirmation and
+                    // let the fresh utterance flow through the normal pipeline.
+                    pendingConfirm = null
+                    _pendingConfirmation.value = null
+                    TurnResult(false)
+                }
             }
         }
 

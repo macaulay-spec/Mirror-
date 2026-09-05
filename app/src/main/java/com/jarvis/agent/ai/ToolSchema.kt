@@ -21,9 +21,14 @@ object ToolSchema {
         "call_contact" to listOf("contact", "number", "number_type"),
         "send_sms" to listOf("contact", "number", "message"),
         "send_whatsapp" to listOf("contact", "number", "message"),
-        "set_alarm" to listOf("hour", "minute", "message"),
-        "set_timer" to listOf("seconds", "minutes", "message"),
-        "navigate_to" to listOf("destination", "query"),
+        "set_alarm" to listOf("when", "label"),
+        "set_timer" to listOf("duration"),
+        "set_reminder" to listOf("what", "when"),
+        "calendar_read" to listOf("when"),
+        "weather" to listOf("place"),
+        "email_draft" to listOf("to", "subject", "body"),
+        "nearby_search" to listOf("query"),
+        "navigate_to" to listOf("destination"),
         "contact_lookup" to listOf("contact", "name", "query"),
         "read_call_log" to listOf("limit"),
         "reply_to_notification" to listOf("app_name", "package_name", "reply_text"),
@@ -74,7 +79,7 @@ object ToolSchema {
     private val EXPOSED_CATEGORIES = setOf(
         "PHONE", "MESSAGING", "APPS", "DEVICE", "SCREEN", "NOTIFICATIONS", "WEB",
         "CALENDAR", "MEMORY", "MEDIA", "COMMUNICATION", "INTEGRATION", "USAGE",
-        "LOCATION", "ASSISTANT",
+        "LOCATION", "ASSISTANT", "INFORMATION",
         // CHANGED (forensic audit): NAVIGATION was missing from this set, which
         // meant navigate_to had no way to reach the model at all, on top of the
         // separate dead-end in DialogueManager.processIntent(). Both are fixed now.

@@ -47,6 +47,14 @@ object ElevenLabsVoicePlayer {
      */
     private const val GATEWAY_VOICE = "rex"
 
+    /**
+     * Cloud-only voice chain (2026-09-05): the managed gateway IS the voice of
+     * JARVIS. ElevenLabs is disabled entirely — its key expired and the owner
+     * decided the assistant must always speak with the cloud voice, never
+     * ElevenLabs. Kept as a flag so the code path is documented, not deleted.
+     */
+    private const val ELEVENLABS_ENABLED = false
+
     private var mediaPlayer: MediaPlayer? = null
 
     @Volatile
@@ -56,8 +64,13 @@ object ElevenLabsVoicePlayer {
     @Volatile
     private var quotaExceededUntil: Long = 0L
 
+    /** Cooldown timestamp if the Rork gateway returned auth/quota errors. */
+    @Volatile
+    private var gatewayCooldownUntil: Long = 0L
+
     fun resetCooldown() {
         quotaExceededUntil = 0L
+        gatewayCooldownUntil = 0L
     }
 
     /** Incremented on every new play/stop; stale completions are ignored. */
@@ -103,10 +116,23 @@ object ElevenLabsVoicePlayer {
                 return@withContext false
             }
 
+            // Barge-in FIRST: stop() bumps the generation counter, so myGen must
+            // be captured AFTER it. The old order (capture, then stop) made the
+            // staleness check below fire on every call and silently skipped the
+            // entire cloud chain — JARVIS never spoke a word.
+            stop()
             val myGen = generation.incrementAndGet()
-            stop()  // barge-in: stop any current playback before starting
 
-            for (endpoint in endpoints()) {
+            // PRIMARY VOICE (2026-09-05): the Rork managed gateway — xAI's 'rex',
+            // a deep British male. Zero user setup: the key is injected at build
+            // time. Tried FIRST so JARVIS's signature voice is the default, not
+            // the last resort before the robot voice.
+            if (myGen != generation.get()) return@withContext true
+            val gatewayOutcome = tryGatewaySpeech(context, text, myGen)
+            if (gatewayOutcome == true) return@withContext true
+
+            // ElevenLabs branch disabled (see ELEVENLABS_ENABLED) — cloud TTS only.
+            if (ELEVENLABS_ENABLED) for (endpoint in endpoints()) {
                 for (vid in voiceOrder(voiceId)) {
                     if (System.currentTimeMillis() < quotaExceededUntil) break
                     if (myGen != generation.get()) return@withContext true  // superseded by a newer utterance
@@ -118,17 +144,7 @@ object ElevenLabsVoicePlayer {
                 }
             }
 
-            // AUDIT FIX (2026-09-03): last cloud stop before the robot voice —
-            // Vercel AI Gateway speech via the Rork proxy (verified live), so
-            // a dead ElevenLabs account no longer degrades JARVIS to Android TTS.
-            if (myGen != generation.get()) return@withContext true
-            val gatewayOutcome = tryGatewaySpeech(context, text, myGen)
-            if (gatewayOutcome == true) {
-                VoiceDiagnostics.success("Gateway speech (xai/grok-tts, voice $GATEWAY_VOICE)")
-                return@withContext true
-            }
-
-            VoiceDiagnostics.report("ElevenLabs: all endpoints and voices failed — falling back to Android TTS")
+            VoiceDiagnostics.report("Voice chain exhausted — falling back to Android TTS")
             return@withContext false
         }
 
@@ -220,13 +236,101 @@ object ElevenLabsVoicePlayer {
      * returns JSON with base64 audio. Returns null when the request failed
      * and the caller should fall back further; otherwise the playback outcome.
      */
+    private data class GatewayVoice(val modelId: String, val voice: String)
+
+    /**
+     * Managed gateway voices, tried in order. 'rex' is the JARVIS persona
+     * (deep, British, male); openai/tts-1 'onyx' is the deep-male fallback
+     * from the legacy TTS voice set.
+     */
+    private val OPENAI_VOICES = setOf("onyx", "nova", "alloy", "echo", "fable", "shimmer")
+
+    /**
+     * Managed gateway voices: the user's selected cloud voice first, then the
+     * JARVIS persona (rex), then the deep-male fallback — so a missing voice
+     * can never leave JARVIS silent.
+     */
+    private fun gatewayVoices(): List<GatewayVoice> {
+        val selected = ApiConfig.selectedVoiceId
+        val model = if (selected.lowercase() in OPENAI_VOICES) "openai/tts-1" else "xai/grok-tts"
+        return listOf(
+            GatewayVoice(model, selected),
+            GatewayVoice("xai/grok-tts", GATEWAY_VOICE),
+            GatewayVoice("openai/tts-1", "onyx")
+        ).distinctBy { "${it.modelId}:${it.voice}" }
+    }
+
+    /**
+     * Vercel AI Gateway speech via the Rork Toolkit proxy. Returns JSON with
+     * base64 audio (not streamed binary). Returns null when every attempt
+     * failed and the caller should fall back further; otherwise the playback
+     * outcome. Auth-cooldowns after 401/402/403 so a missing key never delays
+     * the next utterance.
+     */
     private suspend fun tryGatewaySpeech(
         context: Context,
         text: String,
         myGen: Int
     ): Boolean? = withContext(Dispatchers.IO) {
-        // Disabled during NVIDIA migration as proxy keys are removed
-        return@withContext null
+        val key = ApiConfig.TOOLKIT_SECRET_KEY
+        if (key.isBlank()) return@withContext null  // gateway not provisioned in this build
+        if (System.currentTimeMillis() < gatewayCooldownUntil) return@withContext null
+
+        for (gv in gatewayVoices()) {
+            if (myGen != generation.get()) return@withContext true  // superseded
+            try {
+                val payload = JSONObject()
+                    .put("text", text)
+                    .put("voice", gv.voice)
+                    .put("outputFormat", "mp3")
+
+                val request = Request.Builder()
+                    .url("${ApiConfig.TOOLKIT_URL}/v2/vercel/v4/ai/speech-model")
+                    .header("Authorization", "Bearer $key")
+                    .header("Content-Type", "application/json")
+                    .header("ai-model-id", gv.modelId)
+                    .header("ai-gateway-protocol-version", "0.0.1")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val outcome = httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        VoiceDiagnostics.report("Gateway speech ${gv.modelId} HTTP ${response.code}")
+                        if (response.code in 401..403) {
+                            // 5 minute cooldown: a dead/absent key must not add
+                            // latency to every utterance.
+                            gatewayCooldownUntil = System.currentTimeMillis() + 300_000L
+                        }
+                        return@use null
+                    }
+
+                    val body = response.body?.string() ?: return@use null
+                    val audioB64 = JSONObject(body).optString("audio")
+                    if (audioB64.isBlank()) return@use null
+
+                    val audio = try {
+                        android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
+                    } catch (_: Exception) {
+                        return@use null
+                    }
+                    if (audio.size <= 512) return@use null  // empty/corrupt
+
+                    val tempFile = File.createTempFile("jarvis_tts_", ".mp3", context.cacheDir)
+                    tempFile.deleteOnExit()
+                    FileOutputStream(tempFile).use { it.write(audio) }
+
+                    startPlayback(tempFile, myGen)
+                }
+
+                if (outcome != null) {
+                    if (outcome) VoiceDiagnostics.success("Cloud speech ${gv.modelId} voice ${gv.voice}")
+                    return@withContext outcome
+                }
+            } catch (e: Exception) {
+                VoiceDiagnostics.report("Gateway speech ${gv.modelId} error: ${e.message}")
+            }
+        }
+        null
     }
 
     private suspend fun startPlayback(tempFile: File, myGen: Int): Boolean? =
@@ -255,8 +359,13 @@ object ElevenLabsVoicePlayer {
                         VoiceBus.setEngineState(JarvisVisualState.IDLE)
                     }
                 }
-                setOnErrorListener { _, what, extra ->
+                setOnErrorListener { mp, what, extra ->
                     VoiceDiagnostics.report("MediaPlayer error: $what/$extra")
+                    // Release the dead player and clean the temp file — leaving
+                    // either behind stalls every later playback attempt.
+                    try { mp.release() } catch (_: Exception) {}
+                    if (mediaPlayer === mp) mediaPlayer = null
+                    tempFile.delete()
                     done.complete(false)
                     true
                 }

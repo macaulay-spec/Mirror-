@@ -18,6 +18,7 @@ android {
         versionName = "2.0.0"
 
         // Keys are injected from CI secrets / local env at compile time — never committed.
+        buildConfigField("String", "GEMINI_API_KEY", "\"${System.getenv("GEMINI_API_KEY") ?: ""}\"")
         buildConfigField("String", "NVIDIA_API_KEY", "\"${System.getenv("NVIDIA_API_KEY") ?: ""}\"")
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"${System.getenv("ELEVENLABS_API_KEY") ?: ""}\"")
         // Rork Toolkit gateway: managed cloud TTS (xai/grok-tts) — no user key needed.

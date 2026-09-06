@@ -138,7 +138,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         requestAudioFocus()
 
         val elevenLabsStarted = runCatching {
-            com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(context, text, com.jarvis.app.config.ApiConfig.selectedVoiceId)
+            com.jarvis.app.voice.GeminiVoicePlayer.speak(context, text)
         }.getOrDefault(false)
 
         if (!elevenLabsStarted) {
@@ -188,7 +188,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     fun speak(text: String) {
         if (text.isBlank()) return
         drainQueue()
-        splitIntoSentences(text).forEach { speakQueued(it) }
+        speakQueued(text) // No splitting to avoid 10-second pauses
     }
 
     /**
@@ -223,7 +223,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         drainQueue()
         mainHandler.post {
             try { tts?.stop() } catch (_: Exception) {}
-            com.jarvis.app.voice.ElevenLabsVoicePlayer.stop()
+            com.jarvis.app.voice.GeminiVoicePlayer.stop()
             utteranceInFlight = false
             if (_engineState.value == JarvisVisualState.SPEAKING) {
                 setState(JarvisVisualState.IDLE)
@@ -238,7 +238,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     /** True while JARVIS is producing audio (playback or queued utterances). */
     val isSpeaking: Boolean
-        get() = utteranceInFlight || !utteranceChannel.isEmpty || com.jarvis.app.voice.ElevenLabsVoicePlayer.isPlaying
+        get() = utteranceInFlight || !utteranceChannel.isEmpty || com.jarvis.app.voice.GeminiVoicePlayer.isPlaying
 
     /** Suspend until everything queued/playing has drained (bounded by [timeoutMs]). */
     suspend fun awaitSpeechDone(timeoutMs: Long = 30_000) {
@@ -415,62 +415,66 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     fun updateVoiceConfig() {
         mainHandler.post {
             try {
-                val ukLocale = Locale.UK
-                val result = tts?.setLanguage(ukLocale)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                val selectedVoiceId = com.jarvis.app.config.ApiConfig.selectedVoiceId.lowercase()
+                val isBritish = selectedVoiceId in listOf("eve", "eva", "rex")
+                val isMale = selectedVoiceId in listOf("charon", "fenrir", "puck", "rex")
+
+                if (isBritish) {
+                    val ukLocale = Locale.UK
+                    val result = tts?.setLanguage(ukLocale)
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        tts?.language = Locale.US
+                    }
+                } else {
                     tts?.language = Locale.US
                 }
 
                 val voices = tts?.voices
                 if (!voices.isNullOrEmpty()) {
-                    val selectedVoiceId = com.jarvis.app.config.ApiConfig.selectedVoiceId
-                    val matchedVoice = voices.firstOrNull { v -> v.name == selectedVoiceId }
-                        ?: voices.firstOrNull { voice ->
+                    val matchedVoice = if (isMale) {
+                        voices.firstOrNull { voice ->
                             val name = voice.name.lowercase()
                             name.contains("male") || name.contains("en-gb-x-rjd") || name.contains("en-us-x-iom") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iob")
                         } ?: voices.firstOrNull { voice ->
                             voice.locale.language == "en" && !voice.name.lowercase().contains("female")
                         }
+                    } else {
+                        voices.firstOrNull { voice ->
+                            val name = voice.name.lowercase()
+                            name.contains("female") || name.contains("en-us-x-tpd") || name.contains("en-gb-x-fis")
+                        } ?: voices.firstOrNull { voice ->
+                            voice.locale.language == "en" && voice.name.lowercase().contains("female")
+                        }
+                    }
                     if (matchedVoice != null) {
                         tts?.voice = matchedVoice
                     }
                 }
 
-                tts?.setPitch(0.78f) // Deep, calm male pitch
-                tts?.setSpeechRate(0.96f) // Measured, articulate pace
+                val pitch = when (selectedVoiceId) {
+                    "charon", "rex" -> 0.70f
+                    "fenrir" -> 0.85f
+                    "puck" -> 1.20f
+                    "kore" -> 0.98f
+                    "aoede", "eve", "eva" -> 1.08f
+                    else -> 0.85f
+                }
+                tts?.setPitch(pitch)
+
+                val rate = when (selectedVoiceId) {
+                    "puck" -> 1.08f
+                    "charon" -> 0.92f
+                    else -> 0.98f
+                }
+                tts?.setSpeechRate(rate)
             } catch (_: Exception) {}
         }
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            try {
-                val ukLocale = Locale.UK
-                val result = tts?.setLanguage(ukLocale)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.language = Locale.US
-                }
-
-                // Select a male voice if available in the installed voices
-                try {
-                    val voices = tts?.voices
-                    val maleVoice = voices?.firstOrNull { voice ->
-                        val name = voice.name.lowercase()
-                        !voice.isNetworkConnectionRequired && (name.contains("male") || name.contains("en-gb") || name.contains("en-us-x-sfg") || name.contains("en-us-x-iob"))
-                    } ?: voices?.firstOrNull { voice ->
-                        voice.locale.language == "en" && !voice.name.lowercase().contains("female")
-                    }
-                    if (maleVoice != null) {
-                        tts?.voice = maleVoice
-                    }
-                } catch (_: Exception) {}
-
-                tts?.setPitch(0.85f) // Deep, calm male pitch
-                tts?.setSpeechRate(0.98f) // Articulate, measured pace
-                isTtsReady = true
-            } catch (_: Exception) {
-                isTtsReady = true
-            }
+            updateVoiceConfig()
+            isTtsReady = true
         } else {
             com.jarvis.app.voice.VoiceDiagnostics.report("Android TTS init failed (status $status)")
         }

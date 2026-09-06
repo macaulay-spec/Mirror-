@@ -307,6 +307,18 @@ fun JarvisCore(
                 }
             }
 
+            // ── Mark 85 Nanotech Armatures (Stark RT Arc Core Structure) ───
+            drawMark85NanotechArmatures(
+                center = center,
+                innerRadius = ringInner * 0.92f,
+                outerRadius = ringTicks * 1.10f,
+                accentColor = accentColor,
+                goldColor = JarvisColors.StarkGold,
+                dialRotation = dialRotation * 0.5f,
+                brightness = brightness,
+                s = s
+            )
+
             // ── Counter-rotating HUD arc layers (inner energy) ─────────
             drawHudArcLayer(center, ringTicks * 0.82f, accentColor, arcRotationA, brightness, s)
             drawHudArcLayer(center, ringInner * 1.12f, secondaryColor, arcRotationB, brightness * 0.85f, s)
@@ -697,6 +709,109 @@ private fun DrawScope.drawParticleField(
                 color = color.copy(alpha = alpha.coerceIn(0f, 1f)),
                 radius = 1.2f + (1f - travel) * 1.6f,
                 center = Offset(px, py)
+            )
+        }
+    }
+}
+
+/**
+ * Mark 85 Nanotech Arc Reactor Armatures:
+ * 6 precision titanium brackets with gold node pivots and cyan conduit veins.
+ */
+private fun DrawScope.drawMark85NanotechArmatures(
+    center: Offset,
+    innerRadius: Float,
+    outerRadius: Float,
+    accentColor: Color,
+    goldColor: Color,
+    dialRotation: Float,
+    brightness: Float,
+    s: Float
+) {
+    rotate(dialRotation, pivot = center) {
+        val armatures = 6
+        val step = (2f * PI.toFloat()) / armatures
+
+        for (i in 0 until armatures) {
+            val baseAngle = i * step
+            val cosA = cos(baseAngle)
+            val sinA = sin(baseAngle)
+
+            // Perpendicular vector for bracket width
+            val perpX = -sinA
+            val perpY = cosA
+
+            val pInner = Offset(center.x + cosA * innerRadius, center.y + sinA * innerRadius)
+            val pOuter = Offset(center.x + cosA * outerRadius, center.y + sinA * outerRadius)
+
+            // Main conduit spine
+            drawLine(
+                color = accentColor.copy(alpha = 0.55f * brightness),
+                start = pInner,
+                end = pOuter,
+                strokeWidth = 2.2f * s,
+                cap = StrokeCap.Round
+            )
+
+            // Outer bracket wing left & right
+            val wingWidth = (outerRadius - innerRadius) * 0.18f
+            val midRadius = innerRadius + (outerRadius - innerRadius) * 0.65f
+            val pMidLeft = Offset(
+                center.x + cosA * midRadius + perpX * wingWidth,
+                center.y + sinA * midRadius + perpY * wingWidth
+            )
+            val pMidRight = Offset(
+                center.x + cosA * midRadius - perpX * wingWidth,
+                center.y + sinA * midRadius - perpY * wingWidth
+            )
+
+            // Bracket geometry outline
+            drawLine(
+                color = accentColor.copy(alpha = 0.32f * brightness),
+                start = pInner,
+                end = pMidLeft,
+                strokeWidth = 1.2f * s,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = accentColor.copy(alpha = 0.32f * brightness),
+                start = pMidLeft,
+                end = pOuter,
+                strokeWidth = 1.2f * s,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = accentColor.copy(alpha = 0.32f * brightness),
+                start = pInner,
+                end = pMidRight,
+                strokeWidth = 1.2f * s,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = accentColor.copy(alpha = 0.32f * brightness),
+                start = pMidRight,
+                end = pOuter,
+                strokeWidth = 1.2f * s,
+                cap = StrokeCap.Round
+            )
+
+            // Stark Nanotech Gold node at pivot
+            drawCircle(
+                color = goldColor.copy(alpha = 0.85f * brightness),
+                radius = 2.4f * s,
+                center = pOuter
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.90f * brightness),
+                radius = 1.0f * s,
+                center = pOuter
+            )
+
+            // Inner magnetic emitter node
+            drawCircle(
+                color = accentColor.copy(alpha = 0.70f * brightness),
+                radius = 1.8f * s,
+                center = pInner
             )
         }
     }

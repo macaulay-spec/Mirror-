@@ -42,7 +42,7 @@ import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.core.ui.GlassCard
 import com.jarvis.core.ui.JarvisCore
-import com.jarvis.app.voice.ElevenLabsTts
+import com.jarvis.app.voice.VoiceSettingsManager
 
 /**
  * Voice Selection Screen — choose and preview ElevenLabs voices.
@@ -55,7 +55,7 @@ import com.jarvis.app.voice.ElevenLabsTts
  */
 @Composable
 fun VoiceSelectionScreen(
-    tts: ElevenLabsTts,
+    tts: VoiceSettingsManager,
     onContinue: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier
@@ -129,7 +129,7 @@ fun VoiceSelectionScreen(
                             name = preset.name,
                             description = "${preset.accent} • ${preset.gender} • ${preset.description}",
                             isSelected = preset.id == selectedVoiceId,
-                            onPreview = { tts.previewVoice(ElevenLabsTts.Voice(preset.id, preset.name, "premade", preset.description, null, preset.gender, preset.accent)) },
+                            onPreview = { tts.previewVoice(VoiceSettingsManager.Voice(preset.id, preset.name, preset.description)) },
                             onSelect = { tts.selectVoice(preset.id) }
                         )
                     }
@@ -226,7 +226,7 @@ fun VoiceSelectionScreen(
 
 @Composable
 private fun VoiceItem(
-    voice: ElevenLabsTts.Voice,
+    voice: VoiceSettingsManager.Voice,
     isSelected: Boolean,
     onPreview: () -> Unit,
     onSelect: () -> Unit
@@ -277,7 +277,7 @@ private fun VoiceItem(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = voice.description ?: "${voice.category} • ${voice.gender ?: ""}",
+                    text = voice.description,
                     color = JarvisColors.TextSecondary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Default

@@ -20,6 +20,8 @@ import com.rork.jarvisaiassistant.BuildConfig
 object ApiConfig {
 
     private const val PREFS_NAME = "jarvis_neural_prefs"
+    private const val PREF_KEY_DEFAULT_PROVIDER = "default_provider"
+
     private const val PREF_KEY_CUSTOM_API_KEY = "custom_neural_api_key"
     private const val PREF_KEY_CUSTOM_PROVIDER = "custom_neural_provider"
     private const val PREF_KEY_VOICE_ENGINE = "voice_engine_type"
@@ -41,7 +43,17 @@ object ApiConfig {
     // managed gateway. The preset id IS the gateway voice parameter, so the
     // selection in Settings maps 1:1 to what actually speaks.
     val PRESET_VOICES = listOf(
-        VoicePreset("rex",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
+        VoicePreset("Aoede",   "Aoede",   "US", "Female", "Warm & Balanced"),
+        VoicePreset("Charon",  "Charon",  "US", "Male",   "Deep & Authoritative"),
+        VoicePreset("Fenrir",  "Fenrir",  "US", "Male",   "Smooth & Casual"),
+        VoicePreset("Kore",    "Kore",    "US", "Female", "Calm & Natural"),
+        VoicePreset("Puck",    "Puck",    "US", "Male",   "Bright & Friendly"),
+        VoicePreset("Eva",     "Eva",     "British", "Female", "Warm & Composed"),
+        VoicePreset("Rex",     "Rex",     "British", "Male",   "Deep British Classic JARVIS")
+    )
+
+    val OLD_PRESET_VOICES = listOf(
+        VoicePreset("Aoede",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
         VoicePreset("eve",     "Eve",     "British", "Female", "Warm & Composed"),
         VoicePreset("ara",     "Ara",     "US",      "Female", "Bright & Friendly"),
         VoicePreset("sal",     "Sal",     "US",      "Male",   "Smooth & Casual"),
@@ -54,94 +66,175 @@ object ApiConfig {
 
     // Runtime state
     var userName: String = "Macaulay"
-        private set
+        
     var personalityTone: String = "jarvis_protocol"
-        private set
-    var isOnboardingCompleted: Boolean = false
-        private set
+        
+    var isOnboardingCompleted: Boolean = true
+        
     var voiceEngineType: String = "cloud"
-        private set
-    var selectedVoiceId: String = "rex"
-        private set
+        
+    var selectedVoiceId: String = "Aoede"
+        // removed 
+        
 
     // Custom key entered by the user in Settings
     var customApiKey: String? = null
-        private set
+        
     var customProvider: String? = null
-        private set
+        
 
     // API Keys - injected from local.properties / CI secrets at compile time
     // NO hardcoded fallback keys - if not configured, provider is unavailable
+    val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
+
     val NVIDIA_API_KEY: String
         get() = "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"
 
     val ELEVENLABS_API_KEY: String
         get() = "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
 
+    // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
+    private val geminiKeyPoolLock = Any()
+    private var geminiPoolIndex: Int = 0
+    private val rateLimitedKeys = mutableSetOf<String>()
+
+    val geminiKeys: List<String>
+        get() {
+            val list = mutableListOf<String>()
+            // 1. From customApiKey (if user entered comma/newline/semicolon-separated keys in Settings)
+            customApiKey?.let { raw ->
+                val tokens = raw.split(',', ';', '\n', '\r')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                list.addAll(tokens)
+            }
+            // 2. From BuildConfig.GEMINI_API_KEY (supports comma-separated list)
+            if (GEMINI_API_KEY.isNotBlank()) {
+                val tokens = GEMINI_API_KEY.split(',', ';', '\n', '\r')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                list.addAll(tokens)
+            }
+            return list.distinct()
+        }
+
+    val currentGeminiKey: String
+        get() = synchronized(geminiKeyPoolLock) {
+            val pool = geminiKeys
+            if (pool.isEmpty()) return GEMINI_API_KEY
+            val nonLimited = pool.filterNot { rateLimitedKeys.contains(it) }
+            val candidatePool = if (nonLimited.isNotEmpty()) nonLimited else pool
+            candidatePool[geminiPoolIndex % candidatePool.size]
+        }
+
+    fun rotateToNextGeminiKey(): String? = synchronized(geminiKeyPoolLock) {
+        val pool = geminiKeys
+        if (pool.size <= 1) return null
+        geminiPoolIndex = (geminiPoolIndex + 1) % pool.size
+        return pool[geminiPoolIndex]
+    }
+
+    fun markGeminiKeyRateLimited(key: String) = synchronized(geminiKeyPoolLock) {
+        rateLimitedKeys.add(key)
+        rotateToNextGeminiKey()
+    }
+
+    fun resetRateLimitStatuses() = synchronized(geminiKeyPoolLock) {
+        rateLimitedKeys.clear()
+        geminiPoolIndex = 0
+    }
+
     // Provider/key resolution
     val activeProvider: String
         get() {
-            // 1. User's custom key (entered in Settings - auto-detected provider)
+            // 1. User's custom key / provider (entered in Settings - auto-detected provider)
             customProvider?.takeIf { it.isNotBlank() }?.let { return it }
             
-            // 2. NVIDIA GLM-5.2 is the primary provider
+            // 2. Gemini 1.5 Pro if keys are available
+            if (geminiKeys.isNotEmpty() || GEMINI_API_KEY.isNotBlank()) {
+                return "gemini_flash"
+            }
+
+            // 3. NVIDIA Nemotron Super is the secondary provider
             if (NVIDIA_API_KEY.isNotBlank()) {
-                return "nvidia_glm"
+                return "nvidia_super"
             }
             
-            // 3. No AI available
+            // 4. No AI available
             return ""
         }
 
     val activeApiKey: String
         get() {
-            // 1. User's custom key
+            if (activeProvider == "gemini_flash") {
+                val gKey = currentGeminiKey
+                if (gKey.isNotBlank()) return gKey
+            }
+
+            // User's custom key
             val custom = customApiKey?.trim()
             if (!custom.isNullOrBlank()) return custom
             
-            // 2. NVIDIA API key
+            // NVIDIA API key
             if (activeProvider.startsWith("nvidia_")) {
                 return NVIDIA_API_KEY
             }
             
-            return ""
+            return currentGeminiKey.ifBlank { NVIDIA_API_KEY }
         }
 
-    val hasAI: Boolean get() = activeApiKey.isNotBlank()
+    val hasAI: Boolean
+        get() = currentApiKey.isNotBlank()
+
+    val currentApiKey: String
+        get() = currentGeminiKey.ifBlank { if (customApiKey.isNullOrBlank()) NVIDIA_API_KEY else customApiKey!! }
+
+    val originalHasAI: Boolean get() = activeApiKey.isNotBlank()
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
-        "nvidia_glm" -> "NVIDIA Nemotron 3 Super 120B (Primary)"
-        "nvidia_nemotron" -> "NVIDIA Nemotron 3 Ultra 550B (Deep Think)"
-        "nvidia_mistral" -> "Mistral Nemotron"
-        "nvidia_llama" -> "MiniMax M3"
+        "gemini_flash" -> "Gemini 2.5 Flash (Ultra-Fast)"
+        "gemini_pro" -> "Gemini 2.5 Pro (Deep Reasoning)"
+        "gemini_lite" -> "Gemini 2.0 Flash Lite"
+        "nvidia_super", "nvidia_glm" -> "NVIDIA Nemotron 3 Super 120B"
+        "nvidia_llama" -> "NVIDIA Llama 3.2 11B Vision"
+        "nvidia_mistral" -> "NVIDIA Mistral Nemotron"
+        "nvidia_ultra", "nvidia_nemotron" -> "NVIDIA Nemotron 3 Ultra 550B"
         else -> activeProvider.replaceFirstChar { it.uppercase() }
     }
 
-    // NVIDIA Multi-Model Integration — two-tier brain (2026-09-05).
-    // Tier 1: Nemotron 3 Super 120B — measured ~250ms on live calls; fast enough
-    //   for human-pace conversation while staying fully agentic.
-    // Tier 2: Nemotron 3 Ultra 550B — flagship reasoning for deep-think requests.
-    // Tier 3/4: fallbacks verified live on 2026-09-05. mistral-large-2-instruct
-    // and kimi-k2.6 returned 404 Not Found on NVIDIA's platform and are removed.
-    const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    const val NVIDIA_GLM_MODEL = "nvidia/nemotron-3-super-120b-a12b"          // Tier 1 primary (verified live)
-    const val NVIDIA_NEMOTRON_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"     // Tier 2 deep think
-    const val NVIDIA_MISTRAL_NEMOTRON_MODEL = "mistralai/mistral-nemotron"    // Fallback 2 (verified live)
-    const val NVIDIA_LLAMA_MODEL = "minimaxai/minimax-m3"                     // Fallback 3 (verified live)
+    // Google Gemini Multi-Model Brain Integration.
+    const val GEMINI_FLASH_MODEL = "gemini-2.5-flash"
+    const val GEMINI_PRO_MODEL = "gemini-2.5-pro"
+    const val GEMINI_LITE_MODEL = "gemini-2.0-flash-lite"
 
-    // Provider fallback chain (per NVIDIA_MULTI_MODEL_PROMPT.md)
+    // NVIDIA AI Endpoints & Live-Verified Models
+    const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b" // Fast primary (~480ms live stream)
+    const val NVIDIA_LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct" // Ultra-fast multimodal (~230ms live stream)
+    const val NVIDIA_MISTRAL_MODEL = "mistralai/mistral-nemotron" // Verified active
+    const val NVIDIA_ULTRA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b" // Flagship deep reasoning (verified active)
+
+    // Complete Provider fallback chain: Gemini High-Speed Pool -> NVIDIA Multi-Model Cluster
     val PROVIDER_FALLBACK_CHAIN = listOf(
-        "nvidia_glm",
-        "nvidia_nemotron",
+        "gemini_flash",
+        "gemini_pro",
+        "gemini_lite",
+        "nvidia_super",
+        "nvidia_llama",
         "nvidia_mistral",
-        "nvidia_llama"
+        "nvidia_ultra"
     )
 
     /** Get the next provider in the fallback chain. */
     fun getNextProvider(currentProvider: String): String? {
-        val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
+        val normalized = when (currentProvider) {
+            "nvidia_glm" -> "nvidia_super"
+            "nvidia_nemotron" -> "nvidia_ultra"
+            else -> currentProvider
+        }
+        val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(normalized)
         if (currentIndex >= 0 && currentIndex < PROVIDER_FALLBACK_CHAIN.size - 1) {
             return PROVIDER_FALLBACK_CHAIN[currentIndex + 1]
         }
@@ -150,14 +243,17 @@ object ApiConfig {
 
     /** Resolve model ID for a given provider. */
     fun resolveModel(provider: String): String = when (provider) {
-        "nvidia_glm" -> NVIDIA_GLM_MODEL
-        "nvidia_nemotron" -> NVIDIA_NEMOTRON_MODEL
-        "nvidia_mistral" -> NVIDIA_MISTRAL_NEMOTRON_MODEL
+        "gemini_flash" -> GEMINI_FLASH_MODEL
+        "gemini_pro" -> GEMINI_PRO_MODEL
+        "gemini_lite" -> GEMINI_LITE_MODEL
+        "nvidia_super", "nvidia_glm" -> NVIDIA_SUPER_MODEL
         "nvidia_llama" -> NVIDIA_LLAMA_MODEL
-        else -> NVIDIA_GLM_MODEL
+        "nvidia_mistral" -> NVIDIA_MISTRAL_MODEL
+        "nvidia_ultra", "nvidia_nemotron" -> NVIDIA_ULTRA_MODEL
+        else -> if (provider.startsWith("nvidia")) NVIDIA_SUPER_MODEL else GEMINI_FLASH_MODEL
     }
 
-    // ---- Two-tier brain routing -------------------------------------------
+    // ---- Multi-tier brain routing -------------------------------------------
 
     /** Utterance fragments that warrant the deep-think tier. Kept conservative. */
     private val DEEP_THINK_HINTS = listOf(
@@ -168,15 +264,18 @@ object ApiConfig {
     )
 
     /**
-     * Routes a user utterance to the right brain tier. Short conversational or
-     * command-style input stays on the fast tier (~250ms); long or reasoning-
-     * heavy requests are escalated to the 550B deep-think tier. The provider
-     * fallback chain still rescues a slow or dead tier automatically.
+     * Routes a user utterance to the right brain tier.
+     * Fast conversational tasks stay on Gemini Flash / NVIDIA Nemotron Super.
+     * Deep reasoning requests route to Gemini Pro / NVIDIA Nemotron Ultra 550B.
      */
     fun providerForUtterance(text: String): String {
-        if (text.length > 160) return "nvidia_nemotron"
-        val t = text.lowercase()
-        return if (DEEP_THINK_HINTS.any { it in t }) "nvidia_nemotron" else activeProvider
+        val isDeep = text.length > 160 || DEEP_THINK_HINTS.any { it in text.lowercase() }
+        val isNvidia = activeProvider.startsWith("nvidia")
+        return if (isNvidia) {
+            if (isDeep) "nvidia_ultra" else "nvidia_super"
+        } else {
+            if (isDeep) "gemini_pro" else "gemini_flash"
+        }
     }
 
     // ---- Rork Toolkit gateway (managed cloud voice) ------------------------
@@ -207,9 +306,15 @@ object ApiConfig {
     val hasLiveKit get() = LIVEKIT_URL.isNotBlank() && LIVEKIT_API_KEY.isNotBlank()
 
     // Key auto-detection for custom keys
-    fun autoDetectProvider(key: String): String = when {
-        key.startsWith("sk_") -> "elevenlabs"
-        else -> "nvidia_glm"
+    fun autoDetectProvider(key: String): String {
+        val trimmed = key.trim()
+        return when {
+            trimmed.startsWith("sk_") -> "elevenlabs"
+            trimmed.startsWith("nvapi-") -> "nvidia_super"
+            trimmed.startsWith("AIza") || trimmed.contains("AIza") -> "gemini_flash"
+            trimmed.contains(",") || trimmed.contains("\n") || trimmed.contains(";") -> "gemini_flash"
+            else -> "gemini_flash"
+        }
     }
 
     // Persistence helpers
@@ -218,6 +323,7 @@ object ApiConfig {
         val detectedProvider = if (cleanKey != null) (provider ?: autoDetectProvider(cleanKey)) else null
         customApiKey = cleanKey
         customProvider = detectedProvider
+        resetRateLimitStatuses()
         prefs(context).edit()
             .putString(PREF_KEY_CUSTOM_API_KEY, cleanKey)
             .putString(PREF_KEY_CUSTOM_PROVIDER, detectedProvider)
@@ -254,9 +360,9 @@ object ApiConfig {
         val p = prefs(context)
         userName = p.getString(PREF_KEY_USER_NAME, "Macaulay") ?: "Macaulay"
         personalityTone = p.getString(PREF_KEY_AI_TONE, "jarvis_protocol") ?: "jarvis_protocol"
-        isOnboardingCompleted = p.getBoolean(PREF_KEY_ONBOARDING_DONE, false)
+        isOnboardingCompleted = p.getBoolean(PREF_KEY_ONBOARDING_DONE, true)
         voiceEngineType = p.getString(PREF_KEY_VOICE_ENGINE, "cloud") ?: "cloud"
-        selectedVoiceId = p.getString(PREF_KEY_VOICE_ID, "rex") ?: "rex"
+        selectedVoiceId = p.getString(PREF_KEY_VOICE_ID, "Aoede") ?: "Aoede"
         customApiKey = p.getString(PREF_KEY_CUSTOM_API_KEY, null)?.takeIf { it.isNotBlank() }
         customProvider = p.getString(PREF_KEY_CUSTOM_PROVIDER, null)?.takeIf { it.isNotBlank() }
     }

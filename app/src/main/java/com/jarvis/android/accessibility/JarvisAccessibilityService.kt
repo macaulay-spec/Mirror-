@@ -128,6 +128,8 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     private fun collectText(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
         if (depth > 40) return
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
         val text = node.text?.toString()
         val content = node.contentDescription?.toString()
         when {
@@ -239,6 +241,8 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     private fun extractText(node: AccessibilityNodeInfo?, list: MutableList<String>) {
         if (node == null) return
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
         val text = node.text?.toString()
         if (!text.isNullOrBlank()) {
             list.add(text)
@@ -261,6 +265,8 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     private fun collectStructuredNodes(node: AccessibilityNodeInfo, list: MutableList<Map<String, Any>>, depth: Int) {
         if (depth > 30) return
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
         val text = node.text?.toString()
         val desc = node.contentDescription?.toString()
         if (!text.isNullOrBlank() || !desc.isNullOrBlank() || node.isClickable || node.isEditable) {
@@ -270,7 +276,10 @@ class JarvisAccessibilityService : AccessibilityService() {
                     "contentDescription" to (desc ?: ""),
                     "clickable" to node.isClickable,
                     "editable" to node.isEditable,
-                    "className" to (node.className?.toString() ?: "")
+                    "className" to (node.className?.toString() ?: ""),
+                    "bounds" to listOf(rect.left, rect.top, rect.right, rect.bottom),
+                    "centerX" to rect.exactCenterX(),
+                    "centerY" to rect.exactCenterY()
                 )
             )
         }

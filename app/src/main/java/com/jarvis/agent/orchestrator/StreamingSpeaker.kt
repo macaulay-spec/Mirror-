@@ -35,29 +35,11 @@ class StreamingSpeaker(private val onSentence: (String) -> Unit) {
     }
 
     private fun drain(force: Boolean) {
-        while (true) {
-            val text = buffer.toString()
-            val match = sentenceEnd.find(text)
-            if (match == null) {
-                if (force && text.isNotBlank()) emit(text)
-                if (force) buffer.setLength(0)
-                return
-            }
-            val cut = match.range.last + 1
-            val sentence = text.substring(0, cut).trim()
-            val rest = text.substring(cut)
-            if (sentence.length < MIN_SENTENCE_CHARS && rest.length < FORCE_FLUSH_CHARS) {
-                // Boundary found but the sentence is still tiny (abbreviation);
-                // keep buffering unless we are out of stream.
-                if (force) {
-                    emit(text)
-                    buffer.setLength(0)
-                }
-                return
-            }
+        if (!force) return
+        val text = buffer.toString().trim()
+        if (text.isNotEmpty()) {
             buffer.setLength(0)
-            buffer.append(rest)
-            emit(sentence)
+            emit(text)
         }
     }
 

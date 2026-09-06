@@ -146,13 +146,6 @@ class WakeWordForegroundService : Service() {
         if (now - lastWake < COOLDOWN_MS) return
         lastWake = now
 
-        // Bring MainActivity to the front
-        val intent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("WAKE_WORD_ACTIVATED", true)
-        }
-        startActivity(intent)
-
         VoiceBus.onWakeWord()
         VoiceBus.clearTranscript()
 

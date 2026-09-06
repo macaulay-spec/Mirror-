@@ -117,7 +117,7 @@ fun SettingsScreen(
                     icon = Icons.Default.Settings,
                     title = "General",
                     description = "Name, personality, and behavior",
-                    onClick = { }
+                    onClick = onPermissions
                 )
                 SettingsItem(
                     icon = Icons.Default.Mic,
@@ -127,9 +127,9 @@ fun SettingsScreen(
                 )
                 SettingsItem(
                     icon = Icons.Default.VolumeUp,
-                    title = "AI Provider",
-                    description = ApiConfig.getProviderLabel(),
-                    onClick = { }
+                    title = "AI Provider & Keys",
+                    description = "${ApiConfig.getProviderLabel()} • ${ApiConfig.geminiKeys.size} key(s) in pool",
+                    onClick = onPermissions
                 )
             }
 

@@ -93,9 +93,9 @@ class JarvisApiClient(
 
         suspend fun tryStreamWithProvider(providerToTry: String): Result<AiResponse> {
             val currentModel = ApiConfig.resolveModel(providerToTry)
-            val currentApiKey = when (providerToTry) {
-                in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") ->
-                    ApiConfig.NVIDIA_API_KEY
+            val currentApiKey = when {
+                providerToTry.startsWith("gemini") -> ApiConfig.currentGeminiKey
+                providerToTry.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
                 else -> ApiConfig.activeApiKey
             }
 
@@ -147,7 +147,7 @@ class JarvisApiClient(
         allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
-        val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        val endpoint = if (model.startsWith("gemini")) "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" else "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -181,8 +181,16 @@ class JarvisApiClient(
         return try {
             streamClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    if (response.code == 429 && (provider == "gemini_flash" || model.startsWith("gemini"))) {
+                        Log.w("JarvisApiClient", "Gemini 429 quota reached. Rotating key in pool...")
+                        ApiConfig.markGeminiKeyRateLimited(apiKey)
+                        val nextKey = ApiConfig.currentGeminiKey
+                        if (nextKey.isNotBlank() && nextKey != apiKey) {
+                            return streamNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools, onDelta)
+                        }
+                    }
                     val err = response.body?.string()?.take(200) ?: ""
-                    return Result.failure(Exception("NVIDIA stream error (HTTP ${response.code}): $err"))
+                    return Result.failure(Exception("AI stream error (HTTP ${response.code}): $err"))
                 }
                 val source = response.body?.source()
                     ?: return Result.failure(Exception("NVIDIA stream returned an empty body"))
@@ -432,15 +440,15 @@ class JarvisApiClient(
         model: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val apiKey = when (provider) {
-            in listOf("nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama") ->
-                ApiConfig.NVIDIA_API_KEY
+        val apiKey = when {
+            provider.startsWith("gemini") -> ApiConfig.currentGeminiKey
+            provider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
             else -> ApiConfig.activeApiKey
         }
 
         if (apiKey.isBlank()) {
             return Result.failure(
-                Exception("No AI key configured for $provider. Add your NVIDIA key in Settings.")
+                Exception("No AI key configured for $provider. Please configure keys in Settings.")
             )
         }
 
@@ -463,7 +471,7 @@ class JarvisApiClient(
         userMessage: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val endpoint = "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        val endpoint = if (model.startsWith("gemini")) "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" else "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -495,10 +503,18 @@ class JarvisApiClient(
         return client.newCall(request).execute().use { response ->
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
+                if (response.code == 429 && (provider == "gemini_flash" || model.startsWith("gemini"))) {
+                    Log.w("JarvisApiClient", "Gemini 429 quota reached. Rotating key in pool...")
+                    ApiConfig.markGeminiKeyRateLimited(apiKey)
+                    val nextKey = ApiConfig.currentGeminiKey
+                    if (nextKey.isNotBlank() && nextKey != apiKey) {
+                        return executeNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools)
+                    }
+                }
                 val msg = when (response.code) {
-                    401 -> "NVIDIA API key is invalid or expired (HTTP 401). Check Settings."
-                    429 -> "NVIDIA rate limit reached. Please wait a moment and try again."
-                    else -> "NVIDIA API error (HTTP ${response.code}): ${bodyString.take(200)}"
+                    401 -> "API key is invalid or expired (HTTP 401). Check Settings."
+                    429 -> "API rate limit / quota reached. Rotating or wait a moment."
+                    else -> "API error (HTTP ${response.code}): ${bodyString.take(200)}"
                 }
                 return@use Result.failure(Exception(msg))
             }

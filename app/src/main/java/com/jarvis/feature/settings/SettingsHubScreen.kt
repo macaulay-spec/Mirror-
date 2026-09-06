@@ -18,7 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jarvis.app.voice.ElevenLabsTts
+import com.jarvis.app.voice.VoiceSettingsManager
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.feature.history.ChatHistoryScreen
 import com.jarvis.feature.memory.MemoryPeopleScreen
@@ -34,7 +34,7 @@ fun SettingsHubScreen(
 ) {
     var selectedTab by remember { mutableStateOf("history") }
     val context = LocalContext.current
-    val voiceTts = remember { runCatching { ElevenLabsTts(context) }.getOrNull() }
+    val voiceTts = remember { runCatching { VoiceSettingsManager(context) }.getOrNull() }
 
     Column(modifier = Modifier.fillMaxSize().background(JarvisColors.VoidBlack)) {
         // Tab Content

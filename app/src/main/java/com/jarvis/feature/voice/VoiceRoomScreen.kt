@@ -44,7 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarvis.app.config.ApiConfig
-import com.jarvis.app.voice.ElevenLabsVoicePlayer
+import com.jarvis.app.voice.GeminiVoicePlayer
 import kotlinx.coroutines.launch
 
 // Arc-reactor palette, matching the JARVIS identity used across the app.
@@ -79,7 +79,7 @@ fun VoiceRoomScreen(
     // the device-voice fallback — instead of talking on over the next screen.
     DisposableEffect(Unit) {
         onDispose {
-            ElevenLabsVoicePlayer.stop()
+            GeminiVoicePlayer.stop()
             previewTts?.shutdown()
             previewTts = null
         }
@@ -180,12 +180,12 @@ fun VoiceRoomScreen(
                                     haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                                     previewingVoice = preset.id
                                     scope.launch {
-                                        val played = ElevenLabsVoicePlayer.speak(
+                                        val played = GeminiVoicePlayer.speak(
                                             context,
                                             "Good evening. This is ${preset.name}, at your service.",
                                             preset.id
                                         )
-                                        if (!played) previewWithDeviceVoice(context, preset.name)
+                                        if (!played) previewWithDeviceVoice(context, preset.id, preset.name)
                                         previewingVoice = null
                                     }
                                 }
@@ -201,7 +201,7 @@ fun VoiceRoomScreen(
                 }
 
                 Text(
-                    "Previews use the exact cloud chain JARVIS uses for replies. If the cloud is unreachable, the device voice reads the sample instead.",
+                    "Previews use the exact Gemini Neural TTS chain JARVIS uses for replies. If offline, the customized device voice reads the sample instead.",
                     color = JarvisTextSecondary.copy(alpha = 0.7f),
                     fontSize = 11.sp,
                     modifier = Modifier.padding(bottom = 24.dp)
@@ -225,10 +225,44 @@ fun VoiceRoomScreen(
 private var previewTts: android.speech.tts.TextToSpeech? = null
 
 /** Device-voice fallback for previews when the cloud chain is unreachable. */
-private fun previewWithDeviceVoice(context: Context, voiceName: String) {
+private fun previewWithDeviceVoice(context: Context, voiceId: String, voiceName: String) {
     try {
         val tts = previewTts
             ?: android.speech.tts.TextToSpeech(context.applicationContext) { }.also { previewTts = it }
+        val voices = tts.voices
+        val isMale = voiceId.lowercase() in listOf("charon", "fenrir", "puck", "rex")
+        if (!voices.isNullOrEmpty()) {
+            val matched = if (isMale) {
+                voices.firstOrNull { v ->
+                    val n = v.name.lowercase()
+                    n.contains("male") || n.contains("en-gb-x-rjd") || n.contains("en-us-x-iom") || n.contains("en-us-x-sfg")
+                } ?: voices.firstOrNull { !it.name.lowercase().contains("female") }
+            } else {
+                voices.firstOrNull { v ->
+                    val n = v.name.lowercase()
+                    n.contains("female") || n.contains("en-us-x-tpd") || n.contains("en-gb-x-fis")
+                } ?: voices.firstOrNull { it.name.lowercase().contains("female") }
+            }
+            if (matched != null) tts.voice = matched
+        }
+
+        val pitch = when (voiceId.lowercase()) {
+            "charon", "rex" -> 0.70f
+            "fenrir" -> 0.85f
+            "puck" -> 1.20f
+            "kore" -> 0.98f
+            "aoede", "eve", "eva" -> 1.08f
+            else -> 1.0f
+        }
+        tts.setPitch(pitch)
+
+        val rate = when (voiceId.lowercase()) {
+            "puck" -> 1.08f
+            "charon" -> 0.92f
+            else -> 1.0f
+        }
+        tts.setSpeechRate(rate)
+
         tts.speak(
             "Good evening. This is $voiceName, at your service.",
             android.speech.tts.TextToSpeech.QUEUE_FLUSH,

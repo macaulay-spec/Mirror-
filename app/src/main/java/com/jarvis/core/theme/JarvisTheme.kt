@@ -24,21 +24,24 @@ import androidx.compose.ui.unit.sp
  * Never pure #00FFFF or #FF0000.
  */
 object JarvisColors {
-    // ── Backgrounds (V4: #0A1520 → #0D1B24 family) ───────────────────────
-    val VoidBlack = Color(0xFF0A1520)       // root background
-    val DarkSpace = Color(0xFF101C2A)       // cards, sheets
-    val SurfaceCard = Color(0xFF16283A)     // raised/hover surface (V4 #1A2A3A family)
-    val SurfaceDark = Color(0xFF101C2A)      // alias for legacy code
-    val SurfaceGlass = Color(0x8C101C2A)    // glass panels (V4: card @ 40% opacity)
-    val SurfaceGlassCyan = Color(0x59061828)     // JARVIS bubble tint (faint cyan)
-    val SurfaceGlassElevated = Color(0xA316283A) // elevated glass
+    // ── Backgrounds (V4 / Mark 85 Obsidian & Nano-Carbon) ───────────────
+    val VoidBlack = Color(0xFF070B11)       // nano-carbon root background
+    val DarkSpace = Color(0xFF0D1622)       // cards, sheets
+    val SurfaceCard = Color(0xFF132234)     // raised/hover surface
+    val SurfaceDark = Color(0xFF0D1622)     // alias for legacy code
+    val SurfaceGlass = Color(0x990C1624)    // Apple glass panels (40-60% opacity with blur)
+    val SurfaceGlassCyan = Color(0x66081E32) // JARVIS message glass tint (faint arc cyan)
+    val SurfaceGlassElevated = Color(0xB8132338) // elevated glass dock/cards
 
-    // ── Accents (V4) ─────────────────────────────────────────────────────
-    val Presence = Color(0xFF00D4FF)        // V4 cyan — Jarvis's core identity
-    val PresenceBright = Color(0xFF00E5FF)  // V4 highlight cyan
-    val PresenceDeep = Color(0xFF0099CC)    // V4 medium blue
-    val ElectricBlue = Color(0xFF1952FF)    // electric blue — executing/active accents
-    val Warmth = Color(0xFFF5B87A)          // soft amber — highlights, thinking accent
+    // ── Accents (Mark 85 Stark Nanotech + Apple Luminescence) ────────────
+    val Presence = Color(0xFF00D4FF)        // Arc reactor cyan — Jarvis core identity
+    val PresenceBright = Color(0xFF00F0FF)  // Pure Mark 85 Arc highlight
+    val PresenceCore = Color(0xFFE2F9FF)    // Plasma core white-cyan
+    val PresenceDeep = Color(0xFF008BB8)    // Deep reactor blue
+    val ElectricBlue = Color(0xFF1D63FF)    // Stark repulsor electric blue
+    val StarkGold = Color(0xFFFFC043)       // Mark 85 Nanotech Gold accent
+    val StarkCrimson = Color(0xFFFF3B47)    // Mark 85 Armor Hot-Rod crimson accent
+    val Warmth = Color(0xFFFFB259)          // Soft amber — thinking / warning highlight
 
     // ── State Colors (V4 presence family + functional state hues) ────────
     val StateIdle = Color(0xAA00D4FF)       // visible presence (~67% alpha)

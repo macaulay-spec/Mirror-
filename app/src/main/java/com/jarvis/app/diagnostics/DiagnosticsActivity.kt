@@ -50,9 +50,7 @@ class DiagnosticsActivity : ComponentActivity() {
                 Surface(color = JarvisColors.VoidBlack) {
                     DiagnosticsScreen(
                         onTestVoice = { text ->
-                            com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(
-                                this@DiagnosticsActivity, text, ApiConfig.selectedVoiceId
-                            )
+                            com.jarvis.app.voice.GeminiVoicePlayer.speak(this@DiagnosticsActivity, text)
                         },
                         onSyncContacts = { PeopleGraph.syncFromContacts(this@DiagnosticsActivity) },
                         onRequestAssistantRole = { AssistantRoleManager.request(this@DiagnosticsActivity) }
@@ -102,27 +100,31 @@ private fun DiagnosticsScreen(
     ) {
         Text("DIAGNOSTICS", color = JarvisColors.Presence, fontSize = 20.sp, fontFamily = FontFamily.Monospace)
         Text(
-            "NVIDIA AI and ElevenLabs Voice status.",
+            "Gemini AI Multi-Model Brain & Voice status.",
             color = JarvisColors.TextSecondary, fontSize = 12.sp
         )
 
         Spacer(Modifier.height(8.dp))
 
         // AI CORE
-        Section("NVIDIA AI CORE") {
+        Section("AI DUAL-CORE (GEMINI + NVIDIA)") {
             Text(
                 "Active provider: ${ApiConfig.getProviderLabel()}",
                 color = JarvisColors.TextPrimary, fontSize = 12.sp
             )
             Text(
-                "NVIDIA key present: ${if (ApiConfig.NVIDIA_API_KEY.isBlank()) "NO - configure in Settings" else "YES"}",
-                color = if (ApiConfig.NVIDIA_API_KEY.isBlank()) JarvisColors.Warmth else JarvisColors.TextPrimary,
+                "Gemini keys pool: ${ApiConfig.geminiKeys.size} key(s) configured",
+                color = if (ApiConfig.geminiKeys.isEmpty()) JarvisColors.Warmth else JarvisColors.TextPrimary,
                 fontSize = 12.sp
             )
             Text(
-                "AI available: ${if (ApiConfig.hasAI) "YES" else "NO"}",
-                color = if (ApiConfig.hasAI) JarvisColors.StateSuccess else JarvisColors.StateError,
+                "NVIDIA cluster: ${if (ApiConfig.NVIDIA_API_KEY.isNotBlank()) "Online (${ApiConfig.NVIDIA_SUPER_MODEL.substringAfter('/')})" else "Not configured"}",
+                color = if (ApiConfig.NVIDIA_API_KEY.isNotBlank()) JarvisColors.StateSuccess else JarvisColors.Warmth,
                 fontSize = 12.sp
+            )
+            Text(
+                "Fallback chain: ${ApiConfig.PROVIDER_FALLBACK_CHAIN.size} tiers (Gemini Flash/Pro/Lite -> NVIDIA Nemotron Super/Llama/Mistral/Ultra)",
+                color = JarvisColors.TextSecondary, fontSize = 11.sp
             )
             Spacer(Modifier.height(6.dp))
             Button(
@@ -131,17 +133,15 @@ private fun DiagnosticsScreen(
                     scope.launch {
                         val client = JarvisApiClient()
                         val results = mutableListOf<ProviderStatus>()
-                        // Test all NVIDIA providers
-                        val providersToTest = listOf(
-                            "nvidia_glm", "nvidia_nemotron", "nvidia_mistral", "nvidia_llama"
-                        )
+                        // Test all Gemini and NVIDIA providers in the fallback chain
+                        val providersToTest = ApiConfig.PROVIDER_FALLBACK_CHAIN
                         
                         for (p in providersToTest) {
                             val start = System.currentTimeMillis()
                             val res = client.chat(
                                 systemPrompt = "You are JARVIS.",
                                 history = emptyList(),
-                                userMessage = "Test connection.",
+                                userMessage = "Operational ping. Reply in 3 words.",
                                 provider = p,
                                 model = ApiConfig.resolveModel(p)
                             )
@@ -149,7 +149,7 @@ private fun DiagnosticsScreen(
                             if (res.isSuccess) {
                                 results.add(ProviderStatus(
                                     p, ApiConfig.resolveModel(p), true, 
-                                    "OK - ${res.getOrNull()?.message?.take(30) ?: "No msg"}", elapsed
+                                    "OK - ${res.getOrNull()?.message?.take(40) ?: "Success"}", elapsed
                                 ))
                             } else {
                                 results.add(ProviderStatus(
@@ -163,7 +163,7 @@ private fun DiagnosticsScreen(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Presence)
-            ) { Text(if (testing) "TESTING..." else "TEST ALL NVIDIA PROVIDERS", color = androidx.compose.ui.graphics.Color.Black) }
+            ) { Text(if (testing) "TESTING PROVIDERS..." else "TEST ALL PROVIDERS (GEMINI + NVIDIA)", color = androidx.compose.ui.graphics.Color.Black) }
 
             for (status in providerResults.orEmpty()) {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {

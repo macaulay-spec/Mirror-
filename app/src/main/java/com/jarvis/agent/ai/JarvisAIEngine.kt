@@ -60,8 +60,17 @@ class JarvisAIEngine(private val context: Context) {
             val a11y = com.jarvis.android.accessibility.JarvisAccessibilityService.instance
             val a11yStatus = if (a11y != null) {
                 val pkg = a11y.currentPackageName ?: "unknown"
-                val screenTexts = a11y.findTextOnScreen().take(25)
-                val textSummary = if (screenTexts.isNotEmpty()) screenTexts.joinToString(" | ") else "No text found"
+                val nodes = a11y.getStructuredScreenData().take(20)
+                val textSummary = if (nodes.isNotEmpty()) {
+                    nodes.joinToString("\n                ") { n -> 
+                        val txt = n["text"] as? String ?: ""
+                        val desc = n["contentDescription"] as? String ?: ""
+                        val clickable = n["clickable"] as? Boolean ?: false
+                        val cx = n["centerX"] as? Float ?: 0f
+                        val cy = n["centerY"] as? Float ?: 0f
+                        "- ${if (txt.isNotBlank()) "Text: '$txt'" else "Desc: '$desc'"} [Clickable: $clickable, coords: ($cx, $cy)]"
+                    }
+                } else "No readable elements found"
                 """
                 [REAL-TIME SCREEN ACCESSIBILITY: ACTIVE]
                 - Foreground App: $pkg

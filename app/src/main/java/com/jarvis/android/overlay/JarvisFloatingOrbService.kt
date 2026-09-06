@@ -1,8 +1,18 @@
+
+
+
+
+
 package com.jarvis.android.overlay
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
@@ -268,14 +278,20 @@ class JarvisFloatingOrbService : Service() {
     }
 }
 
+
+
+
+
+
+
 /**
  * Orb overlay content — uses the SAME JarvisCore as the main app.
  *
- * v3 carbon copy of mockups 07/08:
- *  - Collapsed: the mini HUD core floating over any app (black glass,
- *    cyan/electric-blue rings, halo) — same JarvisCore, scaled.
- *  - Expanded: a vertical frosted-glass command strip — mini orb, live status
- *    line, last reply preview, glowing cyan mic, close at the bottom.
+ * Rewritten:
+ *  - No longer forces navigation or a rigid command strip.
+ *  - Shows the Orb on the left.
+ *  - When JARVIS is active (listening/thinking/speaking), streams the reply
+ *    in a floating glass text bubble right beside the Orb.
  */
 @Composable
 private fun OrbOverlayContent(
@@ -286,90 +302,10 @@ private fun OrbOverlayContent(
     onToggleMic: () -> Unit,
     isListening: Boolean
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
-
-    if (isExpanded) {
-        // Expanded: vertical glass command strip (mockup 08)
-        Column(
-            modifier = Modifier
-                .padding(6.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(JarvisColors.SurfaceGlassElevated.copy(alpha = 0.96f))
-                .border(0.8.dp, JarvisColors.Hairline, RoundedCornerShape(22.dp))
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Mini Orb — same JarvisCore
-            JarvisCore(
-                state = state,
-                audioLevel = audioLevel,
-                size = 44.dp,
-                onClick = { isExpanded = false }
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Live status line
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(5.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(state.orbColor())
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                Text(
-                    text = state.label,
-                    color = state.orbColor(),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            // Last reply preview (one line, dimmed)
-            if (!lastReply.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(5.dp))
-                Text(
-                    text = lastReply.replace("\n", " ").take(42),
-                    color = JarvisColors.TextSecondary,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Glowing cyan mic — talk to JARVIS from inside any app
-            com.jarvis.core.ui.GlowMicButton(
-                isListening = isListening,
-                onClick = onToggleMic,
-                size = 44.dp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onOpenApp, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.OpenInFull,
-                        contentDescription = "Open App",
-                        tint = JarvisColors.TextSecondary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                IconButton(onClick = { isExpanded = false }, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Collapse",
-                        tint = JarvisColors.TextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-    } else {
-        // Collapsed: the mini HUD core (mockup 07)
+    val isActive = state == JarvisVisualState.LISTENING || state == JarvisVisualState.THINKING || state == JarvisVisualState.SPEAKING
+    
+    Row(verticalAlignment = Alignment.Top) {
+        // Core Orb
         Box(
             modifier = Modifier
                 .size(80.dp)
@@ -379,8 +315,33 @@ private fun OrbOverlayContent(
                 state = state,
                 audioLevel = audioLevel,
                 size = 64.dp,
-                onClick = { isExpanded = true }
+                onClick = onToggleMic // Toggles mic directly without opening the app!
             )
+        }
+
+        // Floating Streaming Text Bubble
+        AnimatedVisibility(
+            visible = isActive && !lastReply.isNullOrBlank(),
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 16.dp, end = 16.dp)
+                    .widthIn(max = 240.dp)
+                    .clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                    .background(JarvisColors.SurfaceGlassElevated.copy(alpha = 0.95f))
+                    .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                    .padding(14.dp)
+            ) {
+                Text(
+                    text = lastReply ?: "",
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontFamily = FontFamily.Default
+                )
+            }
         }
     }
 }

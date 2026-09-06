@@ -1,0 +1,11 @@
+                val nodes = a11y.getStructuredScreenData().take(20)
+                val textSummary = if (nodes.isNotEmpty()) {
+                    nodes.joinToString("\n                ") { n -> 
+                        val txt = n["text"] as? String ?: ""
+                        val desc = n["contentDescription"] as? String ?: ""
+                        val clickable = n["clickable"] as? Boolean ?: false
+                        val cx = n["centerX"] as? Float ?: 0f
+                        val cy = n["centerY"] as? Float ?: 0f
+                        "- ${if (txt.isNotBlank()) "Text: '$txt'" else "Desc: '$desc'"} [Clickable: $clickable, coords: ($cx, $cy)]"
+                    }
+                } else "No readable elements found"

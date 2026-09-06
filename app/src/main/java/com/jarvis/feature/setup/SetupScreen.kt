@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
@@ -95,6 +96,7 @@ fun SetupScreen(
     var hasCam by remember { mutableStateOf(PermissionAndSetupHelper.hasCamera(context)) }
     var hasNotif by remember { mutableStateOf(PermissionAndSetupHelper.hasNotifications(context)) }
     var hasMedia by remember { mutableStateOf(PermissionAndSetupHelper.hasMediaImages(context)) }
+    var hasContacts by remember { mutableStateOf(PermissionAndSetupHelper.hasContacts(context)) }
 
     var hasAccessibility by remember { mutableStateOf(PermissionAndSetupHelper.hasAccessibilityService(context)) }
     var hasNotifListener by remember { mutableStateOf(PermissionAndSetupHelper.hasNotificationListener(context)) }
@@ -110,6 +112,7 @@ fun SetupScreen(
         hasCam = PermissionAndSetupHelper.hasCamera(context)
         hasNotif = PermissionAndSetupHelper.hasNotifications(context)
         hasMedia = PermissionAndSetupHelper.hasMediaImages(context)
+        hasContacts = PermissionAndSetupHelper.hasContacts(context)
         hasAccessibility = PermissionAndSetupHelper.hasAccessibilityService(context)
         hasNotifListener = PermissionAndSetupHelper.hasNotificationListener(context)
         hasOverlay = PermissionAndSetupHelper.hasOverlay(context)
@@ -137,6 +140,7 @@ fun SetupScreen(
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshAllStatus() }
     val camLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshAllStatus() }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refreshAllStatus() }
+    val contactsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshAllStatus() }
     val coreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshAllStatus() }
 
 
@@ -296,6 +300,112 @@ fun SetupScreen(
                     }
                 }
 
+                // Section: GEMINI MULTI-KEY POOL & ROTATION
+                item {
+                    var rawKeys by remember { mutableStateOf(ApiConfig.customApiKey ?: "") }
+                    var keyVisible by remember { mutableStateOf(false) }
+                    var testStatus by remember { mutableStateOf<String?>(null) }
+                    var isTesting by remember { mutableStateOf(false) }
+                    val poolCount = ApiConfig.geminiKeys.size
+
+                    PermissionCard(
+                        title = "GEMINI MULTI-KEY POOL & ROTATION",
+                        subtitle = if (poolCount > 0) "$poolCount Gemini key(s) active • Auto-failover on quota exhaustion" else "Paste multiple Gemini keys to bypass rate limits",
+                        icon = Icons.Default.Key,
+                        isGranted = poolCount > 0,
+                        actionLabel = "SAVE KEYS",
+                        onAction = {
+                            ApiConfig.saveCustomApiKey(context, rawKeys.trim(), "gemini_flash")
+                            android.widget.Toast.makeText(context, "Saved! ${ApiConfig.geminiKeys.size} Gemini keys loaded into pool.", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = rawKeys,
+                                onValueChange = { rawKeys = it },
+                                label = { Text("Paste Gemini keys (separated by newlines or commas)", color = JarvisColors.TextSecondary, fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { keyVisible = !keyVisible }) {
+                                        Icon(
+                                            imageVector = if (keyVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = "Toggle key visibility",
+                                            tint = JarvisColors.TextSecondary
+                                        )
+                                    }
+                                },
+                                minLines = 2,
+                                maxLines = 4,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = JarvisColors.Presence,
+                                    unfocusedBorderColor = JarvisColors.Hairline,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (poolCount > 0) "Pool: $poolCount keys active | Current: ${ApiConfig.currentGeminiKey.take(10)}..." else "No custom keys configured.",
+                                    color = if (poolCount > 0) JarvisColors.StateSuccess else JarvisColors.TextSecondary,
+                                    fontSize = 11.sp
+                                )
+
+                                Button(
+                                    onClick = {
+                                        isTesting = true
+                                        testStatus = "Pinging Gemini..."
+                                        coroutineScope.launch {
+                                            try {
+                                                val client = com.jarvis.app.assistant.JarvisApiClient()
+                                                val result = client.chat(
+                                                    systemPrompt = "Respond with one word: Online",
+                                                    history = emptyList<Pair<String, String>>(),
+                                                    userMessage = "Ping test",
+                                                    provider = "gemini_flash",
+                                                    model = "gemini-1.5-flash",
+                                                    allowTools = false
+                                                )
+                                                testStatus = if (result.isSuccess) {
+                                                    "✓ Online: Gemini pool responded successfully!"
+                                                } else {
+                                                    "✗ ${result.exceptionOrNull()?.message?.take(60)}"
+                                                }
+                                            } catch (e: Exception) {
+                                                testStatus = "✗ Error: ${e.message?.take(60)}"
+                                            } finally {
+                                                isTesting = false
+                                            }
+                                        }
+                                    },
+                                    enabled = !isTesting,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = JarvisColors.SurfaceCard,
+                                        contentColor = JarvisColors.Presence
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(if (isTesting) "TESTING..." else "TEST POOL", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            testStatus?.let { status ->
+                                Text(
+                                    text = status,
+                                    color = if (status.startsWith("✓")) JarvisColors.StateSuccess else JarvisColors.StateError,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Voice & Persona Customization Card
                 item {
                     val engineType = "elevenlabs"
@@ -378,11 +488,7 @@ fun SetupScreen(
                                     android.widget.Toast.makeText(context, "Streaming ElevenLabs preview...", android.widget.Toast.LENGTH_SHORT).show()
                                     coroutineScope.launch {
                                         try {
-                                            com.jarvis.app.voice.ElevenLabsVoicePlayer.speak(
-                                                context, 
-                                                "Greetings ${ApiConfig.userName}. Systems operational. How may I assist you today?", 
-                                                selectedVoice
-                                            )
+                                            com.jarvis.app.voice.GeminiVoicePlayer.speak(context, "Greetings ${ApiConfig.userName}. Systems operational. How may I assist you today?")
                                         } catch (e: Exception) {
                                             android.widget.Toast.makeText(context, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                                         }
@@ -462,7 +568,28 @@ fun SetupScreen(
 
                 // Section 1: CORE PERMISSIONS
                 item {
-                    SectionHeader(title = "CORE PERMISSIONS", countGranted = listOf(hasMic, hasCam, hasNotif, hasMedia).count { it }, total = 4)
+                    SectionHeader(title = "CORE PERMISSIONS", countGranted = listOf(hasMic, hasCam, hasNotif, hasMedia, hasContacts).count { it }, total = 5)
+                }
+
+                item {
+                    PermissionCard(
+                        title = "CONTACTS & PHONE CALLS",
+                        subtitle = "Direct contact lookup, phone dialing, and SMS messaging",
+                        icon = Icons.Default.Contacts,
+                        isGranted = hasContacts,
+                        actionLabel = "ENABLE",
+                        onAction = {
+                            contactsLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_CONTACTS,
+                                    Manifest.permission.WRITE_CONTACTS,
+                                    Manifest.permission.CALL_PHONE,
+                                    Manifest.permission.SEND_SMS,
+                                    Manifest.permission.READ_CALL_LOG
+                                )
+                            )
+                        }
+                    )
                 }
 
                 item {

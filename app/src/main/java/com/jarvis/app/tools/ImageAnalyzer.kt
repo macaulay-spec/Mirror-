@@ -16,13 +16,13 @@ import java.util.concurrent.TimeUnit
 
 /**
  * JARVIS Multimodal Vision & Image Analysis Engine.
- * Supports Llama 3.2 11B/90B Vision Instruct with local heuristic fallback.
+ * Powered by Google Gemini Vision with automatic key failover and local heuristic fallback.
  */
 object ImageAnalyzer {
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
         .build()
 
     data class Analysis(
@@ -32,7 +32,7 @@ object ImageAnalyzer {
         val aiDescription: String? = null
     )
 
-    suspend fun analyzeWithAI(bitmap: Bitmap, prompt: String = "Describe what you see in this image in detail."): String =
+    suspend fun analyzeWithAI(bitmap: Bitmap, prompt: String = "Describe what you see in this image or phone screen in detail. If text or UI elements are visible, extract the key information."): String =
         withContext(Dispatchers.IO) {
             // Compress bitmap to JPEG Base64
             val base64Image = runCatching {
@@ -45,8 +45,9 @@ object ImageAnalyzer {
                 Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
             }.getOrNull()
 
-            if (base64Image != null && ApiConfig.NVIDIA_API_KEY.isNotBlank()) {
-                val visionResult = callNvidiaVision(base64Image, prompt)
+            val geminiKey = ApiConfig.currentGeminiKey
+            if (base64Image != null && geminiKey.isNotBlank()) {
+                val visionResult = callGeminiVision(base64Image, prompt, geminiKey)
                 if (!visionResult.isNullOrBlank()) return@withContext visionResult
             }
 
@@ -55,48 +56,63 @@ object ImageAnalyzer {
             describe(localAnalysis)
         }
 
-    private fun callNvidiaVision(base64Image: String, prompt: String): String? {
-        return try {
-            val json = JSONObject().apply {
-                put("model", "meta/llama-3.2-11b-vision-instruct")
-                put("messages", JSONArray().apply {
+    private fun callGeminiVision(base64Image: String, prompt: String, initialKey: String): String? {
+        var key = initialKey
+        for (attempt in 0..1) {
+            try {
+                val parts = JSONArray().apply {
                     put(JSONObject().apply {
-                        put("role", "user")
-                        put("content", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("type", "text")
-                                put("text", prompt)
-                            })
-                            put(JSONObject().apply {
-                                put("type", "image_url")
-                                put("image_url", JSONObject().apply {
-                                    put("url", "data:image/jpeg;base64,$base64Image")
-                                })
-                            })
+                        put("text", prompt)
+                    })
+                    put(JSONObject().apply {
+                        put("inlineData", JSONObject().apply {
+                            put("mimeType", "image/jpeg")
+                            put("data", base64Image)
                         })
                     })
-                })
-                put("max_tokens", 512)
+                }
+                val content = JSONObject().apply {
+                    put("role", "user")
+                    put("parts", parts)
+                }
+                val payload = JSONObject().apply {
+                    put("contents", JSONArray().put(content))
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.4)
+                        put("maxOutputTokens", 1024)
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key")
+                    .header("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                if (response.code == 429) {
+                    ApiConfig.markGeminiKeyRateLimited(key)
+                    val next = ApiConfig.currentGeminiKey
+                    if (next.isNotBlank() && next != key) {
+                        key = next
+                        continue
+                    }
+                }
+                if (!response.isSuccessful) return null
+                val bodyStr = response.body?.string() ?: return null
+                val respJson = JSONObject(bodyStr)
+                val candidates = respJson.optJSONArray("candidates") ?: return null
+                if (candidates.length() > 0) {
+                    val candidateParts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts")
+                    if (candidateParts != null && candidateParts.length() > 0) {
+                        val text = candidateParts.getJSONObject(0).optString("text")
+                        if (text.isNotBlank()) return text
+                    }
+                }
+            } catch (_: Exception) {
             }
-
-            val request = Request.Builder()
-                .url("${ApiConfig.NVIDIA_BASE_URL}/chat/completions")
-                .header("Authorization", "Bearer ${ApiConfig.NVIDIA_API_KEY}")
-                .header("Content-Type", "application/json")
-                .post(json.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = httpClient.newCall(request).execute()
-            if (!response.isSuccessful) return null
-            val bodyStr = response.body?.string() ?: return null
-            val respJson = JSONObject(bodyStr)
-            val choices = respJson.optJSONArray("choices") ?: return null
-            if (choices.length() > 0) {
-                choices.getJSONObject(0).optJSONObject("message")?.optString("content")
-            } else null
-        } catch (_: Exception) {
-            null
         }
+        return null
     }
 
     fun analyze(bitmap: Bitmap): Analysis? {

@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -47,46 +48,100 @@ import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
 
 /**
- * Glass card — translucent panel with soft inner highlight, not a flat border.
- *
- * Design spec: panels are translucent (--bg-glass) with soft definition from
- * a 1px inner highlight (top edge) plus soft shadow. Color appears in a panel
- * because something inside it is that color, not because the container is
- * outlined in it.
+ * Glass card — Apple Liquid Glass meets Stark nanotech interface.
+ * Translucent panel with multi-tier specular border highlights,
+ * deep ambient blur shadow, and subtle gradient sheen.
  */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(22.dp),
     backgroundColor: Color = JarvisColors.SurfaceGlass,
+    borderColor: Color? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
+    val borderBrush = if (borderColor != null) {
+        SolidColor(borderColor)
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = 0.14f),
+                JarvisColors.Presence.copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.04f),
+                Color.Transparent
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(400f, 400f)
+        )
+    }
+
     Box(
         modifier = modifier
             .shadow(
-                elevation = 8.dp,
+                elevation = 12.dp,
                 shape = shape,
-                ambientColor = Color.Black.copy(alpha = 0.3f),
-                spotColor = Color.Black.copy(alpha = 0.15f)
+                ambientColor = Color.Black.copy(alpha = 0.45f),
+                spotColor = JarvisColors.Presence.copy(alpha = 0.08f)
             )
             .clip(shape)
             .background(backgroundColor)
-            // Soft inner highlight — top edge only, 1px
             .border(
-                border = BorderStroke(
-                    1.dp,
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.06f),
-                            Color.Transparent
-                        )
-                    )
-                ),
+                border = BorderStroke(1.dp, borderBrush),
                 shape = shape
             ),
         content = content
     )
 }
+
+/**
+ * Apple-Stark Telemetry Badge for latency, active tier, or system status.
+ */
+@Composable
+fun StarkTelemetryBadge(
+    text: String,
+    modifier: Modifier = Modifier,
+    accent: Color = JarvisColors.Presence,
+    leadingIcon: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(JarvisColors.VoidBlack.copy(alpha = 0.65f))
+            .border(
+                0.8.dp,
+                Brush.horizontalGradient(
+                    listOf(
+                        accent.copy(alpha = 0.35f),
+                        accent.copy(alpha = 0.10f)
+                    )
+                ),
+                RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+    ) {
+        if (leadingIcon != null) {
+            leadingIcon()
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+        }
+        Text(
+            text = text,
+            color = accent.copy(alpha = 0.95f),
+            fontSize = 9.5.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.5.sp
+        )
+    }
+}
+
 
 /**
  * Action pill — rounded chip with subtle glass background.

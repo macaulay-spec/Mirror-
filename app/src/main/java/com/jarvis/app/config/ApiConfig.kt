@@ -227,7 +227,7 @@ object ApiConfig {
         "nvidia_ultra"
     )
 
-    /** Get the next provider in the fallback chain. */
+    /** Get the next provider in the fallback chain that actually has an available API key. */
     fun getNextProvider(currentProvider: String): String? {
         val normalized = when (currentProvider) {
             "nvidia_glm" -> "nvidia_super"
@@ -235,8 +235,18 @@ object ApiConfig {
             else -> currentProvider
         }
         val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(normalized)
-        if (currentIndex >= 0 && currentIndex < PROVIDER_FALLBACK_CHAIN.size - 1) {
-            return PROVIDER_FALLBACK_CHAIN[currentIndex + 1]
+        val startIndex = if (currentIndex >= 0) currentIndex + 1 else 0
+
+        for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
+            val candidate = PROVIDER_FALLBACK_CHAIN[i]
+            val candidateKey = when {
+                candidate.startsWith("gemini") -> currentGeminiKey
+                candidate.startsWith("nvidia") -> NVIDIA_API_KEY
+                else -> activeApiKey
+            }
+            if (candidateKey.isNotBlank()) {
+                return candidate
+            }
         }
         return null
     }

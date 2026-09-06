@@ -137,11 +137,14 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         setState(JarvisVisualState.SPEAKING)
         requestAudioFocus()
 
-        val elevenLabsStarted = runCatching {
-            com.jarvis.app.voice.GeminiVoicePlayer.speak(context, text)
-        }.getOrDefault(false)
+        var cloudStarted = false
+        if (com.jarvis.app.config.ApiConfig.currentGeminiKey.isNotBlank()) {
+            cloudStarted = runCatching {
+                com.jarvis.app.voice.GeminiVoicePlayer.speak(context, text)
+            }.getOrDefault(false)
+        }
 
-        if (!elevenLabsStarted) {
+        if (!cloudStarted) {
             speakWithAndroidTts(text)
         }
     }

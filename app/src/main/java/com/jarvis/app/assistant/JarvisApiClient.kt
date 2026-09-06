@@ -43,12 +43,12 @@ data class AiResponse(
  */
 class JarvisApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build(),
     private val streamClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.MINUTES)
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build()
 ) {
     suspend fun chat(
@@ -123,12 +123,12 @@ class JarvisApiClient(
 
         while (currentProvider != null) {
             lastResult = tryStreamWithProvider(currentProvider)
-            if (lastResult.isSuccess) {
-                Log.i("JarvisApiClient", "Provider $currentProvider succeeded")
+            if (lastResult.isSuccess || emitted) {
+                Log.i("JarvisApiClient", "Provider $currentProvider finished (emitted=$emitted)")
                 return@withContext lastResult
             }
 
-            Log.w("JarvisApiClient", "Provider $currentProvider failed, trying next in chain")
+            Log.w("JarvisApiClient", "Provider $currentProvider failed without emitting, trying next")
             currentProvider = ApiConfig.getNextProvider(currentProvider)
         }
 

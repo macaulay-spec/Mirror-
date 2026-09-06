@@ -5,6 +5,7 @@ import android.media.MediaPlayer
 import com.jarvis.app.config.ApiConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,8 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object GeminiVoicePlayer {
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
@@ -33,121 +34,135 @@ object GeminiVoicePlayer {
     val isPlaying: Boolean
         get() = mediaPlayer?.isPlaying == true
 
-    suspend fun speak(context: Context, text: String, targetVoice: String? = null): Boolean = withContext(Dispatchers.IO) {
-        if (text.isBlank()) return@withContext false
-        var key = ApiConfig.currentGeminiKey
-        if (key.isBlank()) return@withContext false
-
-        stop()
-        val myGen = generation.incrementAndGet()
-
-        // Map voice ID to recognized Gemini prebuilt voice name
-        val voiceChoice = targetVoice ?: ApiConfig.selectedVoiceId
-        val geminiVoiceName = when (voiceChoice.lowercase()) {
-            "charon", "rex", "deep", "male" -> "Charon"
-            "fenrir", "smooth" -> "Fenrir"
-            "kore", "calm" -> "Kore"
-            "puck", "bright" -> "Puck"
-            "aoede", "eve", "eva", "female" -> "Aoede"
-            else -> "Aoede"
-        }
-
-        val modelsToTry = listOf("gemini-2.0-flash", "gemini-2.5-flash-preview-tts", "gemini-1.5-flash")
-
-        for (modelName in modelsToTry) {
-            if (myGen != generation.get()) return@withContext false
-            try {
-                val payload = JSONObject().apply {
-                    put("contents", JSONArray().put(
-                        JSONObject().apply {
-                            put("role", "user")
-                            put("parts", JSONArray().put(JSONObject().put("text", "Speak this aloud: $text")))
-                        }
-                    ))
-                    put("generationConfig", JSONObject().apply {
-                        put("responseModalities", JSONArray().put("AUDIO"))
-                        put("speechConfig", JSONObject().put("voiceConfig", JSONObject().put("prebuiltVoiceConfig", JSONObject().put("voiceName", geminiVoiceName))))
-                    })
-                }
-
-                var request = Request.Builder()
-                    .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
-                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-
-                var response = httpClient.newCall(request).execute()
-                if (response.code == 429) {
-                    ApiConfig.markGeminiKeyRateLimited(key)
-                    val nextKey = ApiConfig.currentGeminiKey
-                    if (nextKey.isNotBlank() && nextKey != key) {
-                        key = nextKey
-                        request = Request.Builder()
-                            .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
-                            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                            .build()
-                        response = httpClient.newCall(request).execute()
-                    }
-                }
-
-                if (!response.isSuccessful) {
-                    continue // Try next model fallback
-                }
-
-                val body = response.body?.string() ?: continue
-                val obj = JSONObject(body)
-                val candidates = obj.optJSONArray("candidates") ?: continue
-                if (candidates.length() == 0) continue
-                val parts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts") ?: continue
-
-                var audioB64: String? = null
-                for (i in 0 until parts.length()) {
-                    val inlineData = parts.getJSONObject(i).optJSONObject("inlineData")
-                    if (inlineData != null) {
-                        audioB64 = inlineData.optString("data")
-                        break
-                    }
-                }
-                if (audioB64.isNullOrBlank()) continue
-
-                val rawAudio = android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
-                if (rawAudio.size <= 256) continue
-
-                // Guarantee playback on Android MediaPlayer by framing with standard WAV header if raw PCM
-                val playableWav = ensureWav(rawAudio, sampleRate = 24000, channels = 1)
-
-                val tempFile = File.createTempFile("gemini_voice_", ".wav", context.cacheDir)
-                tempFile.deleteOnExit()
-                FileOutputStream(tempFile).use { it.write(playableWav) }
-
-                if (myGen != generation.get()) return@withContext true
-
-                val player = MediaPlayer().apply {
-                    setDataSource(tempFile.absolutePath)
-                    prepare()
-                    start()
-                }
-                mediaPlayer = player
-
-                var isDone = false
-                player.setOnCompletionListener {
-                    runCatching { it.release() }
-                    isDone = true
-                }
-                player.setOnErrorListener { mp, _, _ ->
-                    runCatching { mp.release() }
-                    isDone = true
-                    true
-                }
-
-                while (!isDone && myGen == generation.get()) {
-                    kotlinx.coroutines.delay(100)
-                }
-                return@withContext true
-            } catch (_: Exception) {
-                // Try next model fallback
+    fun stop() {
+        generation.incrementAndGet()
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
             }
+        } catch (_: Exception) {}
+        mediaPlayer = null
+    }
+
+    suspend fun speak(context: Context, text: String, targetVoice: String? = null): Boolean = withContext(Dispatchers.IO) {
+        val result = withTimeoutOrNull(2500L) {
+            if (text.isBlank()) return@withTimeoutOrNull false
+            var key = ApiConfig.currentGeminiKey
+            if (key.isBlank()) return@withTimeoutOrNull false
+
+            stop()
+            val myGen = generation.get()
+
+            // Map voice ID to recognized Gemini prebuilt voice name
+            val voiceChoice = targetVoice ?: ApiConfig.selectedVoiceId
+            val geminiVoiceName = when (voiceChoice.lowercase()) {
+                "charon", "rex", "deep", "male" -> "Charon"
+                "fenrir", "smooth" -> "Fenrir"
+                "kore", "calm" -> "Kore"
+                "puck", "bright" -> "Puck"
+                "aoede", "eve", "eva", "female" -> "Aoede"
+                else -> "Aoede"
+            }
+
+            val modelsToTry = listOf("gemini-2.0-flash", "gemini-2.5-flash-preview-tts")
+
+            for (modelName in modelsToTry) {
+                if (myGen != generation.get()) return@withTimeoutOrNull false
+                try {
+                    val payload = JSONObject().apply {
+                        put("contents", JSONArray().put(
+                            JSONObject().apply {
+                                put("role", "user")
+                                put("parts", JSONArray().put(JSONObject().put("text", "Speak this aloud: $text")))
+                            }
+                        ))
+                        put("generationConfig", JSONObject().apply {
+                            put("responseModalities", JSONArray().put("AUDIO"))
+                            put("speechConfig", JSONObject().put("voiceConfig", JSONObject().put("prebuiltVoiceConfig", JSONObject().put("voiceName", geminiVoiceName))))
+                        })
+                    }
+
+                    var request = Request.Builder()
+                        .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
+                        .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    var response = httpClient.newCall(request).execute()
+                    if (response.code == 429) {
+                        ApiConfig.markGeminiKeyRateLimited(key)
+                        val nextKey = ApiConfig.currentGeminiKey
+                        if (nextKey.isNotBlank() && nextKey != key) {
+                            key = nextKey
+                            request = Request.Builder()
+                                .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
+                                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                                .build()
+                            response = httpClient.newCall(request).execute()
+                        }
+                    }
+
+                    if (!response.isSuccessful) {
+                        continue // Try next model fallback
+                    }
+
+                    val body = response.body?.string() ?: continue
+                    val obj = JSONObject(body)
+                    val candidates = obj.optJSONArray("candidates") ?: continue
+                    if (candidates.length() == 0) continue
+                    val parts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts") ?: continue
+
+                    var audioB64: String? = null
+                    for (i in 0 until parts.length()) {
+                        val inlineData = parts.getJSONObject(i).optJSONObject("inlineData")
+                        if (inlineData != null) {
+                            audioB64 = inlineData.optString("data")
+                            break
+                        }
+                    }
+                    if (audioB64.isNullOrBlank()) continue
+
+                    val rawAudio = android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
+                    if (rawAudio.size <= 256) continue
+
+                    // Guarantee playback on Android MediaPlayer by framing with standard WAV header if raw PCM
+                    val playableWav = ensureWav(rawAudio, sampleRate = 24000, channels = 1)
+
+                    val tempFile = File.createTempFile("gemini_voice_", ".wav", context.cacheDir)
+                    tempFile.deleteOnExit()
+                    FileOutputStream(tempFile).use { it.write(playableWav) }
+
+                    if (myGen != generation.get()) return@withTimeoutOrNull false
+
+                    val player = MediaPlayer().apply {
+                        setDataSource(tempFile.absolutePath)
+                        prepare()
+                        start()
+                    }
+                    mediaPlayer = player
+
+                    var isDone = false
+                    player.setOnCompletionListener {
+                        runCatching { it.release() }
+                        isDone = true
+                    }
+                    player.setOnErrorListener { mp, _, _ ->
+                        runCatching { mp.release() }
+                        isDone = true
+                        true
+                    }
+
+                    while (!isDone && myGen == generation.get()) {
+                        kotlinx.coroutines.delay(100)
+                    }
+                    return@withTimeoutOrNull true
+                } catch (_: Exception) {
+                    // Try next model fallback
+                }
+            }
+            return@withTimeoutOrNull false
         }
-        return@withContext false
+        return@withContext (result == true)
     }
 
     /**
@@ -218,16 +233,5 @@ object GeminiVoicePlayer {
         System.arraycopy(header, 0, wavBytes, 0, 44)
         System.arraycopy(data, 0, wavBytes, 44, data.size)
         return wavBytes
-    }
-
-    fun stop() {
-        generation.incrementAndGet()
-        try {
-            mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.release()
-            }
-        } catch (_: Exception) {}
-        mediaPlayer = null
     }
 }

@@ -140,13 +140,7 @@ fun DualModeHost(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Auto-switch to conversation deck once conversation starts
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && stageMode == StageMode.VOICE_STAGE && messages.size > 1) {
-            stageMode = StageMode.CONVERSATION
-        }
-    }
-
+    // Keep list scrolled to latest message when in conversation view
     val thinkingIndicatorVisible = visualState == JarvisVisualState.THINKING &&
             messages.lastOrNull()?.role == MessageRole.USER
     LaunchedEffect(messages.size, thinkingIndicatorVisible) {

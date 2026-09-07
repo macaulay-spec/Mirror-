@@ -162,6 +162,7 @@ class JarvisApiClient(
             .put("model", model)
             .put("messages", messages)
             .put("stream", true)
+        applyInferenceControls(payload, provider, model)
 
         if (allowTools) {
             val tools = ToolSchema.forOpenAI()
@@ -485,6 +486,7 @@ class JarvisApiClient(
         val payload = JSONObject()
             .put("model", model)
             .put("messages", messages)
+        applyInferenceControls(payload, provider, model)
 
         if (allowTools) {
             val tools = ToolSchema.forOpenAI()
@@ -532,6 +534,33 @@ class JarvisApiClient(
 
             val toolCalls = parseOpenAIToolCalls(toolCallsArray)
             Result.success(AiResponse(message = content, toolCalls = toolCalls))
+        }
+    }
+
+    /**
+     * Sampling and reasoning controls (audit P0-6 / plan section 4.4).
+     *
+     * Requests previously carried only model / messages / stream / tools, so every
+     * call inherited the provider's server-side defaults. Two of those defaults are
+     * actively harmful for a voice assistant:
+     *
+     *  - Nemotron 3 defaults to reasoning mode ON. Independent measurements put
+     *    Nemotron 3 Super around 16 seconds per turn with reasoning enabled.
+     *    `chat_template_kwargs.enable_thinking` is now sent explicitly: OFF for the
+     *    conversational tier, ON only for the deep tier. It is gated on the model
+     *    because the Gemini OpenAI-compatibility endpoint does not accept
+     *    `chat_template_kwargs` and would reject the whole request.
+     *  - No `max_tokens` meant the model could emit up to its full output budget for
+     *    a reply that is about to be read aloud. The cap bounds latency and cost; it
+     *    is deliberately generous enough that a spoken reply plus streamed tool-call
+     *    arguments cannot be truncated into invalid JSON.
+     */
+    private fun applyInferenceControls(payload: JSONObject, provider: String, model: String) {
+        val deep = ApiConfig.isDeepTier(provider)
+        payload.put("temperature", if (deep) 0.4 else 0.7)
+        payload.put("max_tokens", if (deep) 4096 else 1024)
+        if (ApiConfig.supportsReasoningToggle(model)) {
+            payload.put("chat_template_kwargs", JSONObject().put("enable_thinking", deep))
         }
     }
 

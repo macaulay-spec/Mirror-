@@ -221,9 +221,9 @@ object ApiConfig {
         "gemini_pro" -> "Gemini 2.5 Pro (Deep Reasoning)"
         "gemini_lite" -> "Gemini 2.0 Flash Lite"
         "nvidia_super", "nvidia_glm" -> "NVIDIA Nemotron 3 Super 120B"
-        "nvidia_llama" -> "NVIDIA Llama 3.2 11B Vision"
-        "nvidia_mistral" -> "NVIDIA Mistral Nemotron"
+        "nvidia_nano" -> "NVIDIA Nemotron 3 Nano 30B"
         "nvidia_ultra", "nvidia_nemotron" -> "NVIDIA Nemotron 3 Ultra 550B"
+        "nvidia_llama", "nvidia_mistral" -> "NVIDIA Nemotron 3 Super 120B"
         else -> activeProvider.replaceFirstChar { it.uppercase() }
     }
 
@@ -232,12 +232,27 @@ object ApiConfig {
     const val GEMINI_PRO_MODEL = "gemini-2.5-pro"
     const val GEMINI_LITE_MODEL = "gemini-2.0-flash-lite"
 
-    // NVIDIA AI Endpoints & Live-Verified Models
+    // NVIDIA AI Endpoints. Model IDs verified against the live NIM catalogue.
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b" // Fast primary (~480ms live stream)
-    const val NVIDIA_LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct" // Ultra-fast multimodal (~230ms live stream)
-    const val NVIDIA_MISTRAL_MODEL = "mistralai/mistral-nemotron" // Verified active
-    const val NVIDIA_ULTRA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b" // Flagship deep reasoning (verified active)
+
+    /** Fast primary. 120B total / 12B active, 1M context, built for agentic tool use. */
+    const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+
+    /** Flagship deep reasoning. 550B total / 55B active. Used only for the deep tier. */
+    const val NVIDIA_ULTRA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
+
+    /**
+     * Low-latency fallback tier: 30B total / 3B active, 1M context. Entered
+     * automatically by the fallback chain when Super is unavailable.
+     */
+    const val NVIDIA_NANO_MODEL = "nvidia/nemotron-3-nano-30b-a3b"
+
+    // REMOVED (audit section 4.5): "mistralai/mistral-nemotron" and
+    // "meta/llama-3.2-11b-vision-instruct" were stale catalogue entries sitting in
+    // the fallback chain that every failed request walks. There is also no vision
+    // call path in JarvisApiClient, so the Llama vision model could never be used
+    // for its stated purpose. Keeping unverifiable model IDs in a fallback chain
+    // turns one provider outage into a cascade of guaranteed 404s.
 
     // Complete Provider fallback chain: Gemini High-Speed Pool -> NVIDIA Multi-Model Cluster
     val PROVIDER_FALLBACK_CHAIN = listOf(
@@ -245,10 +260,33 @@ object ApiConfig {
         "gemini_pro",
         "gemini_lite",
         "nvidia_super",
-        "nvidia_llama",
-        "nvidia_mistral",
+        "nvidia_nano",
         "nvidia_ultra"
     )
+
+    /**
+     * True for the providers that should reason before answering.
+     *
+     * Nemotron 3 ships with configurable reasoning and it defaults to ON, which
+     * costs seconds per turn: independent measurements put Nemotron 3 Super around
+     * 16s with reasoning enabled, versus roughly 4s for Nano. For a voice assistant
+     * that is the difference between a conversation and a wait. JarvisApiClient uses
+     * this to send chat_template_kwargs.enable_thinking explicitly instead of
+     * inheriting the server default -- OFF for the conversational tier, ON for the
+     * deep tier only.
+     */
+    fun isDeepTier(provider: String): Boolean = when (provider) {
+        "nvidia_ultra", "nvidia_nemotron", "gemini_pro" -> true
+        else -> false
+    }
+
+    /**
+     * True when [model] is served by an endpoint that accepts chat_template_kwargs.
+     * Gated deliberately: the Gemini OpenAI-compatibility endpoint does not accept
+     * that field and would reject the whole request.
+     */
+    fun supportsReasoningToggle(model: String): Boolean =
+        model.startsWith("nvidia/nemotron-3")
 
     /** Get the next provider in the fallback chain that actually has an available API key. */
     fun getNextProvider(currentProvider: String): String? {
@@ -280,9 +318,11 @@ object ApiConfig {
         "gemini_pro" -> GEMINI_PRO_MODEL
         "gemini_lite" -> GEMINI_LITE_MODEL
         "nvidia_super", "nvidia_glm" -> NVIDIA_SUPER_MODEL
-        "nvidia_llama" -> NVIDIA_LLAMA_MODEL
-        "nvidia_mistral" -> NVIDIA_MISTRAL_MODEL
+        "nvidia_nano" -> NVIDIA_NANO_MODEL
         "nvidia_ultra", "nvidia_nemotron" -> NVIDIA_ULTRA_MODEL
+        // Legacy ids no longer map to a live endpoint; fall back to Super rather
+        // than resolving to a removed model string.
+        "nvidia_llama", "nvidia_mistral" -> NVIDIA_SUPER_MODEL
         else -> if (provider.startsWith("nvidia")) NVIDIA_SUPER_MODEL else GEMINI_FLASH_MODEL
     }
 

@@ -215,6 +215,16 @@ On **first install** the sequence is: `onCreate` → mic not yet granted → wak
 `requestCorePermissions()` only proceeds when **all ~16** permissions are granted. Deny CAMERA (or SMS, or CALENDAR, or LOCATION) and the always-on wake-word service and contacts sync are never (re)started — even though RECORD_AUDIO and READ_CONTACTS were granted. Voice is the core feature; it must not be hostage to the camera permission.
 
 ### P1-D — Two `SpeechRecognizer`s fight over the microphone
+> **STATUS 2026-09-07 — fixed (`dc9f7e3`).** New `android/voice/MicArbiter.kt` is the
+> single authority on microphone ownership (invariant: at most one holder; conversation
+> preempts wake word, stopping the background recognizer before granting). Both engines
+> now acquire/release through it, and the wake-word service resumes by collecting
+> `MicArbiter.holder` instead of polling `engineState` for 120 s. Three supporting bugs
+> were fixed on the way: `MAX_RECOGNIZER_RESTARTS` was unreachable because the failure
+> counter was reset on every *start* rather than on a successful recognition, so
+> continuous mode never yielded; `continuousMode` had no exit on a quiet conversation;
+> and `onWakeWordDetected()` was gated on `engineState == IDLE`, so one turn stuck in
+> THINKING made every later wake word a silent no-op. See §8.3.
 `VoiceOrchestratorBridge` sets `voiceEngine.continuousMode = true` on every wake word and every mic toggle (`VoiceOrchestratorBridge.kt:78, 93`) and **nothing ever sets it back to false** except `AUDIOFOCUS_LOSS` or a permission error. Meanwhile `WakeWordForegroundService.resumeWhenIdle()` polls `VoiceBus.engineState` for 120 s waiting for `IDLE`, then calls `startListening()` on *its own* `SystemSpeechRecognizerEngine`. Because `continuousMode` keeps re-arming the voice engine's recognizer, the state never settles to IDLE, and when it briefly does, **two recognizer instances are live** → `ERROR_RECOGNIZER_BUSY` → both back off → hands-free dies. There is no single owner of the microphone.
 
 ### P1-E — `web_search` cannot answer anything; the good implementation is shadowed

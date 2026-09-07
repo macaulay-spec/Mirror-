@@ -5,8 +5,11 @@
 #
 # Where to get them:
 #
-#   NVIDIA      https://build.nvidia.com        -> key for NIM endpoint (OpenAI-compatible)
-#   ELEVENLABS  https://elevenlabs.io            -> key starts with "sk_"
+#   NVIDIA  https://build.nvidia.com  -> key for the NIM endpoint (OpenAI-compatible)
+#   GEMINI  https://aistudio.google.com/apikey -> key starts with "AIza"
+#
+# Both are optional. Environment variables take precedence over this file.
+# ElevenLabs support was removed on 2026-09-07 and no longer takes a key.
 
 NVIDIA_API_KEY=
-ELEVENLABS_API_KEY=
+GEMINI_API_KEY=

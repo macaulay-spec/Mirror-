@@ -14,7 +14,6 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
-import com.jarvis.android.voice.CloudSttEngine
 import com.jarvis.core.model.JarvisVisualState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,8 +44,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 3. Barge-in — [stopSpeaking] aborts playback and drops queued sentences.
  *
- * 4. Never silent — per utterance: ElevenLabs (proxy → direct) → Android TTS,
- *    with VoiceDiagnostics reporting every failure honestly.
+ * 4. Never silent — per utterance: Gemini neural TTS → Android TTS, with
+ *    VoiceDiagnostics reporting every failure honestly.
  */
 class JarvisVoiceEngine(private val context: Context) : RecognitionListener, TextToSpeech.OnInitListener {
 
@@ -308,11 +307,19 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                 safeDestroyRecognizer()
 
                 if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                    // AUDIT FIX (2026-09-03): don't give up — many devices ship
-                    // without Google's recognizer. Fall back to cloud STT
-                    // (Vercel AI Gateway via the Rork proxy).
-                    com.jarvis.app.voice.VoiceDiagnostics.report("Device speech recognition unavailable — using cloud STT")
-                    startCloudListening()
+                    // CHANGED (owner decision, 2026-09-07): the cloud STT fallback
+                    // (CloudSttEngine / ElevenLabs Scribe) has been removed along with
+                    // the rest of that integration. There is no second microphone path
+                    // any more, so say so plainly instead of pretending to listen: the
+                    // user gets a real diagnostic and the Orb shows an error state
+                    // rather than animating while nothing is being recorded.
+                    com.jarvis.app.voice.VoiceDiagnostics.report(
+                        "This device has no speech recognition service installed, so voice " +
+                            "input is unavailable. Install a speech services provider (e.g. " +
+                            "Speech Services by Google) or use the text input instead."
+                    )
+                    setState(JarvisVisualState.ERROR)
+                    abandonAudioFocus()
                     return@post
                 }
 
@@ -354,39 +361,11 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         speechRecognizer = null
     }
 
-    /**
-     * AUDIT ADDITION (2026-09-03): cloud STT path (Vercel AI Gateway,
-     * xai/grok-stt via the Rork proxy) for devices where the system
-     * recognizer is missing or repeatedly fails.
-     */
-    fun startCloudListening() {
-        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            com.jarvis.app.voice.VoiceDiagnostics.report("Cloud STT needs microphone permission")
-            setState(JarvisVisualState.ERROR)
-            return
-        }
-        setState(JarvisVisualState.LISTENING)
-        speakScope.launch {
-            val text = CloudSttEngine.listenAndTranscribe { level ->
-                _audioRms.value = level
-                com.jarvis.app.voice.VoiceBus.setAudioLevel(level)
-            }
-            _audioRms.value = 0f
-            abandonAudioFocus()
-            if (!text.isNullOrBlank()) {
-                _lastRecognizedText.value = text
-                consecutiveRecognizerFailures = 0
-                setState(JarvisVisualState.THINKING)
-                onSpeechResult?.invoke(text)
-            } else if (continuousMode) {
-                startListening()
-            } else {
-                setState(JarvisVisualState.IDLE)
-            }
-        }
-    }
+    // REMOVED (owner decision, 2026-09-07): startCloudListening() and the whole
+    // CloudSttEngine path. That engine recorded the microphone directly and sent the
+    // audio to ElevenLabs Scribe; with ElevenLabs removed there is nothing for it to
+    // call. startListening() above now reports the missing-recognizer case honestly
+    // instead of silently switching to a path that cannot work.
 
     fun stopListening() {
         mainHandler.post {

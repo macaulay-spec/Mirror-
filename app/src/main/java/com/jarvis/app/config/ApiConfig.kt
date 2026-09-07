@@ -25,12 +25,20 @@ object ApiConfig {
     private const val PREF_KEY_CUSTOM_API_KEY = "custom_neural_api_key"
     private const val PREF_KEY_CUSTOM_PROVIDER = "custom_neural_provider"
     private const val PREF_KEY_VOICE_ENGINE = "voice_engine_type"
+    // NOTE: the stored string is a legacy SharedPreferences key from when this slot
+    // held an ElevenLabs voice id. The VALUE is deliberately not renamed -- changing
+    // it would orphan the voice choice of every existing install on upgrade.
     private const val PREF_KEY_VOICE_ID = "elevenlabs_voice_id"
     private const val PREF_KEY_USER_NAME = "user_address_name"
     private const val PREF_KEY_AI_TONE = "ai_personality_tone"
     private const val PREF_KEY_ONBOARDING_DONE = "onboarding_completed"
 
-    // ElevenLabs British voice presets
+    /**
+     * The voices JARVIS can speak with.
+     *
+     * Each preset id is a real Gemini TTS prebuilt voice name, so the selection in
+     * Settings maps 1:1 to what actually speaks (see GeminiVoicePlayer.resolveVoice).
+     */
     data class VoicePreset(
         val id: String,
         val name: String,
@@ -52,17 +60,9 @@ object ApiConfig {
         VoicePreset("Rex",     "Rex",     "British", "Male",   "Deep British Classic JARVIS")
     )
 
-    val OLD_PRESET_VOICES = listOf(
-        VoicePreset("Aoede",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
-        VoicePreset("eve",     "Eve",     "British", "Female", "Warm & Composed"),
-        VoicePreset("ara",     "Ara",     "US",      "Female", "Bright & Friendly"),
-        VoicePreset("sal",     "Sal",     "US",      "Male",   "Smooth & Casual"),
-        VoicePreset("leo",     "Leo",     "British", "Male",   "Youthful & Energetic"),
-        VoicePreset("onyx",    "Onyx",    "US",      "Male",   "Deep & Authoritative"),
-        VoicePreset("nova",    "Nova",    "US",      "Female", "Calm & Natural"),
-        VoicePreset("shimmer", "Shimmer", "US",      "Female", "Soft & Expressive"),
-        VoicePreset("echo",    "Echo",    "US",      "Male",   "Balanced & Clear")
-    )
+    // REMOVED (owner decision, 2026-09-07): OLD_PRESET_VOICES listed ElevenLabs and
+    // OpenAI voice ids that no integration in this app can play. It had zero
+    // references. PRESET_VOICES above is the single source of truth.
 
     // Runtime state
     var userName: String = "Macaulay"
@@ -97,9 +97,6 @@ object ApiConfig {
      */
     val NVIDIA_API_KEY: String
         get() = BuildConfig.NVIDIA_API_KEY
-
-    val ELEVENLABS_API_KEY: String
-        get() = BuildConfig.ELEVENLABS_API_KEY
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()
@@ -155,11 +152,10 @@ object ApiConfig {
     /**
      * True for providers whose keys can actually serve chat completions.
      *
-     * FIX (audit section 4.6): autoDetectProvider() maps any `sk_`-prefixed key to
-     * "elevenlabs" -- a speech-to-text provider. That value then became
-     * activeProvider, so pasting an ElevenLabs key in Settings sent it to the LLM
-     * endpoint and guaranteed a 401 before the fallback chain even started. A
-     * voice-only key must never be selected as the reasoning provider.
+     * Guards provider selection so a key pasted in Settings can only become the
+     * reasoning provider when it belongs to an endpoint that speaks the OpenAI chat
+     * protocol. Without this, an unrecognised key was promoted to activeProvider and
+     * sent somewhere it could only produce a 401 before the fallback chain started.
      */
     private fun isLlmProvider(provider: String?): Boolean =
         !provider.isNullOrBlank() &&
@@ -351,38 +347,25 @@ object ApiConfig {
         }
     }
 
-    // ---- Rork Toolkit gateway (managed cloud voice) ------------------------
-
-    /** Toolkit base URL — hardcoded into the app (repo gets privated). */
-    const val TOOLKIT_URL: String = "https://toolkit.rork.com"
+    // REMOVED (owner decision, 2026-09-07): the abandoned Rork Toolkit gateway
+    // (TOOLKIT_URL / TOOLKIT_SECRET_KEY) and a block of aspirational connector
+    // constants that were all empty strings with zero references anywhere in the
+    // app -- GOOGLE_STT_API_KEY, GOOGLE_TTS_API_KEY, HOME_ASSISTANT_URL/TOKEN,
+    // LIVEKIT_URL/API_KEY/API_SECRET and their hasCloudSTT / hasCloudTTS /
+    // hasHomeAssistant / hasLiveKit predicates. Dead configuration reads as a
+    // capability that does not exist.
 
     /**
-     * Gateway key — compiled into the app binary at build time from the project
-     * environment (EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY). Per the hardcode-
-     * everything decision the APK is self-contained; the repo keeps only this
-     * build-time reference until privatization.
+     * Best-effort provider detection for a key pasted in Settings.
+     *
+     * CHANGED (owner decision, 2026-09-07): the ElevenLabs branch is gone with the
+     * rest of that integration. Only NVIDIA and Gemini keys are supported, so an
+     * unrecognised shape falls back to gemini_flash rather than being routed to a
+     * provider that no longer exists.
      */
-    val TOOLKIT_SECRET_KEY: String
-        get() = BuildConfig.TOOLKIT_SECRET_KEY
-
-    // Optional connectors
-    const val GOOGLE_STT_API_KEY = ""
-    const val GOOGLE_TTS_API_KEY = ""
-    const val HOME_ASSISTANT_URL = ""
-    const val HOME_ASSISTANT_TOKEN = ""
-    const val LIVEKIT_URL = ""
-    const val LIVEKIT_API_KEY = ""
-    const val LIVEKIT_API_SECRET = ""
-    val hasCloudSTT get() = GOOGLE_STT_API_KEY.isNotBlank()
-    val hasCloudTTS get() = GOOGLE_TTS_API_KEY.isNotBlank()
-    val hasHomeAssistant get() = HOME_ASSISTANT_URL.isNotBlank() && HOME_ASSISTANT_TOKEN.isNotBlank()
-    val hasLiveKit get() = LIVEKIT_URL.isNotBlank() && LIVEKIT_API_KEY.isNotBlank()
-
-    // Key auto-detection for custom keys
     fun autoDetectProvider(key: String): String {
         val trimmed = key.trim()
         return when {
-            trimmed.startsWith("sk_") -> "elevenlabs"
             trimmed.startsWith("nvapi-") -> "nvidia_super"
             trimmed.startsWith("AIza") || trimmed.contains("AIza") -> "gemini_flash"
             trimmed.contains(",") || trimmed.contains("\n") || trimmed.contains(";") -> "gemini_flash"

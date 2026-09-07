@@ -1,16 +1,18 @@
 # JARVIS — Sideload Android AI Operating Layer
 
-A legitimate-but-free-thinking personal AI control layer you install on **your own phone**.
-No Play Store required. This is a **sideload APK** built for your device, with full permissions
-available and an optional Accessibility service you turn on when you want JARVIS to
-read the screen and tap/type inside other apps.
+A personal AI control layer you install on **your own phone**. No Play Store required —
+this is a **sideloaded APK** built for your device, with the permissions you grant it and
+an optional Accessibility service you turn on when you want JARVIS to read the screen and
+tap/type inside other apps.
 
 ---
 
 ## What it does right now
 
 - **Voice-first input:** foreground microphone service + notification, wake phrase
-  ("Hey JARVIS"), TTS replies. Text input too.
+  ("Hey JARVIS"), spoken replies. Text input too.
+- **Neural voice output:** Gemini text-to-speech with nine selectable voice presets, and
+  automatic fallback to the device's own TTS engine when that is unavailable.
 - **Read + reply to messages anywhere**: SMS (full), WhatsApp / Telegram / Instagram via
   Notification reply first, then Accessibility screen typing, then deep-link/open draft.
 - **Full device control:** open apps (fuzzy), battery, storage, connectivity/Wi‑Fi,
@@ -25,79 +27,59 @@ read the screen and tap/type inside other apps.
 - **Permissions dashboard** in Settings: request all runtime permissions and open every
   special Settings page (notification access, accessibility, overlay, write-settings,
   usage stats, battery exemptions, location, files, install unknown apps).
-- **ElevenLabs TTS** with voice selection — choose from dozens of premium voices.
 
 ---
 
 ## Architecture
 
-### Backend (Convex)
+### There is no backend
 
-**API keys live on the server, not in the app.** JARVIS uses Convex as its backend —
-a serverless platform that holds all API keys as environment variables (secrets) and
-proxies requests through HTTP actions. The Android app never sees or embeds any API keys.
+JARVIS talks **directly** to the AI providers over HTTPS. There is no proxy server, no
+deployment step, and nothing to host.
 
 ```
-┌──────────────────┐     HTTPS      ┌──────────────────────┐     HTTPS     ┌─────────────┐
-│  Android App     │ ──────────────→ │  Convex Backend      │ ────────────→ │  AI APIs    │
-│  (no API keys)   │                 │  (holds all keys)    │               │  Gemini     │
-│                  │ ←────────────── │                      │ ←──────────── │  xAI Grok   │
-│  Calls proxy URL │                 │  /api/llm/chat       │               │  OpenAI     │
-│                  │                 │  /api/tts/speak      │               │  ElevenLabs │
-│                  │                 │  /api/tts/voices     │               │  Anthropic  │
-│                  │                 │  /api/stt/transcribe │               │  Groq       │
-│                  │                 │  /api/preferences    │               │             │
-└──────────────────┘                 └──────────────────────┘               └─────────────┘
+┌────────────────────────┐      HTTPS       ┌──────────────────────────────────┐
+│  Android App           │ ───────────────→ │  NVIDIA NIM (reasoning)          │
+│                        │                  │  integrate.api.nvidia.com/v1     │
+│  · Foreground mic svc  │                  │  OpenAI-compatible chat + tools  │
+│  · Accessibility svc   │                  └──────────────────────────────────┘
+│  · Room memory         │      HTTPS       ┌──────────────────────────────────┐
+│  · Tool/agent layer    │ ───────────────→ │  Google Gemini                   │
+│                        │                  │  · chat + tools (generativelanguage)
+│                        │                  │  · native speech generation (TTS)│
+│                        │                  └──────────────────────────────────┘
+└────────────────────────┘
 ```
 
-**Backend endpoints (Convex HTTP actions):**
+> **History:** this repository used to ship a `convex/` directory and a `BackendConfig`
+> proxy path. It was removed on 2026-09-07 because it had never been deployed — the app
+> was still pointed at the `https://YOUR_DEPLOYMENT.convex.site` placeholder, so every
+> call through it would have failed on DNS. The app has always run in direct mode.
 
-| Endpoint | Method | Description |
+### AI providers
+
+| Slot | Provider | What it does |
 |---|---|---|
-| `/api/llm/chat` | POST | Proxies LLM requests to Gemini, xAI, OpenAI, Anthropic, etc. |
-| `/api/tts/speak` | POST | ElevenLabs TTS — returns audio MP3 |
-| `/api/tts/voices` | GET | Lists available ElevenLabs voices |
-| `/api/stt/transcribe` | POST | Speech-to-text via ElevenLabs |
-| `/api/preferences` | GET/POST | Load/save user voice preferences |
-| `/api/health` | GET | Health check |
+| Reasoning | **NVIDIA NIM** — Nemotron-3-Super / Nano / Ultra | Tool-calling chat. The NVIDIA key is compiled into the app. |
+| Reasoning (fallback) | **Google Gemini** — Flash / Pro / Nano Banana Lite | Same OpenAI-compatible protocol. Needs a key of your own. |
+| Reasoning (last resort) | **Local engine** | On-device rule engine + canned replies when no network or no key works. |
+| Speech output | **Gemini native TTS** | Real voices, streamed and played live. |
+| Speech output (fallback) | **Android TextToSpeech** | Always available; quality depends on the device. |
+| Speech input | **Android SpeechRecognizer** | On-device/Google recognition. See limitations below. |
 
-### Deploy the backend
+Provider order is defined once in `ApiConfig.PROVIDER_FALLBACK_CHAIN`. Every hop is
+reported through `VoiceDiagnostics` / the Diagnostics screen rather than failing silently.
 
-```bash
-cd convex
-npm install
+### API keys
 
-# Initialize Convex project
-npx convex init
+- **NVIDIA:** the owner's key is embedded in `ApiConfig.NVIDIA_API_KEY`. It is compiled
+  into the APK. Treat any APK built from this repository as containing a live key, and
+  rotate it if an APK is ever shared publicly.
+- **Gemini:** optional. Supply it via the `GEMINI_API_KEY` environment variable,
+  `local.properties`, or Settings → API Keys at runtime. Without it, JARVIS runs on
+  NVIDIA plus the device's own TTS.
 
-# Set your API keys as Convex environment variables (secrets)
-npx convex env set GEMINI_API_KEY <your-key>
-npx convex env set XAI_API_KEY <your-key>
-npx convex env set ELEVENLABS_API_KEY <your-key>
-npx convex env set OPENAI_API_KEY <your-key>        # optional
-npx convex env set ANTHROPIC_API_KEY <your-key>      # optional
-npx convex env set GROQ_API_KEY <your-key>           # optional
-
-# Deploy
-npx convex deploy
-```
-
-Then update `BackendConfig.WORKER_URL` in `app/src/main/java/com/jarvis/app/config/BackendConfig.kt`
-with your Convex deployment URL (e.g., `https://your-deployment.convex.site`).
-
-### AI Provider Model
-
-The app supports multiple AI providers through the Convex backend proxy:
-
-| Provider | Use case |
-|---|---|
-| **Gemini** (default) | Best free tier, great function calling |
-| **xAI Grok** | Fast, good reasoning |
-| **OpenAI GPT-4o** | Most capable, paid |
-| **Anthropic Claude** | Best at following instructions |
-| **Groq** | Fastest inference, free |
-| **ElevenLabs** | Premium TTS with voice selection |
-| **Zero-key mode** | On-device STT + TTS + local rule engine |
+See [`docs/KEYS_SETUP.md`](docs/KEYS_SETUP.md) for the full key matrix and rotation steps.
 
 ---
 
@@ -116,12 +98,9 @@ From the project root:
 # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-In Android Studio: open the project root, wait for sync, then
-**Build > Build APK(s)**.
+In Android Studio: open the project root, wait for sync, then **Build > Build APK(s)**.
 
-> Note: Gradle needs internet once to download dependencies. Build on your own machine —
-> the generation sandbox for this repo had no Android SDK, JDK, or network, so the APK
-> could not be compiled inside this workspace.
+> Gradle needs internet once to download dependencies.
 
 ---
 
@@ -149,30 +128,41 @@ and it's the closest thing to full phone control. Keep it on only when you want 
 
 ---
 
-## Zero-key mode (default)
+## Offline / no-key mode
 
-The app **works with no API keys at all**. It uses:
+The app **degrades to a working state with no network at all**:
 - Android **SpeechRecognizer** for STT (on-device / offline)
 - Android **TextToSpeech** for voice replies
 - Built-in **local rule engine** for understanding + device actions
 - **Room** local DB for memory
 
-You can build, install, and use JARVIS exactly as-is.
+You can build, install, and use JARVIS without configuring anything.
 
 ---
 
-## Voice Selection (ElevenLabs)
+## Voice selection
 
-JARVIS supports ElevenLabs premium TTS with dozens of voices:
+JARVIS speaks with **Gemini native text-to-speech** and lets you pick a voice in
+Settings → Voice:
 
-1. Deploy the Convex backend with your ElevenLabs API key
-2. In Settings → Voice, tap "Load voices" to fetch available voices
-3. Tap a voice name to hear a preview
-4. Select your preferred voice — it persists across sessions via Convex
-5. All TTS responses will use your selected voice
+| Preset | Voice | Character |
+|---|---|---|
+| `jarvis_core` | Puck | Calm, measured — the default |
+| `london` | Charon | Firm, low |
+| `windsor` | Enceladus | Warm, authoritative |
+| `oxford` | Zephyr | Bright, articulate |
+| `british_f` | Kore | Clear, precise |
+| `warm_f` | Leda | Warm, conversational |
+| `crisp_m` | Fenrir | Crisp, energetic |
+| `deep_m` | Iapetus | Deep, slow |
+| `soft_m` | Umbriel | Soft, understated |
 
-Voice categories include: premade, cloned, and generated voices with
-labels for gender, accent, and use case.
+Each id is a real Gemini prebuilt voice, so what you select is what speaks. Pick one and
+tap **Preview** to hear it; the choice persists across restarts.
+
+If a preset id is not recognised, playback falls back to Gemini's default voice, and if
+Gemini TTS is unavailable entirely it falls back to Android TTS — always with the reason
+recorded in the diagnostics trail rather than silently.
 
 ---
 
@@ -198,7 +188,13 @@ JARVIS uses a calm, precise visual identity:
 - Blindly automating arbitrary in-game controls is fragile: it needs Accessibility, apps
   update, and it can break or be detected. That part is optional and off by default.
 - **Wake word reliability varies by device.** The current implementation uses Android's
-  built-in SpeechRecognizer, which works well on Pixel/Nexus but may be unreliable on
-  Samsung/other OEMs. For production use, upgrade to Vosk (offline) or Picovoice Porcupine.
+  built-in `SpeechRecognizer`, which works well on Pixel/Nexus but may be unreliable or
+  absent on Samsung/other OEMs. **There is no cloud STT fallback any more** — if a device
+  ships without a recognition service, JARVIS reports that plainly and text input still
+  works. For production use, upgrade to an offline engine (Vosk) or Picovoice Porcupine.
+- **JARVIS cannot be selected as the system default assistant by an in-app prompt.**
+  `ROLE_ASSISTANT` is declared `requestable="false"` in AOSP and is reserved for apps that
+  implement `VoiceInteractionService` or handle `ACTION_ASSIST`. Settings → Apps → Default
+  apps is the only real path, and the app deep-links you there.
 
 Everything else is within "what a person can do with a phone, through the legitimate doors."

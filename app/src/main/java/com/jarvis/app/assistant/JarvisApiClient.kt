@@ -3,7 +3,6 @@ package com.jarvis.app.assistant
 import android.util.Log
 import com.jarvis.agent.ai.ToolSchema
 import com.jarvis.app.config.ApiConfig
-import com.jarvis.app.config.BackendConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -26,20 +25,18 @@ data class AiResponse(
 )
 
 /**
- * JARVIS AI Client — NVIDIA-focused with automatic provider fallback.
+ * JARVIS AI Client — NVIDIA NIM and Google Gemini over one OpenAI-compatible
+ * transport, with automatic provider fallback.
  *
- * When BackendConfig.isBackendReady:
- *   All API calls go through Convex HTTP actions (API keys server-side).
+ * CHANGED (owner decision, 2026-09-07): the Convex backend proxy has been removed
+ * entirely. It was never deployed — `USE_BACKEND` was false and `WORKER_URL` was
+ * still the `https://YOUR_DEPLOYMENT.convex.site` placeholder — so `chatViaProxy`
+ * and the three preference/voice endpoints were unreachable code that would have
+ * failed with a DNS error against a host that does not exist. All inference is now
+ * direct to the provider.
  *
- * When not using backend:
- *   Direct API calls to NVIDIA's OpenAI-compatible endpoint with keys from BuildConfig.
- *   Automatic fallback through the NVIDIA provider chain on failures.
- *
- * Provider fallback chain (per NVIDIA_MULTI_MODEL_PROMPT.md):
- *   1. NVIDIA GLM-5.2 (primary)
- *   2. NVIDIA Nemotron-3-Super
- *   3. NVIDIA Mistral Nemotron
- *   4. NVIDIA Llama-4 Maverick
+ * Fallback chain (see ApiConfig.PROVIDER_FALLBACK_CHAIN):
+ *   gemini_flash -> gemini_pro -> gemini_lite -> nvidia_super -> nvidia_nano -> nvidia_ultra
  */
 class JarvisApiClient(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -59,16 +56,7 @@ class JarvisApiClient(
         model: String = ApiConfig.resolveModel(provider),
         allowTools: Boolean = true
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
-        if (BackendConfig.isBackendReady) {
-            chatViaProxy(systemPrompt, history, userMessage, provider, model)
-        } else if (BackendConfig.USE_BACKEND && !BackendConfig.isWorkerUrlConfigured) {
-            Result.failure(IllegalStateException(
-                "Backend mode is enabled but BackendConfig.WORKER_URL is not configured. " +
-                "Deploy Convex and set the URL, or set USE_BACKEND=false."
-            ))
-        } else {
-            chatDirect(systemPrompt, history, userMessage, provider, model, allowTools)
-        }
+        chatDirect(systemPrompt, history, userMessage, provider, model, allowTools)
     }
 
     // Real-time streaming (SSE) with automatic provider fallback
@@ -104,10 +92,6 @@ class JarvisApiClient(
             }
 
             triedProviders.add(providerToTry)
-
-            if (BackendConfig.isBackendReady || providerToTry == "anthropic") {
-                return fallbackBlocking()
-            }
 
             val streamed = streamNVIDIA(
                 currentApiKey, providerToTry, currentModel,
@@ -249,186 +233,6 @@ class JarvisApiClient(
             }
         } catch (e: Exception) {
             Result.failure(Exception("NVIDIA stream failed: ${e.localizedMessage}"))
-        }
-    }
-
-    // Backend Proxy Path (Convex)
-    private suspend fun chatViaProxy(
-        systemPrompt: String,
-        history: List<Pair<String, String>>,
-        userMessage: String,
-        provider: String,
-        model: String
-    ): Result<AiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val messagesArray = JSONArray()
-            for ((role, text) in history) {
-                if (text.isBlank()) continue
-                messagesArray.put(JSONObject().put("role", role).put("content", text))
-            }
-            messagesArray.put(JSONObject().put("role", "user").put("content", userMessage))
-
-            val payload = JSONObject()
-                .put("provider", provider)
-                .put("model", model)
-                .put("systemPrompt", systemPrompt)
-                .put("messages", messagesArray)
-
-            val tools = ToolSchema.forOpenAI()
-            if (tools.length() > 0) {
-                payload.put("tools", tools)
-            }
-
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.LLM_CHAT_ENDPOINT}")
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                val bodyString = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    val msg = when (response.code) {
-                        503 -> "AI service not configured on the backend. Check Convex deployment."
-                        429 -> "Rate limit reached. Please wait a moment and try again."
-                        else -> "Backend error (HTTP ${response.code}): ${bodyString.take(200)}"
-                    }
-                    return@use Result.failure(Exception(msg))
-                }
-
-                val json = JSONObject(bodyString)
-                val message = json.optString("message").takeIf { it.isNotBlank() }
-                val toolCallsArray = json.optJSONArray("toolCalls")
-
-                val toolCalls = mutableListOf<ToolCallRequest>()
-                if (toolCallsArray != null) {
-                    for (i in 0 until toolCallsArray.length()) {
-                        val tc = toolCallsArray.getJSONObject(i)
-                        val argsMap = mutableMapOf<String, Any?>()
-                        tc.optJSONObject("arguments")?.let { args ->
-                            args.keys().forEach { k -> argsMap[k] = args.get(k) }
-                        }
-                        toolCalls.add(ToolCallRequest(tc.getString("toolName"), argsMap))
-                    }
-                }
-
-                Result.success(AiResponse(message = message, toolCalls = toolCalls))
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Backend connection failed: ${e.localizedMessage}"))
-        }
-    }
-
-    // Save Voice Preferences via Convex
-    suspend fun saveVoicePreferences(
-        userId: String,
-        voiceId: String,
-        voiceName: String,
-        engineType: String = "elevenlabs",
-        stability: Float = 0.5f,
-        similarityBoost: Float = 0.75f,
-        style: Float = 0f
-    ): Result<Boolean> = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject()
-                .put("userId", userId)
-                .put("voiceId", voiceId)
-                .put("voiceName", voiceName)
-                .put("engineType", engineType)
-                .put("stability", stability.toDouble())
-                .put("similarityBoost", similarityBoost.toDouble())
-                .put("style", style.toDouble())
-
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.PREFERENCES_ENDPOINT}")
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    Result.success(true)
-                } else {
-                    val body = response.body?.string() ?: ""
-                    Result.failure(Exception("Failed to save preferences: ${body.take(200)}"))
-                }
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Preferences save failed: ${e.localizedMessage}"))
-        }
-    }
-
-    // Load Voice Preferences via Convex
-    suspend fun loadVoicePreferences(userId: String): Result<VoicePreferences?> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.PREFERENCES_ENDPOINT}?userId=$userId")
-                .get()
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return@use Result.success(null)
-                }
-
-                val body = response.body?.string() ?: "{}"
-                val json = JSONObject(body)
-                val voice = json.optJSONObject("voice")
-
-                if (voice == null) {
-                    Result.success(null)
-                } else {
-                    Result.success(
-                        VoicePreferences(
-                            voiceId = voice.optString("voiceId", "JBFqnCBsd6RMkjVDRZzb"),
-                            voiceName = voice.optString("voiceName", "George"),
-                            engineType = voice.optString("engineType", "elevenlabs"),
-                            stability = voice.optDouble("stability", 0.5).toFloat(),
-                            similarityBoost = voice.optDouble("similarityBoost", 0.75).toFloat(),
-                            style = voice.optDouble("style", 0.0).toFloat()
-                        )
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Preferences load failed: ${e.localizedMessage}"))
-        }
-    }
-
-    // Fetch Available ElevenLabs Voices
-    suspend fun fetchElevenLabsVoices(): Result<List<ElevenLabsVoice>> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("${BackendConfig.WORKER_URL}${BackendConfig.TTS_VOICES_ENDPOINT}")
-                .get()
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: "{}"
-                if (!response.isSuccessful) {
-                    return@use Result.failure(Exception("Failed to fetch voices: ${body.take(200)}"))
-                }
-
-                val json = JSONObject(body)
-                val voicesArray = json.optJSONArray("voices") ?: return@use Result.success(emptyList())
-
-                val voices = mutableListOf<ElevenLabsVoice>()
-                for (i in 0 until voicesArray.length()) {
-                    val v = voicesArray.getJSONObject(i)
-                    voices.add(
-                        ElevenLabsVoice(
-                            voiceId = v.optString("voiceId"),
-                            name = v.optString("name"),
-                            category = v.optString("category"),
-                            description = v.optString("description"),
-                            previewUrl = v.optString("previewUrl")
-                        )
-                    )
-                }
-                Result.success(voices)
-            }
-        } catch (e: Exception) {
-            Result.failure(Exception("Voice fetch failed: ${e.localizedMessage}"))
         }
     }
 
@@ -585,21 +389,3 @@ class JarvisApiClient(
         fun resolveModel(provider: String): String = ApiConfig.resolveModel(provider)
     }
 }
-
-/** Data classes for voice preferences and ElevenLabs voices. */
-data class VoicePreferences(
-    val voiceId: String,
-    val voiceName: String,
-    val engineType: String,
-    val stability: Float,
-    val similarityBoost: Float,
-    val style: Float
-)
-
-data class ElevenLabsVoice(
-    val voiceId: String,
-    val name: String,
-    val category: String,
-    val description: String,
-    val previewUrl: String
-)

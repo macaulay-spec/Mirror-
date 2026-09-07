@@ -6,10 +6,8 @@ import java.util.Properties
  * FIX (audit P0-B): this file used to read ONLY `System.getenv(...)`, while CI wrote
  * the values into `local.properties` -- which Gradle does not export as environment
  * variables and this script never parsed. Every key therefore compiled in as an empty
- * string, so `BuildConfig.GEMINI_API_KEY` / `ELEVENLABS_API_KEY` / `TOOLKIT_SECRET_KEY`
- * were blank in every distributed APK. That made the Gemini branch of the provider
- * chain dead and `CloudSttEngine` inert ("no ElevenLabs key configured"), which is why
- * devices without a Google recognizer had no voice input at all.
+ * string, so `BuildConfig.GEMINI_API_KEY` was blank in every distributed APK and the
+ * whole Gemini branch of the provider chain was dead.
  *
  * Resolution order is now: environment (CI secrets) -> local.properties (developer
  * machine) -> empty. Both sources are read through Gradle providers so the
@@ -55,10 +53,8 @@ android {
         // reported unavailable at runtime rather than silently misbehaving.
         buildConfigField("String", "GEMINI_API_KEY", "\"" + buildSecret("GEMINI_API_KEY") + "\"")
         buildConfigField("String", "NVIDIA_API_KEY", "\"" + buildSecret("NVIDIA_API_KEY") + "\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"" + buildSecret("ELEVENLABS_API_KEY") + "\"")
-        // Legacy Rork Toolkit gateway (abandoned; retained so BuildConfig stays stable).
-        buildConfigField("String", "TOOLKIT_URL", "\"" + buildSecret("EXPO_PUBLIC_TOOLKIT_URL") + "\"")
-        buildConfigField("String", "TOOLKIT_SECRET_KEY", "\"" + buildSecret("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") + "\"")
+        // REMOVED (owner decision, 2026-09-07): ELEVENLABS_API_KEY and the abandoned
+        // Rork TOOLKIT_URL / TOOLKIT_SECRET_KEY fields. No code references them.
     }
 
     buildTypes {

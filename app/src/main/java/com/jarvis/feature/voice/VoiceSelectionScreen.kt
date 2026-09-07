@@ -45,7 +45,7 @@ import com.jarvis.core.ui.JarvisCore
 import com.jarvis.app.voice.VoiceSettingsManager
 
 /**
- * Voice Selection Screen — choose and preview ElevenLabs voices.
+ * Voice Selection Screen — choose and preview the JARVIS voices (Gemini TTS).
  *
  * Design: calm, precise, alive.
  * - List of voices with preview button

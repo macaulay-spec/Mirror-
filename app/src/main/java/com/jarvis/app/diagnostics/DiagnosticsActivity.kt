@@ -185,7 +185,7 @@ private fun DiagnosticsScreen(
         }
 
         // VOICE
-        Section("ELEVENLABS VOICE") {
+        Section("VOICE OUTPUT") {
             Text("Engine: ${ApiConfig.voiceEngineType}", color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Text("Voice: ${ApiConfig.selectedVoiceId}", color = JarvisColors.TextSecondary, fontSize = 12.sp)
             Text(voiceStatus, color = JarvisColors.TextSecondary, fontSize = 12.sp)

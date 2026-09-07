@@ -31,7 +31,7 @@ jobs:
       - name: Scan tracked source for credential patterns
         run: |
           set -euo pipefail
-          # Known provider key shapes: NVIDIA (nvapi-), ElevenLabs (sk_), Google (AIza).
+          # Known provider key shapes: NVIDIA (nvapi-), Google (AIza).
           # Deliberately scans code/config only -- documentation may legitimately show
           # placeholder shapes, and *.example files are empty by design.
           pattern='(nvapi-[A-Za-z0-9_-]{20,}|sk_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,})'
@@ -78,14 +78,12 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
 
       - name: Report APK size
         run: |

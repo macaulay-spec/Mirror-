@@ -46,7 +46,7 @@ object GeminiVoicePlayer {
     }
 
     suspend fun speak(context: Context, text: String, targetVoice: String? = null): Boolean = withContext(Dispatchers.IO) {
-        val result = withTimeoutOrNull(2500L) {
+        val result = withTimeoutOrNull(10000L) {
             if (text.isBlank()) return@withTimeoutOrNull false
             var key = ApiConfig.currentGeminiKey
             if (key.isBlank()) return@withTimeoutOrNull false

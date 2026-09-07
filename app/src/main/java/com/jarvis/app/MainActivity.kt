@@ -23,9 +23,15 @@ import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisTheme
-import com.jarvis.feature.home.DualModeHost
+import com.jarvis.feature.chat.ChatScreen
+import com.jarvis.feature.home.HomeScreen
+import com.jarvis.feature.memory.MemoryPeopleScreen
 import com.jarvis.feature.onboarding.OnboardingScreen
 import com.jarvis.feature.settings.SettingsHubScreen
+import com.jarvis.feature.settings.SettingsScreen
+import com.jarvis.feature.voice.VoiceActiveScreen
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.lifecycleScope
 
 class MainActivity : ComponentActivity() {
 
@@ -67,16 +73,25 @@ class MainActivity : ComponentActivity() {
             // user from Settings or a sub-screen back to the home deck.
             var isOnboarding by rememberSaveable { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
             var showSettings by rememberSaveable { mutableStateOf(false) }
+            var showVoiceActive by rememberSaveable { mutableStateOf(false) }
             var currentDest by rememberSaveable { mutableStateOf("home") }
+            val scope = rememberCoroutineScope()
 
             // System Back leaves a sub-screen instead of finishing the Activity.
-            BackHandler(enabled = showSettings || currentDest != "home") {
-                showSettings = false
-                currentDest = "home"
+            BackHandler(enabled = showVoiceActive || showSettings || currentDest != "home") {
+                if (showVoiceActive) {
+                    showVoiceActive = false
+                    orchestrator.emergencyStop()
+                } else if (showSettings) {
+                    showSettings = false
+                } else {
+                    currentDest = "home"
+                }
             }
 
             LaunchedEffect(Unit) {
                 if (intent?.getBooleanExtra("WAKE_WORD_ACTIVATED", false) == true) {
+                    showVoiceActive = true
                     handleVoiceToggle()
                     intent?.removeExtra("WAKE_WORD_ACTIVATED")
                 }
@@ -92,6 +107,14 @@ class MainActivity : ComponentActivity() {
                         onOpenAccessibility = { PermissionAndSetupHelper.openAccessibilitySettings(this@MainActivity) },
                         onOpenNotificationListener = { PermissionAndSetupHelper.openNotificationListenerSettings(this@MainActivity) }
                     )
+                } else if (showVoiceActive) {
+                    VoiceActiveScreen(
+                        orchestrator = orchestrator,
+                        onCancel = {
+                            showVoiceActive = false
+                            orchestrator.emergencyStop()
+                        }
+                    )
                 } else if (showSettings) {
                     SettingsHubScreen(
                         onClose = { showSettings = false },
@@ -101,6 +124,26 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     when (currentDest) {
+                        "chat" -> ChatScreen(
+                            orchestrator = orchestrator,
+                            onBack = { currentDest = "home" },
+                            onNavigate = { currentDest = it },
+                            onToggleVoice = {
+                                showVoiceActive = true
+                                handleVoiceToggle()
+                            }
+                        )
+                        "memory" -> MemoryPeopleScreen(
+                            onBack = { currentDest = "home" },
+                            onNavigate = { currentDest = it }
+                        )
+                        "settings" -> SettingsScreen(
+                            onBack = { currentDest = "home" },
+                            onNavigate = { currentDest = it },
+                            onVoiceSettings = { currentDest = "voice" },
+                            onPermissions = { requestCorePermissions() },
+                            onAbout = { showSettings = true }
+                        )
                         "history" -> com.jarvis.feature.history.ChatHistoryScreen(
                             orchestrator = orchestrator,
                             onBack = { currentDest = "home" }
@@ -108,19 +151,52 @@ class MainActivity : ComponentActivity() {
                         "device" -> com.jarvis.feature.control.DeviceControlScreen(
                             onBack = { currentDest = "home" }
                         )
-                        "memory" -> com.jarvis.feature.memory.MemoryPeopleScreen(
-                            onBack = { currentDest = "home" }
-                        )
                         "voice" -> com.jarvis.feature.voice.VoiceRoomScreen(
                             onDone = { currentDest = "home" }
                         )
-                        else -> DualModeHost(
+                        else -> HomeScreen(
                             orchestrator = orchestrator,
-                            onOpenSettings = { showSettings = true },
+                            onNavigate = { currentDest = it },
+                            onOpenSettings = { currentDest = "settings" },
+                            onOpenDrawer = { showSettings = true },
                             onToggleVoice = {
+                                showVoiceActive = true
                                 handleVoiceToggle()
                             },
-                            onNavigate = { currentDest = it }
+                            onQuickAction = { action ->
+                                when (action) {
+                                    "open_app" -> {
+                                        currentDest = "chat"
+                                        scope.launch {
+                                            orchestrator.submitUserInput("Open WhatsApp")
+                                        }
+                                    }
+                                    "volume" -> {
+                                        currentDest = "chat"
+                                        scope.launch {
+                                            orchestrator.submitUserInput("Make the volume a bit louder")
+                                        }
+                                    }
+                                    "flashlight" -> {
+                                        currentDest = "chat"
+                                        scope.launch {
+                                            orchestrator.submitUserInput("Turn on the flashlight")
+                                        }
+                                    }
+                                    "screenshot" -> {
+                                        currentDest = "chat"
+                                        scope.launch {
+                                            orchestrator.submitUserInput("Analyze what is currently on my screen")
+                                        }
+                                    }
+                                    "recent_task" -> {
+                                        currentDest = "chat"
+                                        scope.launch {
+                                            orchestrator.submitUserInput("Find the latest message from John and tell me what he said")
+                                        }
+                                    }
+                                }
+                            }
                         )
                     }
                 }

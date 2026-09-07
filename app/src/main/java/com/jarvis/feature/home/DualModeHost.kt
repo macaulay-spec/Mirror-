@@ -134,7 +134,7 @@ fun DualModeHost(
     val visualState by orchestrator.visualState.collectAsState()
     val messages by orchestrator.messages.collectAsState()
 
-    var stageMode by remember { mutableStateOf(StageMode.VOICE_STAGE) }
+    
     var drawerOpen by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -144,7 +144,7 @@ fun DualModeHost(
     val thinkingIndicatorVisible = visualState == JarvisVisualState.THINKING &&
             messages.lastOrNull()?.role == MessageRole.USER
     LaunchedEffect(messages.size, thinkingIndicatorVisible) {
-        if (messages.isNotEmpty() && stageMode == StageMode.CONVERSATION) {
+        if (messages.isNotEmpty()) {
             listState.animateScrollToItem(
                 if (thinkingIndicatorVisible) messages.size else messages.size - 1
             )
@@ -164,19 +164,33 @@ fun DualModeHost(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = JarvisColors.VoidBlack
+        containerColor = JarvisColors.VoidBlack,
+        bottomBar = {
+            com.jarvis.feature.navigation.BottomNavigationBar(
+                currentRoute = if (messages.isEmpty()) "home" else "chat",
+                onNavigate = { route -> 
+                    when (route) {
+                        "settings" -> onOpenSettings()
+                        "memory" -> onNavigate("memory")
+                        // In a full refactor these would be true nav routes,
+                        // for now we map them to the existing UI states.
+                        "chat" -> onToggleVoice() // Trigger listening which brings up chat
+                    }
+                }
+            )
+        }
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(
-                    // Deep nano-carbon obsidian background
+                    // Deep nano-carbon obsidian background with Apple glass gradient
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xFF06090E),
-                            Color(0xFF0A121C),
-                            Color(0xFF06090E)
+                            Color(0xFF020409), // Almost pitch black deep space
+                            Color(0xFF06101D), // Deep dark teal/midnight blue
+                            Color(0xFF030508)
                         )
                     )
                 )
@@ -196,12 +210,9 @@ fun DualModeHost(
             ) {
                 // ── Apple-Stark Frosted Telemetry Header ─────────────────
                 TopPresenceHeader(
-                    mode = stageMode,
+                    mode = StageMode.CONVERSATION,
                     visualState = visualState,
-                    onSwitchMode = {
-                        stageMode = if (stageMode == StageMode.VOICE_STAGE)
-                            StageMode.CONVERSATION else StageMode.VOICE_STAGE
-                    },
+                    onSwitchMode = {},
                     onOpenSettings = onOpenSettings,
                     onEmergencyStop = { orchestrator.emergencyStop() },
                     onOpenDrawer = { drawerOpen = true }
@@ -209,45 +220,58 @@ fun DualModeHost(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                AnimatedContent(
-                    targetState = stageMode,
-                    transitionSpec = {
-                        (fadeIn(tween(260)) + slideInVertically()).togetherWith(
-                            fadeOut(tween(260)) + slideOutVertically()
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Holographic Unified Core
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        // The Orb always stays at the top
+                        JarvisCore(
+                            state = visualState,
+                            size = if (messages.isEmpty()) 260.dp else 120.dp,
+                            audioLevel = 0f,
+                            onClick = onToggleVoice,
+                            modifier = Modifier.padding(top = if (messages.isEmpty()) 60.dp else 10.dp)
                         )
-                    },
-                    modifier = Modifier.weight(1f).fillMaxSize(),
-                    label = "mode_transition"
-                ) { mode ->
-                    when (mode) {
-                        StageMode.VOICE_STAGE -> {
-                            VoiceStageView(
-                                visualState = visualState,
-                                userName = userName,
-                                greeting = greeting,
-                                onOrbTap = { onToggleVoice() },
-                                onSwitchToChat = { stageMode = StageMode.CONVERSATION },
-                                onQuickAction = { action ->
-                                    scope.launch {
-                                        orchestrator.submitUserInput(action)
-                                    }
-                                }
+                        
+                        Spacer(modifier = Modifier.height(20.dp))
+                        
+                        if (messages.isEmpty()) {
+                            Text(
+                                text = "$greeting, ${if (userName.isBlank()) "Sir" else userName}.",
+                                color = JarvisColors.TextPrimary,
+                                fontSize = 24.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                        }
-                        StageMode.CONVERSATION -> {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Mark 85 systems online. Ready for directive.",
+                                color = JarvisColors.TextSecondary,
+                                fontSize = 14.sp
+                            )
+                        } else {
+                            // Holographic Chat Stream below the Orb
                             ConversationView(
                                 orchestrator = orchestrator,
                                 visualState = visualState,
                                 messages = messages,
                                 listState = listState,
-                                onOrbTap = { onToggleVoice() }
+                                onOrbTap = onToggleVoice
                             )
                         }
                     }
                 }
 
-                if (stageMode == StageMode.CONVERSATION) {
-                    ChatInputBar(
+                ChatInputBar(
+
                         value = inputText,
                         onValueChange = { inputText = it },
                         onSend = {
@@ -267,7 +291,6 @@ fun DualModeHost(
                         },
                         isListening = visualState == JarvisVisualState.LISTENING
                     )
-                }
             }
 
             // ── Mark 85 Tactical Drawer ──────────────────────────────────

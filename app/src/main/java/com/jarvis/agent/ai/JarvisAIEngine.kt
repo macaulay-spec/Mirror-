@@ -118,13 +118,18 @@ $batteryLine
 $a11yStatus
 
 CRITICAL INSTRUCTIONS:
-1. CAPABILITY: You are deeply integrated into the Android system. You can interact with UI elements, read screen contents, toggle hardware states, send messages, fetch data from the web, and synthesize memories.
-2. PROACTIVITY & MEMORY: Utilize your long-term memory graph to remember preferences, people, and context. If asked about previous events, check your context graph.
-3. REAL SCREEN GROUNDING: Never hallucinate seeing on-screen buttons or text that are not listed in your active screen context. Only bring up the accessibility service when the user's request actually needs the screen — never volunteer it, never open with it, never nag.
-4. TOOL CALLING: You have native function-calling abilities. ONLY call a tool if it is absolutely necessary to fulfill the user's specific request. If the user is just saying hello or making general conversation, DO NOT call any tools. Just reply directly.
+1. CORE MISSION: You are an autonomous agent deeply integrated into the Android system. You must THINK step-by-step and ACT.
+2. REACT LOOP: When the user asks you to interact with the screen or an app:
+   - Step 1: Use `screen_read` to analyze the UI structure.
+   - Step 2: Identify the exact `centerX` and `centerY` of the target element.
+   - Step 3: Use the `tap` tool with those exact `x` and `y` coordinates to click it.
+   - Step 4: If you need to type, use `tap` to focus the field, then use `type_text` or `adb_shell` if necessary.
+   - Step 5: NEVER guess coordinates. ALWAYS `screen_read` first to verify the screen state before proceeding.
+3. PROACTIVITY & MEMORY: Utilize your long-term memory graph to remember preferences, people, and context.
+4. REAL SCREEN GROUNDING: Never hallucinate seeing on-screen buttons or text that are not listed in your active screen context. 
 5. PROBLEM SOLVING: Think step-by-step for complex requests. If a tool fails, dynamically adapt and try an alternative approach.
-6. SAFETY: For irreversible or high-risk actions (sending emails, making calls, modifying critical settings), prompt the user for confirmation.
-7. RESPONSE REQUIREMENT: After executing a tool or receiving a tool's result, you MUST provide a final conversational response to the user summarizing the outcome. NEVER leave your final message empty.
+6. TOOL CALLING: You have native function-calling abilities. ONLY call a tool if it is absolutely necessary to fulfill the user's specific request.
+7. RESPONSE REQUIREMENT: After executing a tool, you MUST provide a final conversational response to the user summarizing the outcome.
 8. AESTHETICS: Never expose internal technical details, raw JSON, tool names, or stack traces to the user. Your output must always be refined, natural, and helpful.
             """.trimIndent()
         }
@@ -156,13 +161,19 @@ CRITICAL INSTRUCTIONS:
             val a11y = com.jarvis.android.accessibility.JarvisAccessibilityService.instance
             val screenContext = if (a11y != null) {
                 val pkg = a11y.currentPackageName ?: "unknown"
-                val texts = a11y.findTextOnScreen().take(25)
-                val textSummary = if (texts.isNotEmpty()) texts.joinToString(" | ") else "No text detected"
-                "[Active Screen: app=$pkg, visible_texts=[$textSummary]]"
+                val nodes = a11y.getStructuredScreenData().take(25)
+                val textSummary = if (nodes.isNotEmpty()) {
+                    nodes.joinToString("\n") { n ->
+                        val txt = n["text"] as? String ?: ""
+                        val desc = n["contentDescription"] as? String ?: ""
+                        val cx = n["centerX"] as? Float ?: 0f
+                        val cy = n["centerY"] as? Float ?: 0f
+                        "- [\"$txt\" | \"$desc\"] at ($cx, $cy)"
+                    }
+                } else "No readable elements found"
+                "[Active Screen: app=$pkg\nVisible Elements (x, y):\n$textSummary]"
             } else {
-                // Quiet capability note. A loud "DISABLED" banner injected next to the
-                // user's message made the model parrot the accessibility nag on every
-                // input (e.g. replying to a bare "I" with the enable-it speech).
+                // Quiet capability note.
                 "[Background note: screen reading is unavailable this session. Ignore this unless the request needs the screen — do not mention it unprompted.]"
             }
             history.add(0, "system" to screenContext)

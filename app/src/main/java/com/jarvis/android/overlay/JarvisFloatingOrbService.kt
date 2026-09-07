@@ -9,6 +9,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -328,10 +331,12 @@ private fun OrbOverlayContent(
             Box(
                 modifier = Modifier
                     .padding(top = 16.dp, end = 16.dp)
-                    .widthIn(max = 240.dp)
+                    .widthIn(max = 280.dp)
+                    .heightIn(max = 400.dp)
                     .clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
                     .background(JarvisColors.SurfaceGlassElevated.copy(alpha = 0.95f))
-                    .border(0.5.dp, JarvisColors.Hairline, RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                    .border(0.5.dp, JarvisColors.Presence.copy(alpha = 0.5f), RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                    .verticalScroll(rememberScrollState())
                     .padding(14.dp)
             ) {
                 Text(

@@ -1,4 +1,6 @@
-# React Native / Expo artifacts (should not exist in Kotlin projects)
+# Vestigial React Native / Expo artifacts. Kept for now: the convex/ backend that
+# justified them was deleted on 2026-09-07, but these rules are harmless and stop a
+# stray `npm install` from being committed.
 node_modules/
 .expo/
 .bundle/
@@ -8,6 +10,11 @@ metro.config.js
 package-lock.json
 tsconfig.json
 app.json
+
+# Python (eval/jarvis_eval.py)
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Gradle
 .gradle/

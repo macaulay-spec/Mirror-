@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
@@ -29,12 +30,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisColors
+import com.jarvis.core.ui.JarvisCore
 
 @Composable
 fun BottomNavigationBar(
     currentRoute: String,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    onToggleVoice: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -77,6 +81,38 @@ fun BottomNavigationBar(
                 isSelected = currentRoute == "chat",
                 onClick = { onNavigate("chat") }
             )
+            // Center Orb — tap to start/stop real voice capture (reference
+            // design bottom bar: Home · Chat · [ORB] · Memory · Settings).
+            if (onToggleVoice != null) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    JarvisColors.Presence.copy(alpha = 0.22f),
+                                    Color(0x0A00D4FF)
+                                )
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            JarvisColors.Presence.copy(alpha = 0.45f),
+                            CircleShape
+                        )
+                        .clickable { onToggleVoice() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    JarvisCore(
+                        state = JarvisVisualState.IDLE,
+                        size = 34.dp,
+                        onClick = null
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.size(48.dp))
+            }
             NavItem(
                 icon = Icons.Default.Memory,
                 label = "Memory",

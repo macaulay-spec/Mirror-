@@ -8,8 +8,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SpatialAudio
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +24,9 @@ import com.jarvis.app.voice.VoiceSettingsManager
 import com.jarvis.core.theme.JarvisColors
 import com.jarvis.feature.history.ChatHistoryScreen
 import com.jarvis.feature.memory.MemoryPeopleScreen
+import com.jarvis.feature.search.WebSearchLiveScreen
 import com.jarvis.feature.setup.SetupScreen
+import com.jarvis.feature.awareness.ScreenAwarenessScreen
 import com.jarvis.feature.voice.VoiceSelectionScreen
 
 @Composable
@@ -61,6 +65,12 @@ fun SettingsHubScreen(
                     onOpenAccessibility = onOpenAccessibility,
                     onOpenNotificationListener = onOpenNotificationListener
                 )
+                "awareness" -> ScreenAwarenessScreen(
+                    onDismiss = { selectedTab = "history" }
+                )
+                "search" -> WebSearchLiveScreen(
+                    onDismiss = { selectedTab = "history" }
+                )
             }
         }
 
@@ -76,6 +86,8 @@ fun SettingsHubScreen(
             HubTab("history", Icons.Default.History, "History", selectedTab) { selectedTab = it }
             HubTab("memory", Icons.Default.Memory, "Memory", selectedTab) { selectedTab = it }
             HubTab("voice", Icons.Default.SpatialAudio, "Voice", selectedTab) { selectedTab = it }
+            HubTab("awareness", Icons.Default.Visibility, "Vision", selectedTab) { selectedTab = it }
+            HubTab("search", Icons.Default.Search, "Search", selectedTab) { selectedTab = it }
             HubTab("system", Icons.Default.Settings, "System", selectedTab) { selectedTab = it }
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = JarvisColors.TextMuted)

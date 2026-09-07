@@ -111,7 +111,8 @@ fun HomeScreen(
         bottomBar = {
             BottomNavigationBar(
                 currentRoute = "home",
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                onToggleVoice = onToggleVoice
             )
         }
     ) { padding ->

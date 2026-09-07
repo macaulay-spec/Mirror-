@@ -129,7 +129,8 @@ fun ChatScreen(
         bottomBar = {
             BottomNavigationBar(
                 currentRoute = "chat",
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                onToggleVoice = onToggleVoice
             )
         }
     ) { padding ->

@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,12 +24,16 @@ import com.jarvis.android.voice.JarvisVoiceEngine
 import com.jarvis.app.config.ApiConfig
 import com.jarvis.core.model.JarvisVisualState
 import com.jarvis.core.theme.JarvisTheme
+import com.jarvis.feature.awareness.ScreenAwarenessScreen
 import com.jarvis.feature.chat.ChatScreen
 import com.jarvis.feature.home.HomeScreen
 import com.jarvis.feature.memory.MemoryPeopleScreen
 import com.jarvis.feature.onboarding.OnboardingScreen
+import com.jarvis.feature.search.WebSearchLiveScreen
 import com.jarvis.feature.settings.SettingsHubScreen
 import com.jarvis.feature.settings.SettingsScreen
+import com.jarvis.feature.splash.SplashScreen
+import com.jarvis.feature.tasks.TaskExecutionScreen
 import com.jarvis.feature.voice.VoiceActiveScreen
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.lifecycleScope
@@ -71,11 +76,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             // rememberSaveable: rotation / process death no longer dumps the
             // user from Settings or a sub-screen back to the home deck.
+            var showSplash by rememberSaveable { mutableStateOf(true) }
             var isOnboarding by rememberSaveable { mutableStateOf(!ApiConfig.isOnboardingCompleted) }
             var showSettings by rememberSaveable { mutableStateOf(false) }
             var showVoiceActive by rememberSaveable { mutableStateOf(false) }
             var currentDest by rememberSaveable { mutableStateOf("home") }
             val scope = rememberCoroutineScope()
+
+            // REAL STATE WIRING: when the agent starts executing a multi-step
+            // task, the dedicated Task Execution screen surfaces automatically
+            // (system Back dismisses to Home). The timeline is driven by actual
+            // AgentExecutor step updates — never a mock sequence.
+            val isTaskExecuting by orchestrator.isTaskExecuting.collectAsState()
+            val taskDescription by orchestrator.currentTaskDescription.collectAsState()
+            LaunchedEffect(isTaskExecuting) {
+                if (isTaskExecuting && !showSplash && !isOnboarding) currentDest = "tasks"
+            }
 
             // System Back leaves a sub-screen instead of finishing the Activity.
             BackHandler(enabled = showVoiceActive || showSettings || currentDest != "home") {
@@ -98,7 +114,9 @@ class MainActivity : ComponentActivity() {
             }
 
             JarvisTheme {
-                if (isOnboarding) {
+                if (showSplash) {
+                    SplashScreen(onTimeout = { showSplash = false })
+                } else if (isOnboarding) {
                     OnboardingScreen(
                         onFinishOnboarding = {
                             isOnboarding = false
@@ -153,6 +171,17 @@ class MainActivity : ComponentActivity() {
                         )
                         "voice" -> com.jarvis.feature.voice.VoiceRoomScreen(
                             onDone = { currentDest = "home" }
+                        )
+                        "tasks" -> TaskExecutionScreen(
+                            orchestrator = orchestrator,
+                            taskDescription = taskDescription ?: "Working on it",
+                            onDismiss = { currentDest = "home" }
+                        )
+                        "awareness" -> ScreenAwarenessScreen(
+                            onDismiss = { currentDest = "home" }
+                        )
+                        "search" -> WebSearchLiveScreen(
+                            onDismiss = { currentDest = "home" }
                         )
                         else -> HomeScreen(
                             orchestrator = orchestrator,

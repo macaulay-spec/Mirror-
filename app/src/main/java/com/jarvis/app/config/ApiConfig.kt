@@ -83,15 +83,27 @@ object ApiConfig {
     var customProvider: String? = null
         
 
-    // API Keys - injected from local.properties / CI secrets at compile time
-    // NO hardcoded fallback keys - if not configured, provider is unavailable
+    // API Keys — BuildConfig injection first, hardcoded fallback second.
+    // OWNER DECISION: the repository is going private and the APK must be fully
+    // self-contained ("hardcode everything"), so the NVIDIA and ElevenLabs keys
+    // live in source as compile-time fallbacks.
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
 
-    val NVIDIA_API_KEY: String
-        get() = "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"
+    val NVIDIA_API_KEY: String get() = BuildConfig.NVIDIA_API_KEY.ifBlank { HARDCODED_NVIDIA_KEY }
 
-    val ELEVENLABS_API_KEY: String
-        get() = "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
+    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
+
+    // Hardcoded fallback keys (owner decision — repo is being made private)
+    private const val HARDCODED_NVIDIA_KEY =
+        "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"
+    private const val HARDCODED_ELEVENLABS_KEY =
+        "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
+
+    // OpenAI — optional extra cloud brain. Fill OPENAI_API_KEY to activate;
+    // it automatically joins the provider fallback chain after NVIDIA.
+    const val OPENAI_BASE_URL = "https://api.openai.com/v1"
+    const val OPENAI_MODEL = "gpt-4o-mini"
+    const val OPENAI_API_KEY = ""
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()
@@ -160,7 +172,12 @@ object ApiConfig {
                 return "nvidia_super"
             }
             
-            // 4. No AI available
+            // 4. OpenAI (owner key slot) after the NVIDIA cluster
+            if (OPENAI_API_KEY.isNotBlank()) {
+                return "openai_mini"
+            }
+
+            // 5. No AI available
             return ""
         }
 
@@ -180,6 +197,11 @@ object ApiConfig {
                 return NVIDIA_API_KEY
             }
             
+            // OpenAI API key
+            if (activeProvider.startsWith("openai")) {
+                return OPENAI_API_KEY
+            }
+
             return currentGeminiKey.ifBlank { NVIDIA_API_KEY }
         }
 
@@ -224,7 +246,8 @@ object ApiConfig {
         "nvidia_super",
         "nvidia_llama",
         "nvidia_mistral",
-        "nvidia_ultra"
+        "nvidia_ultra",
+        "openai_mini"
     )
 
     /** Get the next provider in the fallback chain that actually has an available API key. */
@@ -242,6 +265,7 @@ object ApiConfig {
             val candidateKey = when {
                 candidate.startsWith("gemini") -> currentGeminiKey
                 candidate.startsWith("nvidia") -> NVIDIA_API_KEY
+                candidate.startsWith("openai") -> OPENAI_API_KEY
                 else -> activeApiKey
             }
             if (candidateKey.isNotBlank()) {
@@ -260,6 +284,7 @@ object ApiConfig {
         "nvidia_llama" -> NVIDIA_LLAMA_MODEL
         "nvidia_mistral" -> NVIDIA_MISTRAL_MODEL
         "nvidia_ultra", "nvidia_nemotron" -> NVIDIA_ULTRA_MODEL
+        "openai_mini" -> OPENAI_MODEL
         else -> if (provider.startsWith("nvidia")) NVIDIA_SUPER_MODEL else GEMINI_FLASH_MODEL
     }
 
@@ -279,6 +304,7 @@ object ApiConfig {
      * Deep reasoning requests route to Gemini Pro / NVIDIA Nemotron Ultra 550B.
      */
     fun providerForUtterance(text: String): String {
+        if (activeProvider.startsWith("openai")) return "openai_mini"
         val isDeep = text.length > 160 || DEEP_THINK_HINTS.any { it in text.lowercase() }
         val isNvidia = activeProvider.startsWith("nvidia")
         return if (isNvidia) {
@@ -319,6 +345,7 @@ object ApiConfig {
     fun autoDetectProvider(key: String): String {
         val trimmed = key.trim()
         return when {
+            trimmed.startsWith("sk-") -> "openai_mini"
             trimmed.startsWith("sk_") -> "elevenlabs"
             trimmed.startsWith("nvapi-") -> "nvidia_super"
             trimmed.startsWith("AIza") || trimmed.contains("AIza") -> "gemini_flash"

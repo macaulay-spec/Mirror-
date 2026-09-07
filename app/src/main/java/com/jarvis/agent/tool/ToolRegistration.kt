@@ -35,5 +35,8 @@ object ToolRegistration {
 
         // The switches JARVIS controls about itself, reachable by voice
         ProactiveTools.registerAll()
+
+        // Image generation, Wikipedia knowledge, news headlines, currency rates
+        KnowledgeTools.registerAll()
     }
 }

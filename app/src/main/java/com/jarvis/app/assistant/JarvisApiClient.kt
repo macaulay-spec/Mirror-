@@ -147,7 +147,12 @@ class JarvisApiClient(
         allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
-        val endpoint = if (model.startsWith("gemini")) "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" else "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        val endpoint = when {
+            model.startsWith("gemini") -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") ->
+                "${ApiConfig.OPENAI_BASE_URL}/chat/completions"
+            else -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        }
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -471,7 +476,12 @@ class JarvisApiClient(
         userMessage: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val endpoint = if (model.startsWith("gemini")) "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" else "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        val endpoint = when {
+            model.startsWith("gemini") -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") ->
+                "${ApiConfig.OPENAI_BASE_URL}/chat/completions"
+            else -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
+        }
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))

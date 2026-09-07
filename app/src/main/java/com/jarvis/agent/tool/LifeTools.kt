@@ -627,6 +627,33 @@ object LifeTools {
 
     // --------------------------------------------------------------- weather
 
+    /** Resolve a city name to lat/lon via the free Open-Meteo geocoding API. */
+    private fun geocodeCity(query: String): Pair<Double, Double>? = try {
+        val url = "https://geocoding-api.open-meteo.com/v1/search?name=" +
+            java.net.URLEncoder.encode(query, "UTF-8") + "&count=1"
+        val body = httpGetString(url) ?: return null
+        val results = org.json.JSONObject(body).optJSONArray("results") ?: return null
+        if (results.length() == 0) null
+        else {
+            val top = results.getJSONObject(0)
+            Pair(top.optDouble("latitude"), top.optDouble("longitude"))
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun httpGetString(url: String): String? = try {
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        client.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { resp ->
+            if (resp.isSuccessful) resp.body?.string() else null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     private fun registerWeather() {
         ToolRegistry.register(
             ToolDefinition(
@@ -638,21 +665,33 @@ object LifeTools {
             ) { context, args ->
                 val place = arg(args, "place", "location", "city", "where")
 
-                // Try to get user's location first
-                val loc = com.jarvis.app.tools.LocationToolkit(context).lastKnown()
-                val latLon = if (loc.contains(",")) {
-                    val parts = loc.split(",")
-                    try {
-                        val lat = parts[0].trim().toDouble()
-                        val lon = parts[1].trim().toDouble()
-                        Pair(lat, lon)
-                    } catch (_: Exception) {
-                        null
-                    }
-                } else null
+                // 1. A named city wins — geocoded via Open-Meteo (free, no key)
+                val latLon = if (place.isNotBlank()) {
+                    geocodeCity(place)
+                } else {
+                    // 2. Otherwise fall back to the user's real location
+                    val loc = com.jarvis.app.tools.LocationToolkit(context).lastKnown()
+                    if (loc.contains(",")) {
+                        val parts = loc.split(",")
+                        try {
+                            val lat = parts[0].trim().toDouble()
+                            val lon = parts[1].trim().toDouble()
+                            Pair(lat, lon)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else null
+                }
 
                 if (latLon == null) {
-                    return@ToolDefinition error("weather", "I need your location for weather. Enable location permission, or tell me which city.")
+                    return@ToolDefinition error(
+                        "weather",
+                        if (place.isBlank()) {
+                            "I need your location for weather. Enable location permission, or tell me which city."
+                        } else {
+                            "I couldn't find \"$place\" on the map. Try another nearby city."
+                        }
+                    )
                 }
 
                 return@ToolDefinition try {

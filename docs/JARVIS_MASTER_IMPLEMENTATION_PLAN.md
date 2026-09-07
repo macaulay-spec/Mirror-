@@ -403,8 +403,23 @@ Four parallel roots (`agent`, `android`, `app`, `core`, `feature`) with duplicat
 ### 8.2 Introduce a ViewModel layer
 `AssistantOrchestrator` should stay as the app-scoped *engine*, but UI state must move behind a `ViewModel` with `SavedStateHandle`, and the message list must become a paged/streamed Room `Flow` rather than an ever-growing `StateFlow<List<…>>` reassigned per token. This fixes §4.9 and makes the UI testable.
 
-### 8.3 One microphone owner
-Introduce a single `AudioSessionController` that owns mic state across `WakeWordForegroundService`, `JarvisVoiceEngine` and `CloudSttEngine`. Invariant: **exactly one recognizer alive at any time**, with an explicit handoff (wake → conversation → back to wake). Fixes §P1-D.
+### 8.3 One microphone owner — DONE (`dc9f7e3`)
+Implemented as `app/src/main/java/com/jarvis/android/voice/MicArbiter.kt` (the plan
+originally called it `AudioSessionController`; `CloudSttEngine` no longer exists — it was
+deleted with the ElevenLabs integration, so there are now exactly **two** recognizer
+creation sites, both gated).
+
+Invariant: **at most one holder at any time.** `Holder` is `NONE | WAKE_WORD |
+CONVERSATION`. Conversation preempts wake word and stops the background recognizer
+*before* granting, so there is never an instant with two recognizers live. Wake word is
+denied while a conversation holds the mic and resumes by collecting `MicArbiter.holder`
+rather than polling engine state.
+
+Handoff: wake → conversation → back to wake, driven by explicit acquire/release instead
+of observation. `setState(IDLE|ERROR)` releases, which is what stops a one-shot turn from
+holding the mic forever. `WakeWordEngine.start()` re-checks ownership at the creation
+site because `rearm()` reaches it from a delayed handler that bypasses the service gate.
+The current owner is shown on the Diagnostics screen.
 
 ### 8.4 Configuration becomes immutable + injected
 Replace the mutable `ApiConfig` object with an immutable `JarvisConfig` data class produced once at startup, plus a `SecretStore` (Keystore/EncryptedSharedPreferences) for user keys and a `ProviderResolver` with **one** definition of "do we have a usable key". Remove the four overlapping `hasAI`/`activeApiKey`/`currentApiKey`/`originalHasAI` accessors. Fix `autoDetectProvider` so an ElevenLabs key is never offered to an LLM endpoint.

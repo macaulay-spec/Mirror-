@@ -92,6 +92,15 @@ kotlin {
     }
 }
 
+// FIX (audit P0-D): AppDatabase declared exportSchema = false, so every schema version
+// was thrown away at build time. With no history there is nothing to write a migration
+// against, which is why the database was built with fallbackToDestructiveMigration() and
+// every version bump silently deleted the user's memories. Schemas are now exported here
+// and committed under app/schemas/ -- see Migrations.kt for the policy.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

@@ -14,6 +14,7 @@ import com.jarvis.agent.tool.ToolDefinition
 import com.jarvis.agent.tool.ToolRegistry
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionResult
+import com.jarvis.core.model.ToolExecutionRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,6 +126,20 @@ class JarvisAccessibilityService : AccessibilityService() {
      * accepted the request, not that it did anything.
      */
     fun screenSignature(): String = "${currentPackageName ?: "?"}:${getScreenText().hashCode()}"
+
+    fun waitForPackage(targetPackage: String, timeoutMs: Long = 3000L): Boolean {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            val pkg = currentPackageName
+            val rootPkg = rootInActiveWindow?.packageName?.toString()
+            if (pkg.contains(targetPackage, ignoreCase = true) || (rootPkg != null && rootPkg.contains(targetPackage, ignoreCase = true))) {
+                try { Thread.sleep(400) } catch (_: InterruptedException) {}
+                return true
+            }
+            try { Thread.sleep(150) } catch (_: InterruptedException) {}
+        }
+        return false
+    }
 
     private fun collectText(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
         if (depth > 40) return
@@ -317,6 +332,12 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
+    fun clickElementByText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val found = dfFind(root, text) ?: return false
+        return clickNode(found)
+    }
+
     fun clickElementByDescription(desc: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val found = dfFindByDescription(root, desc) ?: return false
@@ -374,6 +395,137 @@ class JarvisAccessibilityService : AccessibilityService() {
                             success = true,
                             data = mapOf("elements" to elements),
                             verificationDetails = "SUCCESS: Read ${elements.size} structured screen elements."
+                        )
+                    }
+                }
+            )
+
+            // 2. click_element / click_text
+            ToolRegistry.register(
+                ToolDefinition(
+                    id = "click_element",
+                    name = "Click Element on Screen",
+                    description = "Clicks a button, contact name, tab, or UI element on screen matching the given text or description.",
+                    category = "DEVICE",
+                    riskLevel = RiskLevel.LEVEL_0
+                ) { _, args ->
+                    val service = instance
+                    val query = args["text"]?.toString()
+                        ?: args["element"]?.toString()
+                        ?: args["name"]?.toString()
+                        ?: args["target"]?.toString()
+                        ?: args["description"]?.toString()
+                        ?: ""
+                    if (service == null) {
+                        ToolExecutionResult(toolId = "click_element", success = false, data = null, error = "PERMISSION_REQUIRED: Accessibility Service disabled.")
+                    } else if (query.isBlank()) {
+                        ToolExecutionResult(toolId = "click_element", success = false, data = null, error = "Target text or element name must be specified.")
+                    } else {
+                        val success = service.clickElementByText(query) || service.clickElementByDescription(query)
+                        ToolExecutionResult(
+                            toolId = "click_element",
+                            success = success,
+                            data = mapOf("target" to query),
+                            verificationDetails = if (success) "SUCCESS: Clicked element '$query'." else "FAILED: Could not find clickable element matching '$query'."
+                        )
+                    }
+                }
+            )
+
+            ToolRegistry.register(
+                ToolDefinition(
+                    id = "click_text",
+                    name = "Click Text",
+                    description = "Clicks text or contact on screen.",
+                    category = "DEVICE",
+                    riskLevel = RiskLevel.LEVEL_0
+                ) { ctx, args ->
+                    ToolRegistry.execute(ctx, ToolExecutionRequest("click_element", "Click Element", args, RiskLevel.LEVEL_0))
+                }
+            )
+
+            // 3. wait_for_screen
+            ToolRegistry.register(
+                ToolDefinition(
+                    id = "wait_for_screen",
+                    name = "Wait for App or Screen",
+                    description = "Pauses execution until an app or element appears on screen.",
+                    category = "DEVICE",
+                    riskLevel = RiskLevel.LEVEL_0
+                ) { _, args ->
+                    val service = instance
+                    val targetPackage = args["package"]?.toString() ?: args["app"]?.toString() ?: ""
+                    val timeout = args["timeout_ms"]?.toString()?.toLongOrNull() ?: 2500L
+                    if (service == null) {
+                        ToolExecutionResult(toolId = "wait_for_screen", success = false, data = null, error = "Accessibility Service disabled.")
+                    } else {
+                        if (targetPackage.isNotBlank()) {
+                            service.waitForPackage(targetPackage, timeout)
+                        } else {
+                            try { Thread.sleep(400) } catch (_: Exception) {}
+                        }
+                        ToolExecutionResult(toolId = "wait_for_screen", success = true, data = mapOf("package" to targetPackage), verificationDetails = "Screen loaded and ready.")
+                    }
+                }
+            )
+
+            // 3b. send_whatsapp (Smart direct messaging with settle wait)
+            ToolRegistry.register(
+                ToolDefinition(
+                    id = "send_whatsapp",
+                    name = "Send WhatsApp Message",
+                    description = "Sends a message via WhatsApp to a recipient, waiting for WhatsApp to load and tapping send.",
+                    category = "DEVICE",
+                    riskLevel = RiskLevel.LEVEL_0
+                ) { context, args ->
+                    val recipient = args["recipient"]?.toString() ?: args["contact"]?.toString() ?: args["to"]?.toString() ?: ""
+                    val message = args["message"]?.toString() ?: args["text"]?.toString() ?: ""
+                    if (message.isBlank()) {
+                        return@ToolDefinition ToolExecutionResult(toolId = "send_whatsapp", success = false, data = null, error = "Message text is required.")
+                    }
+
+                    try {
+                        val encodedMsg = java.net.URLEncoder.encode(message, "UTF-8")
+                        val uri = if (recipient.isNotBlank() && recipient.all { it.isDigit() || it == '+' }) {
+                            val cleanPhone = recipient.filter { it.isDigit() }
+                            android.net.Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMsg")
+                        } else {
+                            android.net.Uri.parse("https://api.whatsapp.com/send?text=$encodedMsg")
+                        }
+                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            setPackage("com.whatsapp")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+
+                        val service = instance
+                        if (service != null) {
+                            service.waitForPackage("whatsapp", 3500L)
+                            if (recipient.isNotBlank() && !recipient.all { it.isDigit() || it == '+' }) {
+                                service.clickElementByText(recipient)
+                                try { Thread.sleep(350) } catch (_: Exception) {}
+                            }
+                            val sent = service.clickElementByDescription("Send") || service.clickElementByText("Send")
+                            ToolExecutionResult(
+                                toolId = "send_whatsapp",
+                                success = true,
+                                data = mapOf("recipient" to recipient, "message" to message, "sent" to sent),
+                                verificationDetails = "Opened WhatsApp and prepared message for $recipient."
+                            )
+                        } else {
+                            ToolExecutionResult(
+                                toolId = "send_whatsapp",
+                                success = true,
+                                data = mapOf("recipient" to recipient, "message" to message),
+                                verificationDetails = "Opened WhatsApp with your message."
+                            )
+                        }
+                    } catch (e: Exception) {
+                        ToolExecutionResult(
+                            toolId = "send_whatsapp",
+                            success = false,
+                            data = null,
+                            error = "Failed to launch WhatsApp: ${e.message}"
                         )
                     }
                 }

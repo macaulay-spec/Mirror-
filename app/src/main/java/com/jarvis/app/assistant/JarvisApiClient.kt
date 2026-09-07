@@ -186,12 +186,14 @@ class JarvisApiClient(
         return try {
             streamClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    if (response.code == 429 && (provider == "gemini_flash" || model.startsWith("gemini"))) {
-                        Log.w("JarvisApiClient", "Gemini 429 quota reached. Rotating key in pool...")
-                        ApiConfig.markGeminiKeyRateLimited(apiKey)
-                        val nextKey = ApiConfig.currentGeminiKey
-                        if (nextKey.isNotBlank() && nextKey != apiKey) {
-                            return streamNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools, onDelta)
+                    if (provider.startsWith("gemini") || model.startsWith("gemini")) {
+                        if (response.code == 401 || response.code == 403 || response.code == 429) {
+                            Log.w("JarvisApiClient", "Gemini HTTP ${response.code} error on key. Rotating key in pool...")
+                            ApiConfig.markGeminiKeyFailed(apiKey)
+                            val nextKey = ApiConfig.currentGeminiKey
+                            if (nextKey.isNotBlank() && nextKey != apiKey) {
+                                return streamNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools, onDelta)
+                            }
                         }
                     }
                     val err = response.body?.string()?.take(200) ?: ""
@@ -436,7 +438,7 @@ class JarvisApiClient(
         }
     }
 
-    // Direct Path (development/testing only)
+    // Direct Path (development/testing only) with automatic multi-provider fallback
     private fun chatDirect(
         systemPrompt: String,
         history: List<Pair<String, String>>,
@@ -445,25 +447,34 @@ class JarvisApiClient(
         model: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val apiKey = when {
-            provider.startsWith("gemini") -> ApiConfig.currentGeminiKey
-            provider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
-            else -> ApiConfig.activeApiKey
-        }
+        var currentProvider: String? = provider
+        var lastResult: Result<AiResponse> = Result.failure(Exception("No AI provider available"))
 
-        if (apiKey.isBlank()) {
-            return Result.failure(
-                Exception("No AI key configured for $provider. Please configure keys in Settings.")
-            )
-        }
-
-        return try {
-            when (provider) {
-                else -> executeNVIDIA(apiKey, provider, model, systemPrompt, history, userMessage, allowTools)
+        while (currentProvider != null) {
+            val currentModel = ApiConfig.resolveModel(currentProvider)
+            val currentApiKey = when {
+                currentProvider.startsWith("gemini") -> ApiConfig.currentGeminiKey
+                currentProvider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
+                currentProvider.startsWith("openai") -> ApiConfig.OPENAI_API_KEY
+                else -> ApiConfig.activeApiKey
             }
-        } catch (e: Exception) {
-            Result.failure(e)
+
+            if (currentApiKey.isNotBlank()) {
+                val res = try {
+                    executeNVIDIA(currentApiKey, currentProvider, currentModel, systemPrompt, history, userMessage, allowTools)
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+                if (res.isSuccess) {
+                    return res
+                }
+                lastResult = res
+            }
+
+            currentProvider = ApiConfig.getNextProvider(currentProvider)
         }
+
+        return lastResult
     }
 
     // NVIDIA execution (OpenAI-compatible)
@@ -513,12 +524,14 @@ class JarvisApiClient(
         return client.newCall(request).execute().use { response ->
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                if (response.code == 429 && (provider == "gemini_flash" || model.startsWith("gemini"))) {
-                    Log.w("JarvisApiClient", "Gemini 429 quota reached. Rotating key in pool...")
-                    ApiConfig.markGeminiKeyRateLimited(apiKey)
-                    val nextKey = ApiConfig.currentGeminiKey
-                    if (nextKey.isNotBlank() && nextKey != apiKey) {
-                        return executeNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools)
+                if (provider.startsWith("gemini") || model.startsWith("gemini")) {
+                    if (response.code == 401 || response.code == 403 || response.code == 429) {
+                        Log.w("JarvisApiClient", "Gemini HTTP ${response.code} error. Marking key as failed...")
+                        ApiConfig.markGeminiKeyFailed(apiKey)
+                        val nextKey = ApiConfig.currentGeminiKey
+                        if (nextKey.isNotBlank() && nextKey != apiKey) {
+                            return executeNVIDIA(nextKey, provider, model, systemPrompt, history, userMessage, allowTools)
+                        }
                     }
                 }
                 val msg = when (response.code) {

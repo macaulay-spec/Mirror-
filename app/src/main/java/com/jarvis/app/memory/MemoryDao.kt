@@ -18,6 +18,9 @@ interface MemoryDao {
     @Query("SELECT * FROM memories ORDER BY importance DESC, updatedAt DESC LIMIT 200")
     fun all(): Flow<List<MemoryEntity>>
 
+    @Query("SELECT * FROM memories ORDER BY updatedAt DESC LIMIT 1")
+    fun latest(): Flow<MemoryEntity?>
+
     @Query("SELECT * FROM memories WHERE content LIKE :q ORDER BY importance DESC, updatedAt DESC")
     fun search(q: String): Flow<List<MemoryEntity>>
 

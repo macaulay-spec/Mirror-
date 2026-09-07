@@ -156,118 +156,75 @@ object ApiConfig {
         geminiPoolIndex = 0
     }
 
+    val hasUsableGeminiKey: Boolean
+        get() = synchronized(geminiKeyPoolLock) {
+            val pool = geminiKeys
+            if (pool.isEmpty()) return false
+            val nonLimited = pool.filterNot { rateLimitedKeys.contains(it) }
+            nonLimited.isNotEmpty()
+        }
+
+    fun markGeminiKeyFailed(key: String) = synchronized(geminiKeyPoolLock) {
+        rateLimitedKeys.add(key)
+        rotateToNextGeminiKey()
+    }
+
     // Provider/key resolution
     val activeProvider: String
         get() {
-            // 1. User's custom key / provider (entered in Settings - auto-detected provider)
-            customProvider?.takeIf { it.isNotBlank() }?.let { return it }
-            
-            // 2. Gemini 1.5 Pro if keys are available
-            if (geminiKeys.isNotEmpty() || GEMINI_API_KEY.isNotBlank()) {
-                return "gemini_flash"
-            }
-
-            // 3. NVIDIA Nemotron Super is the secondary provider
-            if (NVIDIA_API_KEY.isNotBlank()) {
-                return "nvidia_super"
-            }
-            
-            // 4. OpenAI (owner key slot) after the NVIDIA cluster
-            if (OPENAI_API_KEY.isNotBlank()) {
-                return "openai_mini"
-            }
-
-            // 5. No AI available
-            return ""
+            // Powered exclusively by Gemini
+            return "gemini_flash"
         }
 
     val activeApiKey: String
         get() {
-            if (activeProvider == "gemini_flash") {
-                val gKey = currentGeminiKey
-                if (gKey.isNotBlank()) return gKey
-            }
-
-            // User's custom key
+            val gKey = currentGeminiKey
+            if (gKey.isNotBlank()) return gKey
             val custom = customApiKey?.trim()
             if (!custom.isNullOrBlank()) return custom
-            
-            // NVIDIA API key
-            if (activeProvider.startsWith("nvidia_")) {
-                return NVIDIA_API_KEY
-            }
-            
-            // OpenAI API key
-            if (activeProvider.startsWith("openai")) {
-                return OPENAI_API_KEY
-            }
-
-            return currentGeminiKey.ifBlank { NVIDIA_API_KEY }
+            return GEMINI_API_KEY
         }
 
     val hasAI: Boolean
         get() = currentApiKey.isNotBlank()
 
     val currentApiKey: String
-        get() = currentGeminiKey.ifBlank { if (customApiKey.isNullOrBlank()) NVIDIA_API_KEY else customApiKey!! }
+        get() = currentGeminiKey.ifBlank { customApiKey?.takeIf { it.isNotBlank() } ?: GEMINI_API_KEY }
 
     val originalHasAI: Boolean get() = activeApiKey.isNotBlank()
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
 
     /** Human-readable label for the Diagnostics screen. */
     fun getProviderLabel(): String = when (activeProvider) {
-        "gemini_flash" -> "Gemini 2.5 Flash (Ultra-Fast)"
+        "gemini_flash" -> "Gemini 2.5 Flash (Ultra-Fast Engine)"
         "gemini_pro" -> "Gemini 2.5 Pro (Deep Reasoning)"
-        "gemini_lite" -> "Gemini 2.0 Flash Lite"
-        "nvidia_super", "nvidia_glm" -> "NVIDIA Nemotron 3 Super 120B"
-        "nvidia_llama" -> "NVIDIA Llama 3.2 11B Vision"
-        "nvidia_mistral" -> "NVIDIA Mistral Nemotron"
-        "nvidia_ultra", "nvidia_nemotron" -> "NVIDIA Nemotron 3 Ultra 550B"
-        else -> activeProvider.replaceFirstChar { it.uppercase() }
+        else -> "Gemini AI"
     }
 
-    // Google Gemini Multi-Model Brain Integration.
+    // Google Gemini Brain Integration (per official Gemini guidelines).
     const val GEMINI_FLASH_MODEL = "gemini-2.5-flash"
     const val GEMINI_PRO_MODEL = "gemini-2.5-pro"
-    const val GEMINI_LITE_MODEL = "gemini-2.0-flash-lite"
+    const val GEMINI_LITE_MODEL = "gemini-2.5-flash"
 
-    // NVIDIA AI Endpoints & Live-Verified Models
+    // Legacy fallback constants
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b" // Fast primary (~480ms live stream)
-    const val NVIDIA_LLAMA_MODEL = "meta/llama-3.2-11b-vision-instruct" // Ultra-fast multimodal (~230ms live stream)
-    const val NVIDIA_MISTRAL_MODEL = "mistralai/mistral-nemotron" // Verified active
-    const val NVIDIA_ULTRA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b" // Flagship deep reasoning (verified active)
+    const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
-    // Complete Provider fallback chain: Gemini High-Speed Pool -> NVIDIA Multi-Model Cluster
+    // Gemini high-speed pool
     val PROVIDER_FALLBACK_CHAIN = listOf(
         "gemini_flash",
-        "gemini_pro",
-        "gemini_lite",
-        "nvidia_super",
-        "nvidia_llama",
-        "nvidia_mistral",
-        "nvidia_ultra",
-        "openai_mini"
+        "gemini_pro"
     )
 
     /** Get the next provider in the fallback chain that actually has an available API key. */
     fun getNextProvider(currentProvider: String): String? {
-        val normalized = when (currentProvider) {
-            "nvidia_glm" -> "nvidia_super"
-            "nvidia_nemotron" -> "nvidia_ultra"
-            else -> currentProvider
-        }
-        val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(normalized)
+        val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
         val startIndex = if (currentIndex >= 0) currentIndex + 1 else 0
 
         for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
             val candidate = PROVIDER_FALLBACK_CHAIN[i]
-            val candidateKey = when {
-                candidate.startsWith("gemini") -> currentGeminiKey
-                candidate.startsWith("nvidia") -> NVIDIA_API_KEY
-                candidate.startsWith("openai") -> OPENAI_API_KEY
-                else -> activeApiKey
-            }
+            if (candidate.startsWith("gemini") && !hasUsableGeminiKey) continue
+            val candidateKey = currentGeminiKey
             if (candidateKey.isNotBlank()) {
                 return candidate
             }
@@ -279,13 +236,7 @@ object ApiConfig {
     fun resolveModel(provider: String): String = when (provider) {
         "gemini_flash" -> GEMINI_FLASH_MODEL
         "gemini_pro" -> GEMINI_PRO_MODEL
-        "gemini_lite" -> GEMINI_LITE_MODEL
-        "nvidia_super", "nvidia_glm" -> NVIDIA_SUPER_MODEL
-        "nvidia_llama" -> NVIDIA_LLAMA_MODEL
-        "nvidia_mistral" -> NVIDIA_MISTRAL_MODEL
-        "nvidia_ultra", "nvidia_nemotron" -> NVIDIA_ULTRA_MODEL
-        "openai_mini" -> OPENAI_MODEL
-        else -> if (provider.startsWith("nvidia")) NVIDIA_SUPER_MODEL else GEMINI_FLASH_MODEL
+        else -> GEMINI_FLASH_MODEL
     }
 
     // ---- Multi-tier brain routing -------------------------------------------

@@ -221,7 +221,7 @@ class MainActivity : ComponentActivity() {
                                     "recent_task" -> {
                                         currentDest = "chat"
                                         scope.launch {
-                                            orchestrator.submitUserInput("Find the latest message from John and tell me what he said")
+                                            orchestrator.submitUserInput("Check my recent notifications and messages")
                                         }
                                     }
                                 }

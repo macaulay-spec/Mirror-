@@ -47,6 +47,7 @@ class AssistantOrchestrator(
     var voiceEngine: JarvisVoiceEngine? = null
 ) {
     private val aiEngine = JarvisAIEngine(context)
+    val memoryManager get() = aiEngine.memoryManager
     private val dialogueManager = DialogueManager(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 

@@ -227,24 +227,85 @@ CRITICAL INSTRUCTIONS:
         }
 
     /**
-     * Fast-path handles only the four commands where sub-100ms matters.
-     * Uses the same tool IDs that ToolRegistry registers  verified against ToolRegistry.kt.
+     * Fast-path handles zero-latency device commands directly on-device
+     * (apps, volume, flashlight, battery, WhatsApp quick actions).
      */
     private suspend fun fastPath(input: String): ToolExecutionResult? {
         val lower = input.lowercase().trim()
-        return when {
-            lower == "battery" || lower == "battery level" || lower.startsWith("how much battery") ->
-                ToolRegistry.execute(context, ToolExecutionRequest("device_battery", "Battery", emptyMap(), RiskLevel.LEVEL_0))
-            lower == "time" || lower == "what time" || lower == "what time is it" || lower == "what's the time" ->
-                ToolRegistry.execute(context, ToolExecutionRequest("device_time", "Time", emptyMap(), RiskLevel.LEVEL_0))
-            lower.contains("flashlight on") || lower.contains("torch on") ||
-            lower.contains("turn on flashlight") || lower.contains("turn on torch") ->
-                ToolRegistry.execute(context, ToolExecutionRequest("device_flashlight", "Flashlight On", mapOf("enabled" to true), RiskLevel.LEVEL_0))
-            lower.contains("flashlight off") || lower.contains("torch off") ||
-            lower.contains("turn off flashlight") || lower.contains("turn off torch") ->
-                ToolRegistry.execute(context, ToolExecutionRequest("device_flashlight", "Flashlight Off", mapOf("enabled" to false), RiskLevel.LEVEL_0))
-            else -> null
+
+        // 1. Hardware & Sensors
+        if (lower == "battery" || lower == "battery level" || lower.startsWith("how much battery")) {
+            return ToolRegistry.execute(context, ToolExecutionRequest("device_battery", "Battery", emptyMap(), RiskLevel.LEVEL_0))
         }
+        if (lower == "time" || lower == "what time" || lower == "what time is it" || lower == "what's the time") {
+            return ToolRegistry.execute(context, ToolExecutionRequest("device_time", "Time", emptyMap(), RiskLevel.LEVEL_0))
+        }
+        if (lower.contains("flashlight on") || lower.contains("torch on") ||
+            lower.contains("turn on flashlight") || lower.contains("turn on torch")) {
+            return ToolRegistry.execute(context, ToolExecutionRequest("device_flashlight", "Flashlight On", mapOf("enabled" to true), RiskLevel.LEVEL_0))
+        }
+        if (lower.contains("flashlight off") || lower.contains("torch off") ||
+            lower.contains("turn off flashlight") || lower.contains("turn off torch")) {
+            return ToolRegistry.execute(context, ToolExecutionRequest("device_flashlight", "Flashlight Off", mapOf("enabled" to false), RiskLevel.LEVEL_0))
+        }
+
+        // 2. Volume Controls
+        if (lower.contains("volume up") || lower.contains("increase volume") || lower.contains("louder")) {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
+            return ToolExecutionResult(toolId = "volume", success = true, data = null, verificationDetails = "Increased volume.")
+        }
+        if (lower.contains("volume down") || lower.contains("decrease volume") || lower.contains("lower volume") || lower.contains("quieter")) {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
+            return ToolExecutionResult(toolId = "volume", success = true, data = null, verificationDetails = "Decreased volume.")
+        }
+
+        // 3. WhatsApp Smart Messaging with Settle & Act
+        if (lower.contains("whatsapp") && (lower.contains("send") || lower.contains("message") || lower.contains("tell") || lower.contains("tap on"))) {
+            var targetRecipient = ""
+            var msgText = ""
+
+            val tapPattern = Regex("""tap on (?:name )?([a-zA-Z0-9_\- ]+?) (?:and|to) send (?:a message )?(.*)""", RegexOption.IGNORE_CASE)
+            val matchTap = tapPattern.find(input)
+            if (matchTap != null) {
+                targetRecipient = matchTap.groupValues[1].trim()
+                msgText = matchTap.groupValues[2].trim()
+            } else {
+                val sendToPattern = Regex("""send (?:a )?message to ([a-zA-Z0-9_\- ]+?) on whatsapp(?: saying|:)? (.*)""", RegexOption.IGNORE_CASE)
+                val matchSend = sendToPattern.find(input)
+                if (matchSend != null) {
+                    targetRecipient = matchSend.groupValues[1].trim()
+                    msgText = matchSend.groupValues[2].trim()
+                }
+            }
+
+            if (msgText.isNotBlank()) {
+                return ToolRegistry.execute(
+                    context,
+                    ToolExecutionRequest(
+                        "send_whatsapp",
+                        "Send WhatsApp Message",
+                        mapOf("recipient" to targetRecipient, "message" to msgText),
+                        RiskLevel.LEVEL_0
+                    )
+                )
+            }
+        }
+
+        // 4. Instant App Launch (sub-100ms)
+        if (lower.startsWith("open ") || lower.startsWith("launch ")) {
+            val rawApp = lower.removePrefix("open ").removePrefix("launch ").trim()
+            val cleanApp = rawApp.removePrefix("the ").removeSuffix(" app").trim()
+            if (cleanApp.isNotBlank() && cleanApp.length < 30 && !cleanApp.contains(" and ") && !cleanApp.contains(" then ")) {
+                return ToolRegistry.execute(
+                    context,
+                    ToolExecutionRequest("open_app", "Open Installed App", mapOf("app" to cleanApp), RiskLevel.LEVEL_0)
+                )
+            }
+        }
+
+        return null
     }
 
     /** Minimal offline fallback when the AI key is invalid or network is down. */

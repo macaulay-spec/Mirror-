@@ -67,7 +67,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     /** Auto re-arm the recognizer after each reply drains (continuous conversation). */
     @Volatile
-    var continuousMode: Boolean = false
+    var continuousMode: Boolean = true
 
     private var consecutiveRecognizerFailures = 0
 
@@ -329,8 +329,9 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2000L)
                     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
                 }
 
@@ -518,7 +519,16 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     override fun onError(error: Int) {
         _audioRms.value = 0f
         abandonAudioFocus()
+        val partialText = _lastRecognizedText.value?.trim()
         safeDestroyRecognizer()
+
+        if (!partialText.isNullOrBlank() && (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
+            _lastRecognizedText.value = null
+            consecutiveRecognizerFailures = 0
+            setState(JarvisVisualState.THINKING)
+            onSpeechResult?.invoke(partialText)
+            return
+        }
 
         when (error) {
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {

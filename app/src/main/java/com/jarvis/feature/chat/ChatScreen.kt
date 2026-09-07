@@ -1,5 +1,7 @@
 package com.jarvis.feature.chat
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -68,10 +70,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jarvis.agent.ai.plan.AgentStep
+import com.jarvis.agent.ai.plan.StepStatus
 import com.jarvis.agent.orchestrator.AssistantOrchestrator
 import com.jarvis.core.model.AssistantMessage
 import com.jarvis.core.model.JarvisVisualState
@@ -110,12 +115,25 @@ fun ChatScreen(
 ) {
     val messages by orchestrator.messages.collectAsState()
     val visualState by orchestrator.visualState.collectAsState()
+    val currentSteps by orchestrator.currentSteps.collectAsState()
+    val currentStepIndex by orchestrator.currentStepIndex.collectAsState()
+    val isTaskExecuting by orchestrator.isTaskExecuting.collectAsState()
+    val taskFinalResult by orchestrator.taskFinalResult.collectAsState()
+
+    val context = LocalContext.current
+    val deviceToolkit = remember { com.jarvis.app.tools.DeviceToolkit(context) }
+    val audioManager = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager }
+    val maxVol = remember { (audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1) }
+
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
     var inputText by remember { mutableStateOf("") }
-    var volumeLevel by remember { mutableFloatStateOf(0.8f) }
-    var flashlightOn by remember { mutableStateOf(true) }
+    var volumeLevel by remember {
+        val curr = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 12
+        mutableFloatStateOf((curr.toFloat() / maxVol).coerceIn(0f, 1f))
+    }
+    var flashlightOn by remember { mutableStateOf(false) }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -244,17 +262,38 @@ fun ChatScreen(
                         }
                     } else {
                         items(messages, key = { it.id }) { msg ->
+                            val isLatest = messages.lastOrNull()?.id == msg.id
                             if (msg.role == MessageRole.USER) {
                                 UserMessageBubble(text = msg.text)
                             } else {
                                 JarvisMessageItem(
                                     message = msg,
+                                    isLatest = isLatest,
+                                    currentSteps = currentSteps,
+                                    currentStepIndex = currentStepIndex,
+                                    isTaskExecuting = isTaskExecuting,
+                                    taskFinalResult = taskFinalResult,
                                     volumeLevel = volumeLevel,
-                                    onVolumeChange = { volumeLevel = it },
+                                    onVolumeChange = { newVol ->
+                                        volumeLevel = newVol
+                                        val streamVol = (newVol * maxVol).toInt().coerceIn(0, maxVol)
+                                        audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, streamVol, 0)
+                                    },
                                     flashlightOn = flashlightOn,
-                                    onFlashlightToggle = { flashlightOn = it },
+                                    onFlashlightToggle = { newOn ->
+                                        flashlightOn = newOn
+                                        deviceToolkit.flashlight(newOn)
+                                    },
                                     onSuggestionClick = { text ->
                                         scope.launch { orchestrator.submitUserInput(text) }
+                                    },
+                                    onOpenUrl = { url ->
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
                                     }
                                 )
                             }
@@ -351,11 +390,17 @@ private fun UserMessageBubble(text: String) {
 @Composable
 private fun JarvisMessageItem(
     message: AssistantMessage,
+    isLatest: Boolean = false,
+    currentSteps: List<AgentStep> = emptyList(),
+    currentStepIndex: Int? = null,
+    isTaskExecuting: Boolean = false,
+    taskFinalResult: String? = null,
     volumeLevel: Float,
     onVolumeChange: (Float) -> Unit,
     flashlightOn: Boolean,
     onFlashlightToggle: (Boolean) -> Unit,
-    onSuggestionClick: (String) -> Unit
+    onSuggestionClick: (String) -> Unit,
+    onOpenUrl: (String) -> Unit = {}
 ) {
     val text = message.text.lowercase()
 
@@ -422,21 +467,49 @@ private fun JarvisMessageItem(
                 }
 
                 // ── Screen 10 Widget: Multi-step Task Execution Checklist ──
-                if (text.contains("find the latest message") || text.contains("john") || text.contains("working on it")) {
+                if ((isLatest && (isTaskExecuting || currentSteps.isNotEmpty())) ||
+                    text.contains("find the latest message") || text.contains("working on it")
+                ) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    TaskExecutionChecklistCard()
+                    TaskExecutionChecklistCard(
+                        steps = currentSteps,
+                        activeIndex = currentStepIndex,
+                        isExecuting = isTaskExecuting,
+                        finalResult = taskFinalResult
+                    )
                 }
 
-                // ── Screen 9 Widget: Web Search Results ─────────────────────
-                if (text.contains("search") || text.contains("news") || text.contains("web")) {
+                // ── Screen 9 Widget: Web Search / Knowledge Results ─────────
+                val tr = message.toolResult
+                if (tr != null && (tr.toolId == "web_search" || tr.toolId == "wikipedia" || tr.toolId == "news")) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    WebSearchResultsCard()
+                    val dataMap = tr.data as? Map<*, *>
+                    val q = dataMap?.get("query")?.toString() ?: dataMap?.get("title")?.toString() ?: "Search Results"
+                    val summary = dataMap?.get("result")?.toString() ?: dataMap?.get("summary")?.toString() ?: tr.verificationDetails
+                    val url = dataMap?.get("url")?.toString()
+                    WebSearchResultsCard(
+                        query = q,
+                        summary = summary,
+                        url = url,
+                        onOpenUrl = onOpenUrl
+                    )
+                } else if (text.contains("search") || text.contains("news") || text.contains("web")) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    WebSearchResultsCard(
+                        query = "TOP RESULTS",
+                        summary = null,
+                        url = null,
+                        onOpenUrl = onOpenUrl
+                    )
                 }
 
                 // ── Screen 8 Widget: Screen Awareness Callout ───────────────
-                if (text.contains("screen") || text.contains("whatsapp") && text.contains("read")) {
+                if (tr != null && tr.toolId.contains("screen")) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    ScreenAwarenessCard()
+                    ScreenAwarenessCard(detail = tr.verificationDetails)
+                } else if (text.contains("screen") || (text.contains("whatsapp") && text.contains("read"))) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ScreenAwarenessCard(detail = null)
                 }
             }
         }
@@ -578,10 +651,15 @@ private fun FlashlightInteractiveCard(
 }
 
 /**
- * Screen 10: Task Execution Checklist Card
+ * Screen 10: Task Execution Checklist Card (Dynamic backend data bound)
  */
 @Composable
-private fun TaskExecutionChecklistCard() {
+private fun TaskExecutionChecklistCard(
+    steps: List<AgentStep> = emptyList(),
+    activeIndex: Int? = null,
+    isExecuting: Boolean = false,
+    finalResult: String? = null
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -590,26 +668,52 @@ private fun TaskExecutionChecklistCard() {
             .border(0.8.dp, JarvisColors.Presence.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
             .padding(14.dp)
     ) {
-        Text(
-            text = "EXECUTION TIMELINE",
-            color = JarvisColors.Presence,
-            fontSize = 9.5.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "EXECUTION TIMELINE",
+                color = JarvisColors.Presence,
+                fontSize = 9.5.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            if (isExecuting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    color = JarvisColors.Presence,
+                    strokeWidth = 1.5.dp
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        ChecklistStepRow(text = "Understanding request", state = StepState.DONE)
-        ChecklistStepRow(text = "Opening WhatsApp", state = StepState.DONE)
-        ChecklistStepRow(text = "Finding conversation with John", state = StepState.DONE)
-        ChecklistStepRow(text = "Reading latest message", state = StepState.ACTIVE)
-        ChecklistStepRow(text = "Preparing response", state = StepState.PENDING)
+        if (steps.isNotEmpty()) {
+            steps.forEachIndexed { index, step ->
+                val state = when {
+                    step.status == StepStatus.SUCCESS -> StepState.DONE
+                    step.status == StepStatus.EXECUTING -> StepState.ACTIVE
+                    step.status == StepStatus.FAILED -> StepState.PENDING
+                    activeIndex != null && index < activeIndex -> StepState.DONE
+                    activeIndex == index && isExecuting -> StepState.ACTIVE
+                    else -> StepState.PENDING
+                }
+                val desc = step.expectedResult?.takeIf { it.isNotBlank() } ?: step.tool.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                ChecklistStepRow(text = desc, state = state)
+            }
+        } else if (isExecuting) {
+            ChecklistStepRow(text = "Processing request...", state = StepState.ACTIVE)
+            ChecklistStepRow(text = "Executing tools...", state = StepState.PENDING)
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         // Result Card preview
+        val displayResult = finalResult?.takeIf { it.isNotBlank() } ?: if (isExecuting) "Working on your request..." else "Task completed."
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -625,7 +729,7 @@ private fun TaskExecutionChecklistCard() {
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Hey! Are we still meeting tomorrow? 10:30",
+                    text = displayResult,
                     color = JarvisColors.TextPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Medium
@@ -684,10 +788,15 @@ private fun ChecklistStepRow(text: String, state: StepState) {
 }
 
 /**
- * Screen 9: Web Search Results Card
+ * Screen 9: Web Search Results Card (Dynamic backend data bound)
  */
 @Composable
-private fun WebSearchResultsCard() {
+private fun WebSearchResultsCard(
+    query: String = "TOP RESULTS",
+    summary: String? = null,
+    url: String? = null,
+    onOpenUrl: ((String) -> Unit)? = null
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -702,7 +811,7 @@ private fun WebSearchResultsCard() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "TOP RESULTS",
+                text = query.uppercase().take(28),
                 color = JarvisColors.Presence,
                 fontSize = 9.5.sp,
                 fontFamily = FontFamily.Monospace,
@@ -719,18 +828,28 @@ private fun WebSearchResultsCard() {
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        SearchResultRow(
-            title = "OpenAI announces new updates to GPT-5",
-            source = "techcrunch.com · 2h ago"
-        )
-        SearchResultRow(
-            title = "Google DeepMind unveils new AI model",
-            source = "theverge.com · 3h ago"
-        )
-        SearchResultRow(
-            title = "Meta open sources new LLM",
-            source = "arstechnica.com · 5h ago"
-        )
+        if (!summary.isNullOrBlank()) {
+            Text(
+                text = summary,
+                color = JarvisColors.TextPrimary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        } else {
+            SearchResultRow(
+                title = "OpenAI announces new updates to GPT-5",
+                source = "techcrunch.com · 2h ago"
+            )
+            SearchResultRow(
+                title = "Google DeepMind unveils new AI model",
+                source = "theverge.com · 3h ago"
+            )
+            SearchResultRow(
+                title = "Meta open sources new LLM",
+                source = "arstechnica.com · 5h ago"
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -739,7 +858,10 @@ private fun WebSearchResultsCard() {
             color = JarvisColors.Presence,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.clickable { }
+            modifier = Modifier.clickable {
+                val targetUrl = url ?: "https://www.google.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                onOpenUrl?.invoke(targetUrl)
+            }
         )
     }
 }
@@ -766,10 +888,10 @@ private fun SearchResultRow(title: String, source: String) {
 }
 
 /**
- * Screen 8: Screen Awareness Callout Card
+ * Screen 8: Screen Awareness Callout Card (Dynamic backend data bound)
  */
 @Composable
-private fun ScreenAwarenessCard() {
+private fun ScreenAwarenessCard(detail: String? = null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -787,8 +909,9 @@ private fun ScreenAwarenessCard() {
             letterSpacing = 1.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
+        val bodyText = detail ?: "• I can see this is WhatsApp.\n• I can read the messages.\n• I can tap, scroll and type if you ask."
         Text(
-            text = "• I can see this is WhatsApp.\n• I can read the messages.\n• I can tap, scroll and type if you ask.",
+            text = bodyText,
             color = JarvisColors.TextPrimary,
             fontSize = 12.5.sp,
             lineHeight = 18.sp

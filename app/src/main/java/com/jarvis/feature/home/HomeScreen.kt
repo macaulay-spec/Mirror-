@@ -90,6 +90,21 @@ fun HomeScreen(
 ) {
     val visualState by orchestrator.visualState.collectAsState()
     val audioLevel by VoiceBus.audioLevel.collectAsState()
+    val messages by orchestrator.messages.collectAsState()
+    val latestMemory by orchestrator.memoryManager.latestMemory().collectAsState(initial = null)
+
+    val lastUserMsg = remember(messages) {
+        messages.lastOrNull { it.role == com.jarvis.core.model.MessageRole.USER }
+    }
+    val recentTaskTitle = lastUserMsg?.text?.take(35) ?: "Ready for command"
+    val recentTaskTime = if (lastUserMsg != null && lastUserMsg.timestamp > 0) {
+        formatRelativeTime(lastUserMsg.timestamp)
+    } else {
+        "Tap to execute"
+    }
+
+    val memoryTitle = latestMemory?.content?.take(35) ?: "You prefer concise answers."
+    val memoryTime = latestMemory?.let { formatRelativeTime(it.updatedAt) } ?: "Tap to manage"
 
     val userName = remember {
         val name = ApiConfig.userName.trim()
@@ -276,21 +291,23 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Recent Task Card
+                    // Recent Task Card (Live backend connected)
                     InfoGlassCard(
                         modifier = Modifier.weight(1f),
                         badge = "RECENT TASK",
-                        title = "Opened WhatsApp",
-                        subtitle = "2m ago",
-                        onClick = { onQuickAction("recent_task") }
+                        title = recentTaskTitle,
+                        subtitle = recentTaskTime,
+                        onClick = {
+                            if (lastUserMsg != null) onNavigate("tasks") else onQuickAction("recent_task")
+                        }
                     )
 
-                    // Memory Card
+                    // Memory Card (Live Room Database connected)
                     InfoGlassCard(
                         modifier = Modifier.weight(1f),
                         badge = "MEMORY",
-                        title = "You prefer concise answers.",
-                        subtitle = "2d ago",
+                        title = memoryTitle,
+                        subtitle = memoryTime,
                         onClick = { onNavigate("memory") }
                     )
                 }
@@ -494,5 +511,18 @@ private fun WaveformBarMini(
                     .background(accentColor.copy(alpha = 0.85f))
             )
         }
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    val diff = System.currentTimeMillis() - timestamp
+    val mins = diff / 60000
+    val hours = mins / 60
+    val days = hours / 24
+    return when {
+        mins < 1 -> "Just now"
+        mins < 60 -> "${mins}m ago"
+        hours < 24 -> "${hours}h ago"
+        else -> "${days}d ago"
     }
 }

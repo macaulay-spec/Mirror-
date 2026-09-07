@@ -160,9 +160,14 @@ class JarvisMemoryManager(context: Context) {
     }
 
     fun allMemories(): Flow<List<MemoryEntity>> = repository.all()
+    fun latestMemory(): Flow<MemoryEntity?> = repository.latest()
+
+    suspend fun addMemory(content: String, type: String = "preference", importance: Int = 75) {
+        repository.remember(content, type, importance)
+    }
 
     suspend fun deleteMemory(memory: MemoryEntity) {
-        repository.forget(memory.content)
+        repository.delete(memory)
     }
 
     suspend fun clearAllMemories() {

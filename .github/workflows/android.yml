@@ -119,9 +119,22 @@ jobs:
   # NVIDIA endpoint and checks the model still picks the right tool for each acceptance
   # utterance. Deliberately has no `needs:` -- a brain regression must be visible, but
   # it must not stop the debug APK from being produced.
+  #
+  # ADVISORY for now (continue-on-error). This gate had never actually been executed
+  # before it was wired in here, and it is currently known to be unfaithful to
+  # production: it offers the model 12 hand-written tool schemas while the app sends
+  # ToolSchema.forOpenAI() -- every tool in EXPOSED_CATEGORIES (~69), including
+  # near-duplicate pairs like open_app/app_launch and send_sms/send_message/send_whatsapp.
+  # So a green run here does not yet prove production routing works. Tracked as
+  # "eval harness fidelity" in the implementation plan; flip to blocking once the
+  # harness generates its tool list from ToolSchema.kt instead of hardcoding one.
+  #
+  # Failures are echoed as annotations because Actions log download is unreliable from
+  # automation; annotations are readable through the check-runs API.
   eval:
-    name: Brain eval (live NVIDIA)
+    name: Brain eval (advisory)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -132,5 +145,18 @@ jobs:
           python-version: '3.11'
 
       - name: Run eval harness
-        run: python eval/jarvis_eval.py
-
+        run: |
+          set -uo pipefail
+          python eval/jarvis_eval.py 2>&1 | tee eval-output.txt
+          status=${PIPESTATUS[0]}
+          echo "### Brain eval" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat eval-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Brain eval failed (exit $status)"
+            tail -n 40 eval-output.txt | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::${line}"
+            done
+          fi
+          exit "$status"

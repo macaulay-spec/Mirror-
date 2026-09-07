@@ -149,6 +149,14 @@ Verified by code trace. "Works" here means *the code path is complete and cohere
 ## 3. Broken functionality — what does not work, and exactly why
 
 ### P0-A — Live API credentials are committed to the repository (3 places)
+> **STATUS 2026-09-07 — closed by owner decision, not by remediation.** The keys were
+> first removed and moved to build-time injection (`b1828e3`). The owner then explicitly
+> reversed that for NVIDIA: the key is hardcoded in `ApiConfig.kt` again (`0166768`), and
+> `eval/jarvis_eval.py` now *derives* it from `ApiConfig.kt` instead of keeping a second
+> copy, so there is one place to rotate. ElevenLabs is gone entirely, so its key no longer
+> exists anywhere. The CI gate was narrowed rather than deleted: it reads the sanctioned
+> key out of `ApiConfig.kt` at scan time and still fails on any *other* credential-shaped
+> literal. **The rotation advice below still stands and is the owner's to action.**
 - `app/src/main/java/com/jarvis/app/config/ApiConfig.kt:96-100` — `NVIDIA_API_KEY` and `ELEVENLABS_API_KEY` getters **return hardcoded literals**, directly contradicting the file's own docstring ("NO hardcoded keys are embedded in the source code", line 14).
 - `.github/workflows/android.yml:33-37` — both keys written into `local.properties` in plaintext.
 - `eval/jarvis_eval.py:113` — `DEFAULT_NVIDIA_API_KEY` literal, a third copy.
@@ -156,6 +164,14 @@ Verified by code trace. "Works" here means *the code path is complete and cohere
 These keys are in the git history of a repository that has been public. **They must be treated as compromised and rotated by the owner.** This is not a style issue: anyone can drain the NVIDIA quota and the ElevenLabs subscription, and ElevenLabs keys can be used to clone voices.
 
 ### P0-B — Build-time key injection does not work, so CI-built APKs have no ElevenLabs key
+> **STATUS 2026-09-07 — fixed, then partly made moot.** The injection bug was real and was
+> fixed in `b1828e3` (env-first, then `local.properties`, read through Gradle providers).
+> `GEMINI_API_KEY` still uses it. The ElevenLabs half no longer applies: that integration
+> was deleted in `8d0e2e4`, along with `CloudSttEngine`. **Consequence that replaced it:**
+> devices with no system speech recognizer now have *no* voice input at all, and are told
+> so explicitly instead of being routed to a cloud path that could not work. Restoring a
+> cloud STT option is deferred until P1-D (single mic owner) is settled, so that a second
+> microphone path is not reintroduced on top of the existing contention bug.
 `app/build.gradle.kts:21-27` populates `buildConfigField` from **`System.getenv(...)`**, but the CI step writes **`local.properties`** (`.github/workflows/android.yml:33`). Gradle does not export `local.properties` entries as environment variables, and the build script never parses that file. Result in every CI-built APK:
 - `BuildConfig.GEMINI_API_KEY` = `""` → `ApiConfig.geminiKeys` empty → the entire Gemini branch of the provider chain is dead.
 - `BuildConfig.ELEVENLABS_API_KEY` = `""` → `CloudSttEngine.listenAndTranscribe` returns null immediately with *"Cloud STT unavailable: no ElevenLabs key configured"* (`CloudSttEngine.kt:56-60`).
@@ -164,6 +180,8 @@ These keys are in the git history of a repository that has been public. **They m
 **Net effect: the cloud-STT safety net for devices without a Google recognizer is inert in every distributed build.** Those users have no voice input at all. The app only appears to work because `ApiConfig` hardcodes the NVIDIA key (P0-A) — the two bugs mask each other.
 
 ### P0-C — Cloud TTS can essentially never succeed, and when it times out it double-speaks
+> **STATUS 2026-09-07 — fixed in `bf4b4a5`.** Timeout now covers only the fetch, not
+> playback; the `MediaPlayer` is stopped on cancellation; model order corrected.
 `app/src/main/java/com/jarvis/app/voice/GeminiVoicePlayer.kt:50` wraps the **entire** operation in `withTimeoutOrNull(2500L)`: HTTP request + base64 decode + file write + `MediaPlayer.prepare()` + **the full playback wait loop** (`while (!isDone) delay(100)`, line 148). Any utterance longer than ~2 seconds of audio cannot finish inside 2.5 s, so:
 1. `withTimeoutOrNull` returns `null` → `speak()` returns `false`.
 2. `JarvisVoiceEngine.speakOne()` (`JarvisVoiceEngine.kt:141-149`) sees `cloudStarted == false` and **also** calls `speakWithAndroidTts(text)`.
@@ -219,6 +237,21 @@ resetTaskExecution()      // ← nulls the description and sets isTaskExecuting 
 `TaskExecutionScreen` observes exactly these flows, so the multi-step task view can never show a description or an executing state from this path. Three consecutive statements where the third undoes the first two.
 
 ### P1-H — Brain eval gate is red
+> **STATUS 2026-09-07 — partly addressed; still open, and now the top test-infra item.**
+> The harness was never actually executed until it was wired into `android.yml` as an
+> advisory job. Two real defects were found and one was fixed:
+> 1. *Fixed* — the request shape did not match production. It sent `max_tokens: 256` with
+>    no `chat_template_kwargs`, so Nemotron-3 (a reasoning model) spent the whole budget
+>    thinking and returned an empty message with no `tool_calls`: every case failed for a
+>    reason unrelated to tool selection. It now mirrors
+>    `JarvisApiClient.applyInferenceControls` (`enable_thinking=false`, `max_tokens=1024`),
+>    reports `finish_reason=length` explicitly, surfaces provider HTTP error bodies, and
+>    retries transient network failures once.
+> 2. *Still open* — the fidelity gap described below is unchanged and is the reason the CI
+>    job is `continue-on-error`. The fix is to **generate** the harness's tool list from
+>    `ToolSchema.kt` (parse `ARG_HINTS`, `EXPOSED_CATEGORIES`, `parametersFor`) into a
+>    committed `eval/tools.json`, and have CI regenerate-and-diff so Kotlin changes cannot
+>    drift away from the gate. Until then a green eval does not prove production routing.
 `.github/workflows/eval.yml` fails on both recent runs (exit code 1 = regressions found). Beyond the model-quality signal, the harness itself is **architecturally disconnected from the app**: `eval/jarvis_eval.py` declares its own 12-tool list with its own names (`open_app`, `read_notifications`) and its own `required` arrays, while the app registers `app_launch` and `get_recent_notifications` and emits schemas with **no `required` array at all** (`ToolSchema.parametersFor`, lines 133-149). The gate therefore cannot detect a regression in the thing it claims to protect — the real schema.
 
 ### P2-A — Dead wake-word intent path
@@ -228,6 +261,10 @@ resetTaskExecution()      // ← nulls the description and sets isTaskExecuting 
 `WakeWordForegroundService.onCreate()` launches a renewal loop (`WAKE_LOCK_RENEWAL_MS`, 9 min) **and** `acquireWakeLock()` launches a second, near-identical loop. Two coroutines re-acquiring the same `PARTIAL_WAKE_LOCK` for the lifetime of the service. Redundant, and an indefinite partial wake lock is a battery and Play-policy concern on its own.
 
 ### P2-C — Convex backend is 100% dead code, and three client methods ignore the readiness guard
+> **STATUS 2026-09-07 — closed by deletion (`8d0e2e4`).** The owner confirmed Convex is not
+> used. `convex/`, `BackendConfig.kt`, `chatViaProxy`, the `isBackendReady` branches and the
+> three unguarded client methods are all gone; README no longer describes a proxy
+> architecture that never existed.
 `BackendConfig.USE_BACKEND = false` and `WORKER_URL = "https://YOUR_DEPLOYMENT.convex.site"`. `JarvisApiClient.chat()` correctly guards via `isBackendReady`, but **`saveVoicePreferences()`, `loadVoicePreferences()` and `fetchElevenLabsVoices()` do not** — they unconditionally build URLs against the placeholder host and would fail with a DNS error. ~700 lines of `convex/*.ts` plus these client paths ship in a repo where none of it can run.
 
 ### P2-D — `ProactiveReceiver.speak()` is unreliable and leaks

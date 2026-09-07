@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 
 API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -79,11 +80,28 @@ SYSTEM = (
 )
 
 
+# Request shape must match what the app actually sends -- see
+# JarvisApiClient.applyInferenceControls(). The harness used to send max_tokens=256
+# with no thinking control, which is not the production request: Nemotron-3 is a
+# reasoning model, so it spent the whole 256-token budget on internal reasoning and
+# returned an empty message with no tool_calls. Every case then "failed" for a reason
+# that had nothing to do with tool selection.
+#
+#   enable_thinking=false  <- production fast tier; makes room for the tool call
+#   max_tokens=1024        <- production fast tier cap
+#
+# temperature deliberately stays low (0.2 vs the app's 0.7) so the gate is
+# reproducible; it does not change whether a tool call is emitted.
+MAX_TOKENS = int(os.environ.get("EVAL_MAX_TOKENS", "1024"))
+TEMPERATURE = float(os.environ.get("EVAL_TEMPERATURE", "0.2"))
+
+
 def call_model(utterance: str, key: str) -> dict:
     body = json.dumps({
         "model": MODEL,
-        "temperature": 0.2,
-        "max_tokens": 256,
+        "temperature": TEMPERATURE,
+        "max_tokens": MAX_TOKENS,
+        "chat_template_kwargs": {"enable_thinking": False},
         "messages": [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": utterance},
@@ -96,11 +114,27 @@ def call_model(utterance: str, key: str) -> dict:
         "Content-Type": "application/json",
         "Accept": "application/json",
     })
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        data = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        # Surface the provider's own message -- it distinguishes a dead key (401)
+        # from a retired model id (404) from rate limiting (429).
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "replace")[:400]
+        except Exception:  # noqa: BLE001
+            pass
+        raise RuntimeError(f"HTTP {exc.code} {exc.reason} — {detail}") from exc
+
     message = data["choices"][0]["message"]
     calls = message.get("tool_calls") or []
-    return {"tools": [c["function"]["name"] for c in calls], "text": message.get("content", "")}
+    finish = data["choices"][0].get("finish_reason")
+    return {
+        "tools": [c["function"]["name"] for c in calls],
+        "text": message.get("content") or "",
+        "finish_reason": finish,
+    }
 
 
 # OWNER DECISION (2026-09-07): the NVIDIA key is hardcoded in the app again. Rather
@@ -136,9 +170,19 @@ def main() -> int:
     for utterance, expected in CASES:
         start = time.time()
         try:
-            result = call_model(utterance, key)
+            for attempt in (1, 2):
+                try:
+                    result = call_model(utterance, key)
+                    break
+                except (urllib.error.URLError, TimeoutError) as exc:
+                    if attempt == 2:
+                        raise
+                    print(f"    (transient: {exc} — retrying)")
+                    time.sleep(2)
             got = result["tools"][0] if result["tools"] else None
             ok = got == expected
+            if not got and result.get("finish_reason") == "length":
+                got = f"NO_TOOL (finish_reason=length — reply was truncated)"
         except Exception as exc:  # noqa: BLE001
             got, ok = f"ERROR: {exc}", False
         ms = int((time.time() - start) * 1000)

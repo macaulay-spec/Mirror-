@@ -48,11 +48,13 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        // Keys are injected from CI secrets (env) or local.properties at compile time.
-        // Never committed. Absent keys compile to "" and the affected provider is
-        // reported unavailable at runtime rather than silently misbehaving.
+        // The Gemini key is injected from CI secrets (env) or local.properties at
+        // compile time and is never committed. If absent it compiles to "" and the
+        // Gemini provider is reported unavailable at runtime rather than silently
+        // misbehaving. (NVIDIA's key is hardcoded in ApiConfig.kt -- see below.)
         buildConfigField("String", "GEMINI_API_KEY", "\"" + buildSecret("GEMINI_API_KEY") + "\"")
-        buildConfigField("String", "NVIDIA_API_KEY", "\"" + buildSecret("NVIDIA_API_KEY") + "\"")
+        // NVIDIA_API_KEY is no longer a BuildConfig field: ApiConfig hardcodes it by
+        // owner decision, and nothing read this one. One copy, one place to rotate.
         // REMOVED (owner decision, 2026-09-07): ELEVENLABS_API_KEY and the abandoned
         // Rork TOOLKIT_URL / TOOLKIT_SECRET_KEY fields. No code references them.
     }

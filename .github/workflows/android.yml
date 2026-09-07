@@ -17,12 +17,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # FIX (audit P0-A): credentials were committed inline in this workflow AND in
-  # ApiConfig.kt, eval/jarvis_eval.py and test_ai.sh. They are removed from the
-  # repository and now come only from Actions secrets. This job makes the leak
-  # non-repeatable: any credential-shaped literal in tracked source fails the build.
+  # CHANGED (owner decision, 2026-09-07): the owner hardcodes the NVIDIA NIM key in
+  # ApiConfig.kt and accepts the risk, so this job no longer tries to police that one
+  # key -- doing so would fail every build forever. It still polices everything else.
+  #
+  # The sanctioned key is read out of ApiConfig.kt at scan time and excluded by exact
+  # value, so this workflow never contains a credential itself, and any *other*
+  # secret-shaped literal -- a Gemini key, a second NVIDIA key, a GitHub/AWS/OpenAI/
+  # Slack token -- still fails the build. Rotate by editing ApiConfig.kt only.
   secret-scan:
-    name: Reject committed credentials
+    name: Reject new committed credentials
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -30,20 +34,29 @@ jobs:
 
       - name: Scan tracked source for credential patterns
         run: |
-          set -euo pipefail
-          # Known provider key shapes: NVIDIA (nvapi-), Google (AIza).
-          # Deliberately scans code/config only -- documentation may legitimately show
-          # placeholder shapes, and *.example files are empty by design.
-          pattern='(nvapi-[A-Za-z0-9_-]{20,}|sk_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,})'
-          if git grep -nIE "$pattern" -- \
+          set -uo pipefail
+          APICONFIG=app/src/main/java/com/jarvis/app/config/ApiConfig.kt
+          SANCTIONED=$(sed -n 's/.*get() = "\(nvapi-[^"]*\)".*/\1/p' "$APICONFIG" | head -1)
+
+          pattern='(nvapi-[A-Za-z0-9_-]{20,}|sk_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})'
+
+          hits=$(git grep -nIE "$pattern" -- \
               '*.kt' '*.kts' '*.java' '*.xml' '*.py' '*.ts' '*.js' '*.json' \
-              '*.sh' '*.yml' '*.yaml' '*.properties' '*.toml' ; then
-            echo "::error::Credential-shaped literal found in tracked source."
-            echo "Keys belong in Actions secrets (CI) or local.properties (gitignored)."
-            echo "Rotate any key that was ever committed -- it must be treated as compromised."
+              '*.sh' '*.yml' '*.yaml' '*.properties' '*.toml' || true)
+
+          if [ -n "$SANCTIONED" ]; then
+            hits=$(printf '%s\n' "$hits" | grep -vF -- "$SANCTIONED" || true)
+          fi
+          hits=$(printf '%s\n' "$hits" | sed '/^[[:space:]]*$/d')
+
+          if [ -n "$hits" ]; then
+            echo "::error::Unsanctioned credential-shaped literal in tracked source."
+            printf '%s\n' "$hits" | sed -E 's/((nvapi-|sk_?|AIza|ghp_|gho_|github_pat_|AKIA|xox.)[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/\1<REDACTED>/g'
+            echo "Only the NVIDIA key in $APICONFIG is sanctioned. Everything else"
+            echo "belongs in Actions secrets or gitignored local.properties."
             exit 1
           fi
-          echo "No credential patterns found in tracked source."
+          echo "No unsanctioned credential patterns in tracked source."
 
   build:
     name: Build Debug APK
@@ -76,14 +89,14 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
         env:
+          # Only Gemini is injected: NVIDIA's key is hardcoded in ApiConfig.kt by
+          # owner decision, so BuildConfig no longer carries it.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
 
       - name: Report APK size
         run: |
@@ -101,3 +114,23 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+  # Regression gate for the reasoning layer: runs eval/jarvis_eval.py against the live
+  # NVIDIA endpoint and checks the model still picks the right tool for each acceptance
+  # utterance. Deliberately has no `needs:` -- a brain regression must be visible, but
+  # it must not stop the debug APK from being produced.
+  eval:
+    name: Brain eval (live NVIDIA)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run eval harness
+        run: python eval/jarvis_eval.py
+

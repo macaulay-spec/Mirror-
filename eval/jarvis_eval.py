@@ -15,6 +15,7 @@ Exit code 0 = all passed (or skipped, no key), 1 = regressions found.
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -102,13 +103,32 @@ def call_model(utterance: str, key: str) -> dict:
     return {"tools": [c["function"]["name"] for c in calls], "text": message.get("content", "")}
 
 
-# FIX (audit P0-A): the NVIDIA key was hardcoded here as a third copy of the same
-# committed credential. It now comes only from the environment, so CI supplies it
-# from a repository secret and nothing sensitive is tracked in git.
+# OWNER DECISION (2026-09-07): the NVIDIA key is hardcoded in the app again. Rather
+# than committing a second copy of it here, this harness reads the single source of
+# truth out of ApiConfig.kt. One place to rotate. NVIDIA_API_KEY in the environment
+# still overrides it, so CI can run against a different key without editing source.
+APICONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "app", "src", "main", "java", "com", "jarvis", "app", "config", "ApiConfig.kt",
+)
+
+
+def default_nvidia_api_key() -> str:
+    """Pull the hardcoded NVIDIA key out of ApiConfig.kt ("" if not found)."""
+    try:
+        with open(APICONFIG_PATH, encoding="utf-8") as fh:
+            src = fh.read()
+    except OSError:
+        return ""
+    m = re.search(r'val NVIDIA_API_KEY: String\s*\n\s*get\(\) = "(nvapi-[^"]+)"', src)
+    return m.group(1) if m else ""
+
+
 def main() -> int:
-    key = os.environ.get("NVIDIA_API_KEY", "").strip()
+    key = os.environ.get("NVIDIA_API_KEY", "").strip() or default_nvidia_api_key()
     if not key:
-        print("NVIDIA_API_KEY not set — eval SKIPPED (not a failure).")
+        print("NVIDIA_API_KEY not set and no hardcoded key found in ApiConfig.kt"
+              " — eval SKIPPED (not a failure).")
         return 0
 
     passed, failed = 0, []

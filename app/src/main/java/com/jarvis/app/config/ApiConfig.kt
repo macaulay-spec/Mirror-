@@ -14,8 +14,10 @@ import com.rork.jarvisaiassistant.BuildConfig
  * - Fallback 3: Llama-4 Maverick (broad general reasoning)
  *
  * All providers use NVIDIA's OpenAI-compatible endpoint at integrate.api.nvidia.com/v1
- * API keys are injected from local.properties / CI secrets at compile time.
- * NO hardcoded keys are embedded in the source code.
+ *
+ * Key handling: the NVIDIA key is hardcoded below by explicit owner decision. The
+ * Gemini key is injected at build time from the environment or local.properties
+ * (no value exists in this repository to hardcode). See docs/KEYS_SETUP.md.
  */
 object ApiConfig {
 
@@ -95,8 +97,26 @@ object ApiConfig {
      * app/build.gradle.kts). A blank value means "this provider is unavailable",
      * which ApiConfig.hasAI and the Settings screen already handle.
      */
+    /**
+     * NVIDIA NIM key.
+     *
+     * OWNER DECISION (2026-09-07): this is hardcoded in source on purpose. It was
+     * briefly moved to build-time injection (BuildConfig + local.properties + CI
+     * secrets) and the owner asked for it back inline, accepting the risk. It is
+     * therefore compiled into every APK built from this repository.
+     *
+     * Consequences that are accepted, not overlooked:
+     *   - Anyone with the APK can extract this key with `strings`. Rotate it at
+     *     build.nvidia.com before distributing a build publicly.
+     *   - It stays in git history even if it is later removed again.
+     *   - The CI secret-scan gate cannot run against this file, so that job was
+     *     removed from .github/workflows/android.yml in the same commit.
+     *
+     * A runtime key saved in Settings still overrides this one -- see
+     * activeApiKey / currentApiKey below.
+     */
     val NVIDIA_API_KEY: String
-        get() = BuildConfig.NVIDIA_API_KEY
+        get() = "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"
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()

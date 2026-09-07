@@ -87,11 +87,19 @@ object ApiConfig {
     // NO hardcoded fallback keys - if not configured, provider is unavailable
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
 
+    /**
+     * FIX (audit P0-A): these two getters previously returned hardcoded credential
+     * literals, directly contradicting the comment above them and shipping live API
+     * keys inside every APK and in the public git history. They now come from
+     * BuildConfig, which is populated from CI secrets or local.properties (see
+     * app/build.gradle.kts). A blank value means "this provider is unavailable",
+     * which ApiConfig.hasAI and the Settings screen already handle.
+     */
     val NVIDIA_API_KEY: String
-        get() = "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"
+        get() = BuildConfig.NVIDIA_API_KEY
 
     val ELEVENLABS_API_KEY: String
-        get() = "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
+        get() = BuildConfig.ELEVENLABS_API_KEY
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()
@@ -144,11 +152,24 @@ object ApiConfig {
         geminiPoolIndex = 0
     }
 
+    /**
+     * True for providers whose keys can actually serve chat completions.
+     *
+     * FIX (audit section 4.6): autoDetectProvider() maps any `sk_`-prefixed key to
+     * "elevenlabs" -- a speech-to-text provider. That value then became
+     * activeProvider, so pasting an ElevenLabs key in Settings sent it to the LLM
+     * endpoint and guaranteed a 401 before the fallback chain even started. A
+     * voice-only key must never be selected as the reasoning provider.
+     */
+    private fun isLlmProvider(provider: String?): Boolean =
+        !provider.isNullOrBlank() &&
+            (provider.startsWith("gemini") || provider.startsWith("nvidia"))
+
     // Provider/key resolution
     val activeProvider: String
         get() {
-            // 1. User's custom key / provider (entered in Settings - auto-detected provider)
-            customProvider?.takeIf { it.isNotBlank() }?.let { return it }
+            // 1. User's custom key / provider, when it can serve chat completions.
+            customProvider?.takeIf { isLlmProvider(it) }?.let { return it }
             
             // 2. Gemini 1.5 Pro if keys are available
             if (geminiKeys.isNotEmpty() || GEMINI_API_KEY.isNotBlank()) {
@@ -171,9 +192,9 @@ object ApiConfig {
                 if (gKey.isNotBlank()) return gKey
             }
 
-            // User's custom key
+            // User's custom key, only when it belongs to an LLM-capable provider.
             val custom = customApiKey?.trim()
-            if (!custom.isNullOrBlank()) return custom
+            if (!custom.isNullOrBlank() && isLlmProvider(customProvider)) return custom
             
             // NVIDIA API key
             if (activeProvider.startsWith("nvidia_")) {
@@ -187,7 +208,9 @@ object ApiConfig {
         get() = currentApiKey.isNotBlank()
 
     val currentApiKey: String
-        get() = currentGeminiKey.ifBlank { if (customApiKey.isNullOrBlank()) NVIDIA_API_KEY else customApiKey!! }
+        get() = currentGeminiKey.ifBlank {
+            customApiKey?.takeIf { isLlmProvider(customProvider) } ?: NVIDIA_API_KEY
+        }
 
     val originalHasAI: Boolean get() = activeApiKey.isNotBlank()
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()

@@ -1,3 +1,36 @@
+import java.util.Properties
+
+/**
+ * Build-time secret resolution.
+ *
+ * FIX (audit P0-B): this file used to read ONLY `System.getenv(...)`, while CI wrote
+ * the values into `local.properties` -- which Gradle does not export as environment
+ * variables and this script never parsed. Every key therefore compiled in as an empty
+ * string, so `BuildConfig.GEMINI_API_KEY` / `ELEVENLABS_API_KEY` / `TOOLKIT_SECRET_KEY`
+ * were blank in every distributed APK. That made the Gemini branch of the provider
+ * chain dead and `CloudSttEngine` inert ("no ElevenLabs key configured"), which is why
+ * devices without a Google recognizer had no voice input at all.
+ *
+ * Resolution order is now: environment (CI secrets) -> local.properties (developer
+ * machine) -> empty. Both sources are read through Gradle providers so the
+ * configuration cache is invalidated when either changes.
+ *
+ * Keys are NEVER committed. `local.properties` is gitignored and CI injects env vars
+ * from repository secrets.
+ */
+val localSecrets = Properties().apply {
+    providers.fileContents(layout.projectDirectory.file("local.properties"))
+        .asText.orNull?.let { text -> load(text.reader()) }
+}
+
+fun buildSecret(name: String): String {
+    val raw = providers.environmentVariable(name).orNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: localSecrets.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: ""
+    // buildConfigField emits a Java string literal; escape anything that would break it.
+    return raw.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,13 +50,15 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        // Keys are injected from CI secrets / local env at compile time — never committed.
-        buildConfigField("String", "GEMINI_API_KEY", "\"${System.getenv("GEMINI_API_KEY") ?: ""}\"")
-        buildConfigField("String", "NVIDIA_API_KEY", "\"${System.getenv("NVIDIA_API_KEY") ?: ""}\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${System.getenv("ELEVENLABS_API_KEY") ?: ""}\"")
-        // Rork Toolkit gateway: managed cloud TTS (xai/grok-tts) — no user key needed.
-        buildConfigField("String", "TOOLKIT_URL", "\"${System.getenv("EXPO_PUBLIC_TOOLKIT_URL") ?: ""}\"")
-        buildConfigField("String", "TOOLKIT_SECRET_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")
+        // Keys are injected from CI secrets (env) or local.properties at compile time.
+        // Never committed. Absent keys compile to "" and the affected provider is
+        // reported unavailable at runtime rather than silently misbehaving.
+        buildConfigField("String", "GEMINI_API_KEY", "\"" + buildSecret("GEMINI_API_KEY") + "\"")
+        buildConfigField("String", "NVIDIA_API_KEY", "\"" + buildSecret("NVIDIA_API_KEY") + "\"")
+        buildConfigField("String", "ELEVENLABS_API_KEY", "\"" + buildSecret("ELEVENLABS_API_KEY") + "\"")
+        // Legacy Rork Toolkit gateway (abandoned; retained so BuildConfig stays stable).
+        buildConfigField("String", "TOOLKIT_URL", "\"" + buildSecret("EXPO_PUBLIC_TOOLKIT_URL") + "\"")
+        buildConfigField("String", "TOOLKIT_SECRET_KEY", "\"" + buildSecret("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") + "\"")
     }
 
     buildTypes {

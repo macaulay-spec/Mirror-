@@ -196,6 +196,8 @@ jobs:
     name: Brain eval (advisory)
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: write   # to post the eval transcript as a commit comment
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -215,9 +217,37 @@ jobs:
           cat eval-output.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           if [ "$status" -ne 0 ]; then
-            echo "::error::Brain eval failed (exit $status)"
-            tail -n 40 eval-output.txt | while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::${line}"
+            # Path-qualified so it lands in the check-runs annotations API; bare
+            # `::error::msg` lines were being emitted but never surfaced anywhere
+            # readable, which made this job impossible to diagnose remotely.
+            echo "::error file=eval/jarvis_eval.py,line=1,title=brain eval::failed with exit $status"
+            tail -n 8 eval-output.txt | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error file=eval/jarvis_eval.py,line=1::${line}"
             done
           fi
           exit "$status"
+
+      # The job is advisory, so its transcript has to be readable somewhere other than
+      # the run logs (which are not reliably fetchable from automation). Posting it as a
+      # commit comment makes the result visible to the owner on the commit itself.
+      - name: Post eval transcript to the commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          [ -f eval-output.txt ] || { echo "no transcript"; exit 0; }
+          {
+            printf '### Brain eval (advisory) — %s\n\n' "$GITHUB_SHA"
+            printf '```\n'
+            tail -n 80 eval-output.txt
+            printf '```\n'
+          } > /tmp/eval-body.md
+          jq -Rs '{body: .}' < /tmp/eval-body.md > /tmp/eval-payload.json
+          code=$(curl -sS -o /tmp/eval-resp.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -d @/tmp/eval-payload.json)
+          echo "commit comment HTTP $code"
+          [ "$code" = "201" ] || head -c 400 /tmp/eval-resp.json

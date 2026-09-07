@@ -216,7 +216,9 @@ def main() -> int:
             if not on_disk:
                 problems.append("no schema JSON found at all")
     else:
-        warn("skipping exported-schema file check (pass --check-schemas after a build)")
+        # Informational, not a warning: the source-level run is a legitimate mode, and
+        # emitting ::warning:: here just added noise to every CI run's annotation list.
+        print("(source-only run; pass --check-schemas after a build to verify the JSON)")
 
     for p in problems:
         fail(p)

@@ -139,8 +139,11 @@ jobs:
           } > "$RUNNER_TEMP/schema-commit-msg.txt"
           git commit -F "$RUNNER_TEMP/schema-commit-msg.txt"
           # The branch may have moved since checkout; rebase rather than force anything.
+          # --autostash is required: the "Make gradlew executable" step above rewrites
+          # gradlew (CRLF strip + mode change), and a plain rebase refuses to run with a
+          # dirty working tree -- which is exactly why the first attempt silently gave up.
           git fetch origin "$GITHUB_REF_NAME"
-          if ! git rebase "origin/$GITHUB_REF_NAME"; then
+          if ! git -c rebase.autoStash=true rebase "origin/$GITHUB_REF_NAME"; then
             echo "::warning::rebase onto the moved branch failed; exported schemas not committed this run"
             git rebase --abort || true
             exit 0

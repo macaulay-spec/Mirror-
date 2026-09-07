@@ -323,9 +323,14 @@ class AssistantOrchestrator(
             } else {
                 // Dialogue couldn't handle it  send to LLM with full function calling
                 // Track task execution for UI
+                // FIX (audit P1-G): resetTaskExecution() used to run AFTER the two
+                // assignments below, nulling the description and flipping
+                // isTaskExecuting straight back to false. TaskExecutionScreen observes
+                // exactly these two flows, so the multi-step task view could never
+                // populate from this path. Clear first, then publish the new state.
+                resetTaskExecution()
                 _currentTaskDescription.value = userInput
                 _isTaskExecuting.value = true
-                resetTaskExecution()
 
                 // ── Real-time streaming ──────────────────────────────────────
                 // Text deltas update the JARVIS chat bubble live, and every

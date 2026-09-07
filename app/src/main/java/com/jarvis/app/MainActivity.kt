@@ -29,9 +29,16 @@ import com.jarvis.feature.settings.SettingsHubScreen
 
 class MainActivity : ComponentActivity() {
 
+    // FIX (audit P1-B): this callback used to be an empty `{ }`, so the result of
+    // every permission dialog was thrown away. On a first install the microphone is
+    // granted HERE -- and nothing happened. The always-on wake-word service and the
+    // contacts import only ran from the "everything was already granted" branch of
+    // requestCorePermissions(), so hands-free listening never started until the user
+    // killed and relaunched the app, and JARVIS knew no contacts for the whole first
+    // session. That is the "the Orb is there but nothing happens" report.
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    ) { refreshDependentCapabilities() }
 
     // CHANGED (real-device report — "the Orb shows but nothing happens in the
     // background"): orchestrator/voiceEngine used to be created fresh in this
@@ -190,10 +197,34 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (needed.isNotEmpty()) {
+            // The launcher callback above now starts whatever became usable; there is
+            // no "all granted" precondition any more.
             permissionLauncher.launch(needed.toTypedArray())
         } else {
-            // Everything is granted — the always-on listener can safely start.
-            startWakeWordServiceIfAllowed()
+            refreshDependentCapabilities()
+        }
+    }
+
+    /**
+     * Starts each capability on the permission IT actually needs.
+     *
+     * FIX (audit P1-C): this used to be gated behind `hasAllCorePermissions()`, so
+     * declining the camera -- or SMS, calendar or location -- also blocked the
+     * always-on wake-word service and the contacts import, even though RECORD_AUDIO
+     * and READ_CONTACTS had been granted. Voice is the core feature; it must not be
+     * hostage to an unrelated permission.
+     *
+     * Safe to call repeatedly: startWakeWordServiceIfAllowed() re-checks the
+     * always-listening preference, the microphone permission and whether the service
+     * is already running, and the contacts sync is idempotent (it upserts by
+     * lookup key and preserves learned nicknames).
+     */
+    private fun refreshDependentCapabilities() {
+        startWakeWordServiceIfAllowed()
+
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_CONTACTS)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
             CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 runCatching { com.jarvis.app.people.PeopleGraph.syncFromContacts(applicationContext) }
             }

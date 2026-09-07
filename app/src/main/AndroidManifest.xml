@@ -32,6 +32,12 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- FIX (audit P1-A): PermissionAndSetupHelper.REQUIRED_PERMISSIONS requests
+         READ_CALL_LOG and ContactsResolver.recentCalls() reads CallLog.Calls, but
+         the permission was never declared here. Requesting an undeclared permission
+         is silently denied by the platform, so the read_call_log tool could never
+         succeed and Settings had nothing to grant. -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />

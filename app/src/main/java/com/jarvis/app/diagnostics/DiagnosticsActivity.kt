@@ -186,6 +186,15 @@ private fun DiagnosticsScreen(
         Section("VOICE OUTPUT") {
             Text("Engine: ${ApiConfig.voiceEngineType}", color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Text("Voice: ${ApiConfig.selectedVoiceId}", color = JarvisColors.TextSecondary, fontSize = 12.sp)
+            // Who owns the microphone right now. The wake-word engine and the
+            // conversation engine each own a SpeechRecognizer and Android permits only
+            // one to be live, so this is the first thing to check when hands-free
+            // listening misbehaves.
+            Text(
+                com.jarvis.android.voice.MicArbiter.describe(),
+                color = JarvisColors.TextSecondary, fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
             Text(voiceStatus, color = JarvisColors.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
             Button(

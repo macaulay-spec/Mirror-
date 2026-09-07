@@ -71,14 +71,17 @@ class VoiceOrchestratorBridge(
         // Clear previous transcript
         VoiceBus.clearTranscript()
         
-        // Only start listening if we're in a valid state.
-        // CHANGED (continuous conversation): wake word arms the full loop —
-        // after JARVIS replies it listens again automatically.
-        if (voiceEngine.engineState.value == JarvisVisualState.IDLE) {
-            voiceEngine.continuousMode = true
-            orchestrator.setVisualState(JarvisVisualState.LISTENING)
-            voiceEngine.startListening()
-        }
+        // CHANGED (continuous conversation): the wake word arms the full loop -- after
+        // JARVIS replies it listens again automatically.
+        //
+        // FIX (audit P1-D): this used to be gated on `engineState == IDLE`, and did
+        // nothing otherwise. A single turn that got stuck in THINKING or EXECUTING --
+        // an orchestrator exception, a tool that never returned -- therefore made every
+        // subsequent "Hey JARVIS" a silent no-op until the app was restarted.
+        // beginConversation() destroys any recognizer this engine owns and re-acquires
+        // the microphone through MicArbiter, so the wake word always works.
+        orchestrator.setVisualState(JarvisVisualState.LISTENING)
+        voiceEngine.beginConversation("wake word")
     }
 
     /**
@@ -90,9 +93,8 @@ class VoiceOrchestratorBridge(
             voiceEngine.stopListening()
             orchestrator.setVisualState(JarvisVisualState.IDLE)
         } else {
-            voiceEngine.continuousMode = true
             orchestrator.setVisualState(JarvisVisualState.LISTENING)
-            voiceEngine.startListening()
+            voiceEngine.beginConversation("mic toggle")
         }
     }
 
@@ -100,7 +102,7 @@ class VoiceOrchestratorBridge(
      * Starts listening for voice input.
      */
     fun startListening() {
-        voiceEngine.startListening()
+        voiceEngine.startListening("explicit request")
         orchestrator.setVisualState(JarvisVisualState.LISTENING)
     }
 
@@ -108,6 +110,7 @@ class VoiceOrchestratorBridge(
      * Stops listening for voice input.
      */
     fun stopListening() {
+        voiceEngine.continuousMode = false
         voiceEngine.stopListening()
         orchestrator.setVisualState(JarvisVisualState.IDLE)
     }
@@ -124,6 +127,9 @@ class VoiceOrchestratorBridge(
      * Emergency stop - stops all voice operations immediately.
      */
     fun emergencyStop() {
+        // An emergency stop must end the conversation loop too, not just this turn --
+        // otherwise continuous mode immediately re-armed the recognizer.
+        voiceEngine.continuousMode = false
         voiceEngine.stopListening()
         voiceEngine.stopSpeaking()
         orchestrator.setVisualState(JarvisVisualState.IDLE)

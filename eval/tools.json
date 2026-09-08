@@ -1,0 +1,1333 @@
+{
+  "_comment": [
+    "GENERATED FILE -- do not edit by hand.",
+    "Regenerate with: python3 scripts/generate_eval_tools.py",
+    "Mirrors ToolSchema.forOpenAI(): every registered tool whose category is in",
+    "ToolSchema.EXPOSED_CATEGORIES, with descriptions truncated to 400 chars and",
+    "parameters derived from ARG_HINTS or defaultArgs(). No 'required' arrays,",
+    "because the app does not emit any.",
+    "CI regenerates this and fails on a diff, so the eval harness cannot drift",
+    "away from the tool surface the app actually sends."
+  ],
+  "source_of_truth": [
+    "app/src/main/java/com/jarvis/agent/ai/ToolSchema.kt",
+    "every ToolDefinition registration under app/src"
+  ],
+  "registered_total": 69,
+  "exposed_total": 69,
+  "excluded_categories": [],
+  "excluded_tools": [],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "app_hog_report",
+        "description": "Reports which apps used the most screen time today, so the user can see what is slowing the phone or draining the battery. Use when the user asks about battery drain, data hogs, or where their time goes.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "USAGE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneOptimizationTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "app_launch",
+        "description": "Opens an application installed on the device.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app_name": {
+              "type": "string"
+            },
+            "app": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "APPS",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "app_search",
+        "description": "Searches for a query inside an app (e.g. YouTube, Spotify, Google Maps, Web browser, Google Play).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "calendar_create",
+        "description": "Creates a calendar event. Understands phrases like 'meeting Thursday 3pm', 'tomorrow morning', 'in 2 hours'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "CALENDAR",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "calendar_read",
+        "description": "Reads upcoming calendar events for today or a specific date range. Shows event titles, times, and locations.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "when": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "CALENDAR",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "call_contact",
+        "description": "Calls a person by name, nickname or number. Ask which number when a contact has several.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contact": {
+              "type": "string"
+            },
+            "number": {
+              "type": "string"
+            },
+            "number_type": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "PHONE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "click_element",
+        "description": "Finds and clicks an interactive UI element by text or content description.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "clipboard_read",
+        "description": "Reads the text currently copied to the clipboard.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "clipboard_write",
+        "description": "Copies text to the clipboard.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "contact_lookup",
+        "description": "Finds a person's phone numbers by name or nickname.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contact": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "PHONE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_battery",
+        "description": "Checks current battery percentage and charging state.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_connectivity",
+        "description": "Checks Wi-Fi, cellular, and overall network status.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_flashlight",
+        "description": "Turns the flashlight / torch on or off. Pass 'enabled' or 'on' as boolean.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_location",
+        "description": "Retrieves last known GPS/Network location coordinates and address.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_lock",
+        "description": "Locks the device screen using Accessibility service.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_media_control",
+        "description": "Controls media playback (play, pause, next, previous, stop).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MEDIA",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_navigate_global",
+        "description": "Performs global navigation actions: back, home, recents, or notifications.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_storage",
+        "description": "Checks free and total internal storage space.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_time",
+        "description": "Retrieves formatted system date and time.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_vibrate",
+        "description": "Triggers a haptic pulse or vibration pattern.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "duration_ms": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "device_volume",
+        "description": "Controls media volume. Pass 'action' ('up', 'down', 'mute', 'unmute', 'max') or 'level' (0-100).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "direction": {
+              "type": "string"
+            },
+            "level": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "dismiss_notification",
+        "description": "Dismisses a notification by its key.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "NOTIFICATIONS",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "email_draft",
+        "description": "Opens an email composer with a pre-filled recipient, subject, and body. The user reviews and sends it manually.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "COMMUNICATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "find_text",
+        "description": "Searches for specific text or content description on the active screen.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "SCREEN",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_daily_usage",
+        "description": "Retrieves today's usage statistics for all apps or a specific app (by passing 'app_name').",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app_name": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "USAGE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_recent_apps",
+        "description": "Retrieves the most recently used applications.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "USAGE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_recent_notifications",
+        "description": "Retrieves recent active notifications. You can filter by app_name if provided.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app_name": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "NOTIFICATIONS",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "memory_recall",
+        "description": "Recalls stored facts or preferences matching a query.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MEMORY",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "memory_remember",
+        "description": "Saves facts, notes, or user preferences to local persistent memory.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MEMORY",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "navigate_to",
+        "description": "Opens turn-by-turn navigation to a place the user names, or to home/work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "destination": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "LOCATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "nearby_search",
+        "description": "Finds nearby places: 'fuel station near me', 'pharmacy nearby'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "LOCATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "open_app",
+        "description": "Launches an installed app by name (e.g. YouTube, Spotify, WhatsApp, Settings, Camera, Maps, Chrome).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "open_recents",
+        "description": "Opens recent apps overview.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "phone_boost",
+        "description": "Speeds the phone up: hibernates recently-active background apps, lowers screen brightness to an efficient level, and reports the result. Use when the user says the phone is slow, hot, or asks to boost/clean/optimize it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneOptimizationTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "press_back",
+        "description": "Performs global back action.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "press_home",
+        "description": "Performs global home action.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_call_log",
+        "description": "Reads recent incoming, outgoing and missed calls.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "PHONE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_notifications",
+        "description": "Reads incoming notifications from apps like WhatsApp, SMS, Telegram, Gmail, etc.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app": {
+              "type": "string"
+            },
+            "package": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "_category": "NOTIFICATIONS",
+      "_source": "app/src/main/java/com/jarvis/app/notifications/JarvisNotificationListener.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_otp",
+        "description": "Finds the verification or one-time code in recent notifications and SMS.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "NOTIFICATIONS",
+      "_source": "app/src/main/java/com/jarvis/app/notifications/JarvisNotificationListener.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "reply_notification",
+        "description": "Sends an inline reply to a notification (e.g. WhatsApp, SMS, Telegram) using RemoteInput. Pass the notification's 'key' (from read_notifications) to reply in the exact conversation; otherwise the most recent conversation of that app is used.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": "string"
+            },
+            "app": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MESSAGING",
+      "_source": "app/src/main/java/com/jarvis/app/notifications/JarvisNotificationListener.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "reply_to_notification",
+        "description": "Replies to a specific notification if it supports direct reply. Requires 'package_name' or 'app_name' and 'reply_text'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "app_name": {
+              "type": "string"
+            },
+            "package_name": {
+              "type": "string"
+            },
+            "reply_text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "NOTIFICATIONS",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "screen_capture",
+        "description": "Takes a screenshot and reports what is on it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "SCREEN",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "screen_read",
+        "description": "Returns structured information about visible UI elements, text, content descriptions, clickable and editable states.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "SCREEN",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "scroll",
+        "description": "Scrolls the screen forward or backward.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "direction": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "send_message",
+        "description": "Sends an SMS or direct message to a contact. Resolves the contact from the address book, opens the messaging app, types the message, and asks for confirmation before sending.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contact": {
+              "type": "string"
+            },
+            "recipient": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "COMMUNICATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "send_sms",
+        "description": "Sends a text message to a contact or number by opening the messaging app, typing the message, and asking for confirmation before sending. Requires the JARVIS Accessibility Service for full automation; falls back to a drafted composer otherwise.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contact": {
+              "type": "string"
+            },
+            "number": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MESSAGING",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "send_whatsapp",
+        "description": "Opens WhatsApp, resolves the contact, opens the conversation, types the message and verifies it, then asks for confirmation before sending. Requires 'contact' or 'number' and 'message'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contact": {
+              "type": "string"
+            },
+            "number": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "MESSAGING",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_alarm",
+        "description": "Sets a phone alarm. Understands '6am', 'tomorrow 7:30', 'in 20 minutes'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "when": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_always_listening",
+        "description": "Turns the hands-free 'Hey JARVIS' background service on or off.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "ASSISTANT",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ProactiveTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_briefing",
+        "description": "Turns the daily spoken morning briefing on or off, and sets the hour and minute it fires.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "ASSISTANT",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ProactiveTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_brightness",
+        "description": "Sets screen brightness to a percentage (0-100), or enables auto brightness.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "percent": {
+              "type": "integer"
+            },
+            "auto": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/DeviceSettingTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_dnd",
+        "description": "Turns Do Not Disturb (total silence) on or off.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/DeviceSettingTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_hide_sensitive",
+        "description": "Hides notification text that looks like a password or card detail. One-time codes stay visible either way.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "ASSISTANT",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ProactiveTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_read_otp",
+        "description": "Turns reading verification and one-time codes aloud on or off.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "ASSISTANT",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ProactiveTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_reminder",
+        "description": "Sets a reminder for a time the user speaks naturally, e.g. 'remind me to call the bank tomorrow 10am'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "what": {
+              "type": "string"
+            },
+            "when": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "CALENDAR",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_ringer_mode",
+        "description": "Puts the phone in silent, vibrate or normal ring mode.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/DeviceSettingTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_timer",
+        "description": "Starts a countdown timer, e.g. 'timer for 10 minutes'.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "duration": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "share_location",
+        "description": "Opens the share sheet with the current location attached.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "LOCATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "smart_tv_control",
+        "description": "Sends playback, launch or casting commands to Smart TV / Android TV on the local network.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "INTEGRATION",
+      "_source": "app/src/main/java/com/jarvis/android/device/DeviceToolExecutors.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "storage_report",
+        "description": "Reports how full the phone's internal storage is and how much is free. Use when the user mentions storage, space, or cleanup.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/PhoneOptimizationTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "swipe",
+        "description": "Performs a swipe gesture from (fromX, fromY) to (toX, toY).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "fromX": {
+              "type": "number"
+            },
+            "fromY": {
+              "type": "number"
+            },
+            "toX": {
+              "type": "number"
+            },
+            "toY": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "tap",
+        "description": "Performs a tap gesture at specific screen coordinates (x, y).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "toggle_bluetooth",
+        "description": "Turns Bluetooth on or off. On Android 13+ this opens settings, because apps can no longer toggle Bluetooth directly.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/DeviceSettingTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "toggle_setting",
+        "description": "Toggles Wi-Fi, Bluetooth, Flashlight, or Do Not Disturb.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "toggle_wifi",
+        "description": "Turns Wi-Fi on or off. On Android 10+ this opens the system Wi-Fi panel, because apps are no longer allowed to toggle Wi-Fi directly.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/DeviceSettingTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "type_text",
+        "description": "Enters text into an editable input field identified by hint or marker.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "marker": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "DEVICE",
+      "_source": "app/src/main/java/com/jarvis/android/accessibility/JarvisAccessibilityService.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "weather",
+        "description": "Gets current weather for the user's location or a named place. Returns temperature, conditions, humidity, and wind.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "place": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "INFORMATION",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/LifeTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "web_open",
+        "description": "Opens a specific web page URL in the browser. Pass 'url'. For answering a question use web_search instead.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "WEB",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/WebTools.kt"
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "web_search",
+        "description": "Answers a question using the web and returns the answer text. Use this for factual questions. Falls back to opening a browser search only when no answer could be found.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "_category": "WEB",
+      "_source": "app/src/main/java/com/jarvis/agent/tool/ToolRegistry.kt"
+    }
+  ]
+}

@@ -58,6 +58,26 @@ jobs:
           fi
           echo "No unsanctioned credential patterns in tracked source."
 
+  # Fast, blocking. eval/tools.json is generated from the Kotlin sources by
+  # scripts/generate_eval_tools.py and mirrors ToolSchema.forOpenAI(). If a tool is added,
+  # renamed or recategorised without regenerating it, the eval harness silently tests a
+  # tool surface the app no longer sends -- which is the exact failure mode that made the
+  # old hand-written 12-tool list worthless.
+  tool-manifest:
+    name: Eval tool manifest up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify eval/tools.json matches the app
+        run: python3 scripts/generate_eval_tools.py --check
+
   build:
     name: Build Debug APK
     runs-on: ubuntu-latest
@@ -181,21 +201,16 @@ jobs:
   # utterance. Deliberately has no `needs:` -- a brain regression must be visible, but
   # it must not stop the debug APK from being produced.
   #
-  # ADVISORY for now (continue-on-error). This gate had never actually been executed
-  # before it was wired in here, and it is currently known to be unfaithful to
-  # production: it offers the model 12 hand-written tool schemas while the app sends
-  # ToolSchema.forOpenAI() -- every tool in EXPOSED_CATEGORIES (~69), including
-  # near-duplicate pairs like open_app/app_launch and send_sms/send_message/send_whatsapp.
-  # So a green run here does not yet prove production routing works. Tracked as
-  # "eval harness fidelity" in the implementation plan; flip to blocking once the
-  # harness generates its tool list from ToolSchema.kt instead of hardcoding one.
-  #
-  # Failures are echoed as annotations because Actions log download is unreliable from
-  # automation; annotations are readable through the check-runs API.
+  # The harness now tests the real tool surface (eval/tools.json, generated from
+  # ToolSchema.kt) rather than a hand-written 12-tool subset, and it separates routing
+  # regressions -- which fail the build -- from provider infrastructure errors, which are
+  # tolerated up to 20% of cases. That distinction is what makes this safe to block on:
+  # an intermittent NVIDIA HTTP 500 no longer fails the build, but a genuinely wrong tool
+  # choice does.
+
   eval:
-    name: Brain eval (advisory)
+    name: Brain eval
     runs-on: ubuntu-latest
-    continue-on-error: true
     permissions:
       contents: write   # to post the eval transcript as a commit comment
     steps:
@@ -206,6 +221,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Refresh the tool manifest
+        run: python3 scripts/generate_eval_tools.py
 
       - name: Run eval harness
         run: |

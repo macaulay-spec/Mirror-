@@ -40,6 +40,9 @@ object ToolSchema {
         "app_launch" to listOf("app_name", "app"),
         "app_search" to listOf("app", "query"),
         "web_search" to listOf("query"),
+        // Explicit on purpose: defaultArgs() maps anything containing "open" to
+        // listOf("app"), which would have given web_open an `app` parameter and no `url`.
+        "web_open" to listOf("url"),
         "set_brightness" to listOf("percent", "auto"),
         "set_dnd" to listOf("on"),
         "set_ringer_mode" to listOf("mode"),

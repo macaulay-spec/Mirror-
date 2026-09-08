@@ -136,7 +136,7 @@ class JarvisApiClient(
         if (!emitted) fallbackBlocking() else lastResult
     }
 
-    // NVIDIA streaming (OpenAI-compatible endpoint)
+    // Real-time streaming (SSE) with Google Gemini AI engine
     private fun streamNVIDIA(
         apiKey: String,
         provider: String,
@@ -147,12 +147,8 @@ class JarvisApiClient(
         allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
-        val endpoint = when {
-            model.startsWith("gemini") -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-            model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") ->
-                "${ApiConfig.OPENAI_BASE_URL}/chat/completions"
-            else -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
-        }
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        val requestModel = if (model.startsWith("gemini")) model else ApiConfig.GEMINI_FLASH_MODEL
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -164,7 +160,7 @@ class JarvisApiClient(
         messages.put(JSONObject().put("role", "user").put("content", userMessage))
 
         val payload = JSONObject()
-            .put("model", model)
+            .put("model", requestModel)
             .put("messages", messages)
             .put("stream", true)
 
@@ -477,7 +473,7 @@ class JarvisApiClient(
         return lastResult
     }
 
-    // NVIDIA execution (OpenAI-compatible)
+    // Direct execution via Google Gemini AI engine
     private fun executeNVIDIA(
         apiKey: String,
         provider: String,
@@ -487,12 +483,8 @@ class JarvisApiClient(
         userMessage: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val endpoint = when {
-            model.startsWith("gemini") -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-            model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") ->
-                "${ApiConfig.OPENAI_BASE_URL}/chat/completions"
-            else -> "${ApiConfig.NVIDIA_BASE_URL}/chat/completions"
-        }
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        val requestModel = if (model.startsWith("gemini")) model else ApiConfig.GEMINI_FLASH_MODEL
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -504,7 +496,7 @@ class JarvisApiClient(
         messages.put(JSONObject().put("role", "user").put("content", userMessage))
 
         val payload = JSONObject()
-            .put("model", model)
+            .put("model", requestModel)
             .put("messages", messages)
 
         if (allowTools) {

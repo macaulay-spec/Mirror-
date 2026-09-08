@@ -5,6 +5,9 @@
 
 package com.jarvis.android.overlay
 
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -28,10 +31,12 @@ import android.view.View
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -105,7 +110,11 @@ class JarvisFloatingOrbService : Service() {
         super.onCreate()
         isRunning = true
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, buildNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         params = WindowManager.LayoutParams(
@@ -126,10 +135,11 @@ class JarvisFloatingOrbService : Service() {
 
         val composeView = ComposeView(this)
         val lifecycleOwner = ServiceLifecycleOwner()
+        val viewModelStoreOwner = ServiceViewModelStoreOwner()
         overlayLifecycleOwner = lifecycleOwner
         lifecycleOwner.start()
         composeView.setViewTreeLifecycleOwner(lifecycleOwner)
-        composeView.setViewTreeViewModelStoreOwner(null)
+        composeView.setViewTreeViewModelStoreOwner(viewModelStoreOwner)
         composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
         composeView.setContent {
@@ -151,12 +161,17 @@ class JarvisFloatingOrbService : Service() {
                     )
                 },
                 onToggleMic = {
-                    // Toggle voice input — connected to the real orchestrator
-                    val engine = voiceEngine ?: return@OrbOverlayContent
-                    if (engine.engineState.value == JarvisVisualState.LISTENING) {
-                        engine.stopListening()
+                    // Toggle voice input — routed through VoiceOrchestratorBridge
+                    val bridge = (application as? JarvisApp)?.voiceBridge
+                    if (bridge != null) {
+                        bridge.toggleVoiceInput()
                     } else {
-                        engine.startListening()
+                        val engine = voiceEngine ?: return@OrbOverlayContent
+                        if (engine.engineState.value == JarvisVisualState.LISTENING) {
+                            engine.stopListening()
+                        } else {
+                            engine.startListening()
+                        }
                     }
                 },
                 isListening = state == JarvisVisualState.LISTENING
@@ -306,7 +321,40 @@ private fun OrbOverlayContent(
     isListening: Boolean
 ) {
     val isActive = state == JarvisVisualState.LISTENING || state == JarvisVisualState.THINKING || state == JarvisVisualState.SPEAKING
-    
+    var userDismissedReply by remember { mutableStateOf<String?>(null) }
+    var lastSeenReply by remember { mutableStateOf<String?>(null) }
+    var hideTimer by remember { mutableStateOf(0L) }
+
+    androidx.compose.runtime.LaunchedEffect(lastReply, state) {
+        if (!lastReply.isNullOrBlank()) {
+            if (lastReply != lastSeenReply) {
+                lastSeenReply = lastReply
+                userDismissedReply = null
+            }
+            if (isActive) {
+                hideTimer = System.currentTimeMillis() + 12000L
+            } else if (hideTimer == 0L || System.currentTimeMillis() > hideTimer) {
+                hideTimer = System.currentTimeMillis() + 12000L
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(hideTimer) {
+        if (hideTimer > 0) {
+            val remain = hideTimer - System.currentTimeMillis()
+            if (remain > 0) {
+                kotlinx.coroutines.delay(remain)
+            }
+            if (System.currentTimeMillis() >= hideTimer && !isActive) {
+                userDismissedReply = lastSeenReply
+            }
+        }
+    }
+
+    val isTextVisible = !lastReply.isNullOrBlank() &&
+            userDismissedReply != lastReply &&
+            (isActive || System.currentTimeMillis() < hideTimer)
+
     Row(verticalAlignment = Alignment.Top) {
         // Core Orb
         Box(
@@ -318,34 +366,65 @@ private fun OrbOverlayContent(
                 state = state,
                 audioLevel = audioLevel,
                 size = 64.dp,
-                onClick = onToggleMic // Toggles mic directly without opening the app!
+                onClick = onToggleMic // Toggles mic directly through VoiceOrchestratorBridge
             )
         }
 
         // Floating Streaming Text Bubble
         AnimatedVisibility(
-            visible = isActive && !lastReply.isNullOrBlank(),
-            enter = fadeIn(animationSpec = tween(300)),
-            exit = fadeOut(animationSpec = tween(300))
+            visible = isTextVisible,
+            enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(300)),
+            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(300))
         ) {
             Box(
                 modifier = Modifier
-                    .padding(top = 16.dp, end = 16.dp)
+                    .padding(top = 12.dp, end = 12.dp)
                     .widthIn(max = 280.dp)
-                    .heightIn(max = 400.dp)
-                    .clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
+                    .heightIn(max = 360.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(JarvisColors.SurfaceGlassElevated.copy(alpha = 0.95f))
-                    .border(0.5.dp, JarvisColors.Presence.copy(alpha = 0.5f), RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp))
-                    .verticalScroll(rememberScrollState())
-                    .padding(14.dp)
+                    .border(0.5.dp, JarvisColors.Presence.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .padding(12.dp)
             ) {
-                Text(
-                    text = lastReply ?: "",
-                    color = JarvisColors.TextPrimary,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    fontFamily = FontFamily.Default
-                )
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (state == JarvisVisualState.THINKING) "JARVIS (thinking...)" else "JARVIS",
+                            color = JarvisColors.Presence,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(
+                            onClick = { userDismissedReply = lastReply },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss text",
+                                tint = JarvisColors.TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = lastReply ?: "",
+                            color = JarvisColors.TextPrimary,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            fontFamily = FontFamily.Default
+                        )
+                    }
+                }
             }
         }
     }
@@ -368,4 +447,8 @@ private class ServiceLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
     fun markDestroyed() {
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
+}
+
+private class ServiceViewModelStoreOwner : ViewModelStoreOwner {
+    override val viewModelStore = ViewModelStore()
 }

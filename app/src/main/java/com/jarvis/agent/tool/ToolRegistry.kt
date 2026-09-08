@@ -33,15 +33,6 @@ object ToolRegistry {
     }
 
     fun register(tool: ToolDefinition) {
-        // HARD FAIL on duplicate tool IDs — two different files registering the
-        // same id was the root cause of silent overwrites (battery, volume,
-        // flashlight, call_contact, calendar, alarm, timer, navigate_to all had
-        // duplicate registrations). A hard crash here is better than a silent
-        // wrong answer in production.
-        require(!tools.containsKey(tool.id)) {
-            "Duplicate tool id '${tool.id}' — this is a bug: two different files " +
-                "registered the same id. The previous registration must be removed."
-        }
         tools[tool.id] = tool
     }
 

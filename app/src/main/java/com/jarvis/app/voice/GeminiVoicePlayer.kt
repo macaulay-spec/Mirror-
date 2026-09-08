@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object GeminiVoicePlayer {
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(3, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private var mediaPlayer: MediaPlayer? = null
@@ -46,7 +46,7 @@ object GeminiVoicePlayer {
     }
 
     suspend fun speak(context: Context, text: String, targetVoice: String? = null): Boolean = withContext(Dispatchers.IO) {
-        val result = withTimeoutOrNull(10000L) {
+        val result = withTimeoutOrNull(20000L) {
             if (text.isBlank()) return@withTimeoutOrNull false
             var key = ApiConfig.currentGeminiKey
             if (key.isBlank()) return@withTimeoutOrNull false
@@ -65,7 +65,7 @@ object GeminiVoicePlayer {
                 else -> "Aoede"
             }
 
-            val modelsToTry = listOf("gemini-2.0-flash", "gemini-2.5-flash-preview-tts")
+            val modelsToTry = listOf("gemini-2.5-flash", "gemini-2.0-flash")
 
             for (modelName in modelsToTry) {
                 if (myGen != generation.get()) return@withTimeoutOrNull false

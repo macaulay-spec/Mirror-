@@ -62,7 +62,11 @@ class WakeWordForegroundService : Service() {
         super.onCreate()
         running = true
         createChannel()
-        startForeground(NOTIF_ID, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, buildNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
         acquireWakeLock()
 
         // FIX (production repair): the wake lock expired after 10 minutes and was

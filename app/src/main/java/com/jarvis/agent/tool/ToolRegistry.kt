@@ -46,6 +46,14 @@ object ToolRegistry {
      * 'wait for WhatsApp to open' as its single failure for exactly this reason: the model
      * picked the right tool and the name did not match the key.
      *
+     * Trimming alone turned out not to be enough. The next run failed 'launch YouTube'
+     * with the raw name printed as `"app_launch\n</parameter"` -- the model leaked a fragment
+     * of its own call template into the tool name. So this takes the leading identifier
+     * run instead: every one of the 74 registered ids is strict lowercase snake_case
+     * (verified against the generated manifest), which makes "keep [a-z0-9_]* from the
+     * front" lossless for a well-formed name and recovers the intended tool for a
+     * malformed one.
+     *
      * The consequence in [execute] is a spurious error. The consequence via [getTool] is
      * worse: AgentExecutor resolves risk with
      * `ToolRegistry.getTool(name)?.riskLevel ?: RiskLevel.LEVEL_1`, and LEVEL_1 sits below
@@ -53,7 +61,8 @@ object ToolRegistry {
      * the user confirmation prompt entirely. A space character was able to downgrade a
      * destructive action to an unconfirmed one.
      */
-    private fun normalizeId(id: String): String = id.trim()
+    private fun normalizeId(id: String): String =
+        id.trim().takeWhile { it.isLetterOrDigit() || it == '_' }
 
     fun getTool(id: String): ToolDefinition? = tools[normalizeId(id)]
 

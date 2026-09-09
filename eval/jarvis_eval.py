@@ -186,6 +186,26 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 INFRA_TOLERANCE = float(os.environ.get("EVAL_INFRA_TOLERANCE", "0.2"))
 
 
+def normalise_tool_name(raw: str) -> str:
+    """
+    Mirror of ToolRegistry.normalizeId.
+
+    The gate must score the tool the APP would resolve, not the literal string the model
+    emitted -- otherwise a defect in the model's output formatting is reported as a routing
+    regression, and a genuine routing regression hides behind it. Run 3 failed 'launch
+    YouTube' with got='app_launch\n</parameter': correct tool, malformed name, the model
+    leaking its own call template. Plain strip() cannot fix that; taking the leading
+    identifier run can, and that is what the app now does too.
+    """
+    out = []
+    for ch in raw.strip():
+        if ch.isalnum() or ch == "_":
+            out.append(ch)
+        else:
+            break
+    return "".join(out)
+
+
 def call_model(utterance: str, key: str) -> dict:
     body = json.dumps({
         "model": MODEL,
@@ -344,9 +364,10 @@ def main() -> int:
             # when the routing was in fact correct -- and the printed value looks identical
             # to the expected one, which makes the failure unreadable. This is what the
             # first real 42-case run reported as its only failure.
-            got = raw.strip() if isinstance(raw, str) else raw
+            got = normalise_tool_name(raw) if isinstance(raw, str) else raw
             if isinstance(raw, str) and raw != got:
-                print(f"    (note: tool name needed trimming: {raw!r})")
+                print(f"    (note: model emitted a malformed tool name {raw!r}"
+                      f" -> resolved as {got!r})")
             ok = (got in expected) if isinstance(expected, set) else (got == expected)
             if not got and result.get("finish_reason") == "length":
                 got = "NO_TOOL (finish_reason=length — reply was truncated)"

@@ -35,7 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,8 +76,8 @@ fun ChatHistoryScreen(
     val db = remember { AppDatabase.get(context) }
     val scope = rememberCoroutineScope()
 
-    val orchestratorSessions by orchestrator?.sessions?.collectAsState() ?: remember { mutableStateOf(emptyList()) }
-    val currentOrchestratorSessionId by orchestrator?.currentSessionId?.collectAsState() ?: remember { mutableStateOf("") }
+    val orchestratorSessions by orchestrator?.sessions?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(emptyList()) }
+    val currentOrchestratorSessionId by orchestrator?.currentSessionId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf("") }
 
     var localSessions by remember { mutableStateOf<List<ChatSessionEntity>>(emptyList()) }
     val sessions = if (orchestrator != null) orchestratorSessions else localSessions

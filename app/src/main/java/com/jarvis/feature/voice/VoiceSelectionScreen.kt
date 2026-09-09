@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,9 +60,9 @@ fun VoiceSelectionScreen(
     onSkip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val voices by tts.voices.collectAsState()
-    val selectedVoiceId by tts.selectedVoiceId.collectAsState()
-    val isSpeaking by tts.isSpeaking.collectAsState()
+    val voices by tts.voices.collectAsStateWithLifecycle()
+    val selectedVoiceId by tts.selectedVoiceId.collectAsStateWithLifecycle()
+    val isSpeaking by tts.isSpeaking.collectAsStateWithLifecycle()
 
     Box(
         modifier = modifier

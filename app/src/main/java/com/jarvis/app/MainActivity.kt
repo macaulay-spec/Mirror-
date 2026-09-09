@@ -8,7 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,8 +94,8 @@ class MainActivity : ComponentActivity() {
             // task, the dedicated Task Execution screen surfaces automatically
             // (system Back dismisses to Home). The timeline is driven by actual
             // AgentExecutor step updates — never a mock sequence.
-            val isTaskExecuting by orchestrator.isTaskExecuting.collectAsState()
-            val taskDescription by orchestrator.currentTaskDescription.collectAsState()
+            val isTaskExecuting by orchestrator.isTaskExecuting.collectAsStateWithLifecycle()
+            val taskDescription by orchestrator.currentTaskDescription.collectAsStateWithLifecycle()
             LaunchedEffect(isTaskExecuting) {
                 if (isTaskExecuting && !showSplash && !isOnboarding) currentDest = "tasks"
             }

@@ -58,7 +58,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -113,12 +113,12 @@ fun ChatScreen(
     onNavigate: (String) -> Unit,
     onToggleVoice: () -> Unit
 ) {
-    val messages by orchestrator.messages.collectAsState()
-    val visualState by orchestrator.visualState.collectAsState()
-    val currentSteps by orchestrator.currentSteps.collectAsState()
-    val currentStepIndex by orchestrator.currentStepIndex.collectAsState()
-    val isTaskExecuting by orchestrator.isTaskExecuting.collectAsState()
-    val taskFinalResult by orchestrator.taskFinalResult.collectAsState()
+    val messages by orchestrator.messages.collectAsStateWithLifecycle()
+    val visualState by orchestrator.visualState.collectAsStateWithLifecycle()
+    val currentSteps by orchestrator.currentSteps.collectAsStateWithLifecycle()
+    val currentStepIndex by orchestrator.currentStepIndex.collectAsStateWithLifecycle()
+    val isTaskExecuting by orchestrator.isTaskExecuting.collectAsStateWithLifecycle()
+    val taskFinalResult by orchestrator.taskFinalResult.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val deviceToolkit = remember { com.jarvis.app.tools.DeviceToolkit(context) }

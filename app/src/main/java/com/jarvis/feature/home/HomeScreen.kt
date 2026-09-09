@@ -41,7 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,10 +88,10 @@ fun HomeScreen(
     onToggleVoice: () -> Unit,
     onQuickAction: (String) -> Unit
 ) {
-    val visualState by orchestrator.visualState.collectAsState()
-    val audioLevel by VoiceBus.audioLevel.collectAsState()
-    val messages by orchestrator.messages.collectAsState()
-    val latestMemory by orchestrator.memoryManager.latestMemory().collectAsState(initial = null)
+    val visualState by orchestrator.visualState.collectAsStateWithLifecycle()
+    val audioLevel by VoiceBus.audioLevel.collectAsStateWithLifecycle()
+    val messages by orchestrator.messages.collectAsStateWithLifecycle()
+    val latestMemory by orchestrator.memoryManager.latestMemory().collectAsStateWithLifecycle(initialValue = null)
 
     val lastUserMsg = remember(messages) {
         messages.lastOrNull { it.role == com.jarvis.core.model.MessageRole.USER }

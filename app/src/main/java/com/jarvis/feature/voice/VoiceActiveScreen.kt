@@ -26,7 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -69,8 +69,8 @@ fun VoiceActiveScreen(
     orchestrator: AssistantOrchestrator,
     onCancel: () -> Unit
 ) {
-    val visualState by orchestrator.visualState.collectAsState()
-    val audioLevel by VoiceBus.audioLevel.collectAsState()
+    val visualState by orchestrator.visualState.collectAsStateWithLifecycle()
+    val audioLevel by VoiceBus.audioLevel.collectAsStateWithLifecycle()
 
     val isThinking = visualState == JarvisVisualState.THINKING
 

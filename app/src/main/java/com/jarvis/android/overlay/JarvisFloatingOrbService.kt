@@ -143,6 +143,18 @@ class JarvisFloatingOrbService : Service() {
         composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
         composeView.setContent {
+            // DELIBERATELY still collectAsState(), not collectAsStateWithLifecycle().
+            //
+            // Every Activity-hosted screen in this app was converted to the lifecycle-aware
+            // variant so flows stop being collected when the UI is not visible -- including
+            // VoiceBus.audioLevel, which is a microphone-level stream and worth not polling
+            // in the background. This composition cannot be converted: it is hosted by a
+            // plain Service (see `class JarvisFloatingOrbService : Service()`), which is not
+            // a LifecycleOwner and provides no LocalLifecycleOwner to its composition, so
+            // collectAsStateWithLifecycle() has no lifecycle to bind to. The orb is meant to
+            // keep reacting while the app is backgrounded anyway -- that is the whole point
+            // of a floating overlay -- so continuous collection here is the intended
+            // behaviour, not a leak.
             val state by VoiceBus.engineState.collectAsState()
             val audioLevel by VoiceBus.audioLevel.collectAsState()
             val orchestratorMessages = orchestrator?.messages?.collectAsState()

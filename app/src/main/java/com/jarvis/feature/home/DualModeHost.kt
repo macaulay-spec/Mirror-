@@ -1,5 +1,21 @@
 package com.jarvis.feature.home
 
+// ---------------------------------------------------------------------------
+// DEAD CODE — NOT COMPOSED FROM ANYWHERE (found 2026-09-09, left in place on purpose)
+//
+// Nothing outside this file references `DualModeHost` or `StageMode`, and both are the only
+// public declarations here. MainActivity composes HomeScreen / ChatScreen / VoiceActiveScreen
+// directly instead, so all 1339 lines compile into the APK and are never shown.
+//
+// It has NOT been deleted, and its collectAsState() calls have NOT been converted to the
+// lifecycle-aware variant like every live screen's, because modify_ui.py at the repository
+// root was still rewriting this file by regex as recently as 2026-09-08 -- the migration away
+// from it looks unfinished rather than abandoned. Deleting in-progress work is worse than
+// leaving dead code.
+//
+// Owner decision needed: either re-wire it as the host, or delete this file together with
+// modify_ui.py (an orphaned one-shot migration script that nothing references).
+// ---------------------------------------------------------------------------
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.animateColorAsState

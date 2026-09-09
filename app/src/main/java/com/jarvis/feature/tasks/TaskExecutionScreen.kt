@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,11 +88,11 @@ fun TaskExecutionScreen(
     onDismiss: () -> Unit = {}
 ) {
     // Collect state from the executor
-    val currentSteps = orchestrator?.currentSteps?.collectAsState()?.value ?: emptyList()
-    val currentStepIndex = orchestrator?.currentStepIndex?.collectAsState()?.value ?: 0
-    val executionState = orchestrator?.visualState?.collectAsState()?.value ?: JarvisVisualState.IDLE
-    val isComplete = orchestrator?.isTaskExecuting?.collectAsState()?.value == false && (orchestrator?.currentSteps?.collectAsState()?.value?.isNotEmpty() == true)
-    val finalResult = orchestrator?.taskFinalResult?.collectAsState()?.value
+    val currentSteps = orchestrator?.currentSteps?.collectAsStateWithLifecycle()?.value ?: emptyList()
+    val currentStepIndex = orchestrator?.currentStepIndex?.collectAsStateWithLifecycle()?.value ?: 0
+    val executionState = orchestrator?.visualState?.collectAsStateWithLifecycle()?.value ?: JarvisVisualState.IDLE
+    val isComplete = orchestrator?.isTaskExecuting?.collectAsStateWithLifecycle()?.value == false && (orchestrator?.currentSteps?.collectAsStateWithLifecycle()?.value?.isNotEmpty() == true)
+    val finalResult = orchestrator?.taskFinalResult?.collectAsStateWithLifecycle()?.value
 
     // Animated step index for smooth transitions
     var animatedStepIndex by remember { mutableIntStateOf(0) }

@@ -1,3 +1,34 @@
+import java.util.Properties
+
+/**
+ * Build-time secret resolution.
+ *
+ * FIX (audit P0-B): this file used to read ONLY `System.getenv(...)`, while CI wrote
+ * the values into `local.properties` -- which Gradle does not export as environment
+ * variables and this script never parsed. Every key therefore compiled in as an empty
+ * string, so `BuildConfig.GEMINI_API_KEY` was blank in every distributed APK and the
+ * whole Gemini branch of the provider chain was dead.
+ *
+ * Resolution order is now: environment (CI secrets) -> local.properties (developer
+ * machine) -> empty. Both sources are read through Gradle providers so the
+ * configuration cache is invalidated when either changes.
+ *
+ * Keys are NEVER committed. `local.properties` is gitignored and CI injects env vars
+ * from repository secrets.
+ */
+val localSecrets = Properties().apply {
+    providers.fileContents(layout.projectDirectory.file("local.properties"))
+        .asText.orNull?.let { text -> load(text.reader()) }
+}
+
+fun buildSecret(name: String): String {
+    val raw = providers.environmentVariable(name).orNull?.trim()?.takeIf { it.isNotEmpty() }
+        ?: localSecrets.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: ""
+    // buildConfigField emits a Java string literal; escape anything that would break it.
+    return raw.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -17,13 +48,15 @@ android {
         versionCode = 2
         versionName = "2.0.0"
 
-        // Keys are injected from CI secrets / local env at compile time — never committed.
-        buildConfigField("String", "GEMINI_API_KEY", "\"${System.getenv("GEMINI_API_KEY") ?: ""}\"")
-        buildConfigField("String", "NVIDIA_API_KEY", "\"${System.getenv("NVIDIA_API_KEY") ?: ""}\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${System.getenv("ELEVENLABS_API_KEY") ?: ""}\"")
-        // Rork Toolkit gateway: managed cloud TTS (xai/grok-tts) — no user key needed.
-        buildConfigField("String", "TOOLKIT_URL", "\"${System.getenv("EXPO_PUBLIC_TOOLKIT_URL") ?: ""}\"")
-        buildConfigField("String", "TOOLKIT_SECRET_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")
+        // The Gemini key is injected from CI secrets (env) or local.properties at
+        // compile time and is never committed. If absent it compiles to "" and the
+        // Gemini provider is reported unavailable at runtime rather than silently
+        // misbehaving. (NVIDIA's key is hardcoded in ApiConfig.kt -- see below.)
+        buildConfigField("String", "GEMINI_API_KEY", "\"" + buildSecret("GEMINI_API_KEY") + "\"")
+        // NVIDIA_API_KEY is no longer a BuildConfig field: ApiConfig hardcodes it by
+        // owner decision, and nothing read this one. One copy, one place to rotate.
+        // REMOVED (owner decision, 2026-09-07): ELEVENLABS_API_KEY and the abandoned
+        // Rork TOOLKIT_URL / TOOLKIT_SECRET_KEY fields. No code references them.
     }
 
     buildTypes {
@@ -57,6 +90,15 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
+}
+
+// FIX (audit P0-D): AppDatabase declared exportSchema = false, so every schema version
+// was thrown away at build time. With no history there is nothing to write a migration
+// against, which is why the database was built with fallbackToDestructiveMigration() and
+// every version bump silently deleted the user's memories. Schemas are now exported here
+// and committed under app/schemas/ -- see Migrations.kt for the policy.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

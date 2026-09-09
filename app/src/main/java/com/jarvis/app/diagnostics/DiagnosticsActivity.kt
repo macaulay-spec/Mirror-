@@ -52,8 +52,7 @@ class DiagnosticsActivity : ComponentActivity() {
                         onTestVoice = { text ->
                             com.jarvis.app.voice.GeminiVoicePlayer.speak(this@DiagnosticsActivity, text)
                         },
-                        onSyncContacts = { PeopleGraph.syncFromContacts(this@DiagnosticsActivity) },
-                        onRequestAssistantRole = { AssistantRoleManager.request(this@DiagnosticsActivity) }
+                        onSyncContacts = { PeopleGraph.syncFromContacts(this@DiagnosticsActivity) }
                     )
                 }
             }
@@ -72,8 +71,7 @@ data class ProviderStatus(
 @Composable
 private fun DiagnosticsScreen(
     onTestVoice: suspend (String) -> Boolean,
-    onSyncContacts: suspend () -> Int,
-    onRequestAssistantRole: () -> Boolean
+    onSyncContacts: suspend () -> Int
 ) {
     val scope = rememberCoroutineScope()
 
@@ -185,9 +183,18 @@ private fun DiagnosticsScreen(
         }
 
         // VOICE
-        Section("ELEVENLABS VOICE") {
+        Section("VOICE OUTPUT") {
             Text("Engine: ${ApiConfig.voiceEngineType}", color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Text("Voice: ${ApiConfig.selectedVoiceId}", color = JarvisColors.TextSecondary, fontSize = 12.sp)
+            // Who owns the microphone right now. The wake-word engine and the
+            // conversation engine each own a SpeechRecognizer and Android permits only
+            // one to be live, so this is the first thing to check when hands-free
+            // listening misbehaves.
+            Text(
+                com.jarvis.android.voice.MicArbiter.describe(),
+                color = JarvisColors.TextSecondary, fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
             Text(voiceStatus, color = JarvisColors.TextSecondary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
             Button(
@@ -251,10 +258,21 @@ private fun DiagnosticsScreen(
             Text(assistantStatus, color = JarvisColors.TextPrimary, fontSize = 12.sp)
             Spacer(Modifier.height(6.dp))
             OutlinedButton(onClick = {
-                if (!onRequestAssistantRole()) AssistantRoleManager.openSettings(context)
-            }) { Text("SET JARVIS AS DEFAULT", color = JarvisColors.Presence, fontSize = 11.sp) }
+                // FIX: this used to call AssistantRoleManager.request() first, which
+                // launched a role dialog that ROLE_ASSISTANT (requestable=false) makes
+                // cancel itself instantly -- and returned true, so the Settings
+                // fallback below it never ran. The button did nothing.
+                val opened = AssistantRoleManager.makeDefault(context)
+                assistantStatus = if (opened) {
+                    "Settings opened — pick JARVIS as the assistant, then come back."
+                } else {
+                    "This device exposes no assistant settings page. Long-press home " +
+                        "still opens whatever assistant is currently set."
+                }
+            }) { Text("OPEN ASSISTANT SETTINGS", color = JarvisColors.Presence, fontSize = 11.sp) }
             Text(
-                "After this, long-press home or the gesture opens JARVIS from any screen.",
+                "Once JARVIS holds the slot, long-press home or the assistant gesture " +
+                    "opens it from any screen.",
                 color = JarvisColors.TextSecondary, fontSize = 11.sp
             )
         }

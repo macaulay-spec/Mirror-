@@ -2,8 +2,6 @@ package com.jarvis.agent.tool
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import androidx.core.net.toUri
 import android.os.BatteryManager
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
@@ -173,26 +171,32 @@ object ToolRegistry {
         )
 
         // 4. Web Search (Level 1)
+        // FIX (audit P1-E): this used to fire a browser intent and return
+        // "Web search opened for 'X'" as its whole result. The model received no content,
+        // so it could not answer -- it could only say it had opened a search. The real
+        // implementation (DuckDuckGo Instant Answer) already existed in WebTools.search()
+        // but was registered under the unrelated id `web_extract`. Delegates there now.
         register(
             ToolDefinition(
                 id = "web_search",
                 name = "Search the Web",
-                description = "Performs a web search via browser.",
+                description = "Answers a question using the web and returns the answer text. " +
+                    "Use this for factual questions. Falls back to opening a browser search " +
+                    "only when no answer could be found.",
                 category = "WEB",
                 riskLevel = RiskLevel.LEVEL_1
             ) { context, args ->
                 val query = args["query"]?.toString() ?: ""
-                val uri = "https://www.google.com/search?q=${Uri.encode(query)}".toUri()
-                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (query.isBlank()) {
+                    ToolExecutionResult(
+                        toolId = "web_search",
+                        success = false,
+                        data = null,
+                        error = "A 'query' is required."
+                    )
+                } else {
+                    WebTools.search(context, query)
                 }
-                context.startActivity(intent)
-                ToolExecutionResult(
-                    toolId = "web_search",
-                    success = true,
-                    data = mapOf("query" to query),
-                    verificationDetails = "Web search opened for '$query'."
-                )
             }
         )
 

@@ -78,6 +78,27 @@ class SystemSpeechRecognizerEngine(private val context: Context) : WakeWordEngin
             return
         }
 
+        // Invariant: Android allows one live SpeechRecognizer per app, and this class is
+        // one of only two places that creates one. start() is reachable from rearm()'s
+        // delayed handler, which does NOT go through the service's arbiter gate, so the
+        // ownership check is repeated here rather than trusted to the caller.
+        //
+        // Returning quietly (not via onError) is deliberate: a conversation legitimately
+        // holding the mic is not a fault, and routing it through onError would feed the
+        // service's consecutive-error backoff and eventually pause wake-word listening
+        // for 30 seconds over something that is working as designed. The arbiter notifies
+        // the service when the mic is released.
+        if (com.jarvis.android.voice.MicArbiter.holder.value ==
+            com.jarvis.android.voice.MicArbiter.Holder.CONVERSATION
+        ) {
+            android.util.Log.i(
+                "WakeWordEngine",
+                "Not starting: a conversation holds the microphone."
+            )
+            wantListening = false
+            return
+        }
+
         val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)

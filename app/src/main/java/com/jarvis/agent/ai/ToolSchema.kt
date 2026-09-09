@@ -40,6 +40,9 @@ object ToolSchema {
         "app_launch" to listOf("app_name", "app"),
         "app_search" to listOf("app", "query"),
         "web_search" to listOf("query"),
+        // Explicit on purpose: defaultArgs() maps anything containing "open" to
+        // listOf("app"), which would have given web_open an `app` parameter and no `url`.
+        "web_open" to listOf("url"),
         "set_brightness" to listOf("percent", "auto"),
         "set_dnd" to listOf("on"),
         "set_ringer_mode" to listOf("mode"),
@@ -64,10 +67,23 @@ object ToolSchema {
         "memory_recall" to listOf("query"),
         "send_message" to listOf("contact", "recipient", "body", "message"),
         "get_daily_usage" to listOf("app_name"),
-        "get_recent_apps" to listOf("limit")
+        "get_recent_apps" to listOf("limit"),
+        // Knowledge / generative tools (KnowledgeTools.kt). Without these, defaultArgs()
+        // handed all of them the generic ["query", "text"] pair that none of their handlers
+        // read: currency wants amount/from/to, generate_image wants prompt, news wants
+        // topic. The model was calling them with arguments that were then discarded, so the
+        // tools failed asking for information the user had already given.
+        "wikipedia" to listOf("query", "topic"),
+        "news" to listOf("topic"),
+        "currency" to listOf("amount", "from", "to"),
+        "generate_image" to listOf("prompt", "description"),
+        // Accessibility tools registered by JarvisAccessibilityService. click_text forwards
+        // to click_element, which reads text/element/name/target/description.
+        "click_text" to listOf("text", "target"),
+        "wait_for_screen" to listOf("app", "timeout_ms")
     )
 
-    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes")
+    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "timeout_ms", "hour", "minute", "seconds", "minutes")
     private val NUMBER_ARGS = setOf("x", "y", "fromX", "fromY", "toX", "toY")
     private val BOOLEAN_ARGS = setOf("on", "auto", "enabled")
 

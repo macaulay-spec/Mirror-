@@ -5,7 +5,7 @@ import android.util.Log
 /**
  * Why did that sound like the robot voice?
  *
- * ElevenLabs failures used to be swallowed: every `catch` returned `false` and the engine
+ * Neural-TTS failures used to be swallowed: every `catch` returned `false` and the engine
  * silently fell back to Android's built-in TTS, so there was no way to tell a dead key
  * from quota exhaustion from a network blip. Now every failure is recorded and can be
  * shown in Settings.

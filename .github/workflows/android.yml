@@ -17,36 +17,142 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build Debug APK
+  # NOTE: the credential-scan job that used to live here was removed on the owner's
+  # instruction ("forget about the hardcoded api"). Keys are hardcoded in source by
+  # deliberate decision -- ApiConfig holds the NVIDIA key as a compile-time fallback and
+  # the repository is private -- so a CI gate policing credential-shaped literals would
+  # only ever fail builds the owner intends to make.
+
+  # Fast, blocking. eval/tools.json is generated from the Kotlin sources by
+  # scripts/generate_eval_tools.py and mirrors ToolSchema.forOpenAI(). If a tool is added,
+  # renamed or recategorised without regenerating it, the eval harness silently tests a
+  # tool surface the app no longer sends -- which is the exact failure mode that made the
+  # old hand-written 12-tool list worthless.
+  tool-manifest:
+    name: Eval tool manifest up to date
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify eval/tools.json matches the app
+        run: python3 scripts/generate_eval_tools.py --check
+
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to commit KSP-exported Room schemas back to the branch
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
-      - name: Create local.properties for CI
-        run: |
-          cat > local.properties << 'EOF'
-          NVIDIA_API_KEY=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
-          ELEVENLABS_API_KEY=sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53
-          EOF
+
+      # Runs before Gradle so a missing migration fails in seconds rather than after a
+      # full build. Source-level only: it parses AppDatabase.kt / Migrations.kt.
+      - name: Room migration policy (source check)
+        run: python3 scripts/check_room_migrations.py
+
       - name: Make gradlew executable
         run: |
           sed -i -e 's/\r$//' gradlew
           chmod +x ./gradlew
+
+      # FIX (audit P0-B): the previous "Create local.properties for CI" step wrote the
+      # keys into local.properties, but app/build.gradle.kts read them from
+      # System.getenv() -- which local.properties never populates. Every key compiled
+      # in as an empty string. Secrets are now passed as environment variables, which
+      # is what the build script actually reads (env first, local.properties second).
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
         env:
-          NVIDIA_API_KEY: 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
-          ELEVENLABS_API_KEY: sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53
+          # Only Gemini is injected: NVIDIA's key is hardcoded in ApiConfig.kt by
+          # owner decision, so BuildConfig no longer carries it.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # Now that KSP has run, the exported JSON must exist for every version from the
+      # baseline up. This is the check that cannot be done from source alone.
+      - name: Room migration policy (exported schemas)
+        run: python3 scripts/check_room_migrations.py --check-schemas app/schemas
+
+      # Schemas are generated, not hand-written, but they MUST be committed: they are the
+      # history future migrations are written against and what AutoMigration /
+      # MigrationTestHelper need. This sandbox cannot download build artifacts, so CI
+      # commits them back instead of leaving them stranded in an artifact. Idempotent --
+      # once committed, later runs find no diff and exit immediately.
+      - name: Commit exported Room schemas
+        if: github.event_name == 'push'
+        run: |
+          set -uo pipefail
+          if [ ! -d app/schemas ]; then
+            echo "KSP produced no app/schemas directory."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/schemas
+          if git diff --cached --quiet; then
+            echo "Exported Room schemas are already committed."
+            exit 0
+          fi
+          files=$(git diff --cached --name-only | tr '\n' ' ')
+          # Message built line by line: a multi-line literal inside `run: |` must keep
+          # every line indented, or it terminates the YAML block scalar.
+          {
+            echo "chore(room): export schema JSON [skip ci]"
+            echo
+            echo "Generated by KSP from the @Database annotation during the Android build."
+            echo "Committed by CI because these files are the migration history: future"
+            echo "migrations, AutoMigration and MigrationTestHelper all read them."
+            echo
+            echo "Files: $files"
+          } > "$RUNNER_TEMP/schema-commit-msg.txt"
+          git commit -F "$RUNNER_TEMP/schema-commit-msg.txt"
+          # The branch may have moved since checkout; rebase rather than force anything.
+          # --autostash is required: the "Make gradlew executable" step above rewrites
+          # gradlew (CRLF strip + mode change), and a plain rebase refuses to run with a
+          # dirty working tree -- which is exactly why the first attempt silently gave up.
+          git fetch origin "$GITHUB_REF_NAME"
+          if ! git -c rebase.autoStash=true rebase "origin/$GITHUB_REF_NAME"; then
+            echo "::warning::rebase onto the moved branch failed; exported schemas not committed this run"
+            git rebase --abort || true
+            exit 0
+          fi
+          if git push origin "HEAD:$GITHUB_REF_NAME"; then
+            echo "Committed exported schemas: $files"
+          else
+            echo "::warning::could not push exported schemas; commit them manually from app/schemas"
+          fi
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace --no-daemon
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Report APK size
+        run: |
+          apk=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          size=$(stat -c%s "$apk")
+          echo "APK: $apk"
+          echo "Size: $((size / 1024 / 1024)) MiB ($size bytes)"
+          echo "size_bytes=$size" >> "$GITHUB_OUTPUT"
+        id: apksize
+
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:

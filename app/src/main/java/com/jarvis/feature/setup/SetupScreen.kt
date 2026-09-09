@@ -408,12 +408,14 @@ fun SetupScreen(
 
                 // Voice & Persona Customization Card
                 item {
-                    val engineType = "elevenlabs"
+                    // CHANGED (owner decision, 2026-09-07): ElevenLabs removed.
+                    // Neural speech is Gemini TTS; Android TTS is the fallback.
+                    val engineType = "gemini"
                     var selectedVoice by remember { mutableStateOf(ApiConfig.selectedVoiceId) }
                     var savedVoice by remember { mutableStateOf(false) }
 
                     PermissionCard(
-                        title = "VOICE SYNTHESIS & ELEVENLABS",
+                        title = "VOICE SYNTHESIS",
                         subtitle = "Select voice character & regional accent",
                         icon = Icons.Default.Mic,
                         isGranted = true,
@@ -485,7 +487,9 @@ fun SetupScreen(
                             OutlinedButton(
                                 onClick = {
                                     ApiConfig.saveVoicePreferences(context, engineType, selectedVoice)
-                                    android.widget.Toast.makeText(context, "Streaming ElevenLabs preview...", android.widget.Toast.LENGTH_SHORT).show()
+                                    // The label said "ElevenLabs" while the code below already
+                                    // called GeminiVoicePlayer -- it was wrong before it was removed.
+                                    android.widget.Toast.makeText(context, "Streaming voice preview...", android.widget.Toast.LENGTH_SHORT).show()
                                     coroutineScope.launch {
                                         try {
                                             com.jarvis.app.voice.GeminiVoicePlayer.speak(context, "Greetings ${ApiConfig.userName}. Systems operational. How may I assist you today?")

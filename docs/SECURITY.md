@@ -1,60 +1,80 @@
 # Security
 
-## Credential Management
+## Credential management
 
-The Android application sources API keys **only** from `BuildConfig` values
-injected at compile time (from `local.properties`, which is gitignored, or
-from CI secrets). `ApiConfig` getters return `BuildConfig` values and
-default to an empty string — there are **no hardcoded fallback keys** in
-source. With no key supplied, the corresponding provider is simply
-unavailable rather than silently using a baked-in credential.
+Current state, as of the 2026-09-09 sync:
 
-When `BackendConfig.USE_BACKEND = true` and a real Convex deployment URL is
-set (`BackendConfig.isBackendReady`), all AI communication goes through the
-Convex backend via `JarvisApiClient`, and keys live server-side as Convex
-environment variables. When `USE_BACKEND = false`, the app calls providers
-directly with keys from `local.properties` / BuildConfig.
+| Credential | Where it lives | Injected how |
+| --- | --- | --- |
+| Gemini API key | `GEMINI_API_KEY` in CI secrets, or `local.properties` (gitignored) | `buildSecret()` → `BuildConfig` at compile time; empty string if absent |
+| NVIDIA API key | `HARDCODED_NVIDIA_KEY` constant in `app/src/main/java/com/jarvis/app/config/ApiConfig.kt` | Compiled into the APK |
 
-Do not hardcode or commit keys to the repository.
+Hardcoding the NVIDIA key is an **explicit owner decision** (the repository is private and
+the APK is intended to be self-contained). It is recorded here as fact, not as an open
+issue: there is no CI gate that fails on it, and no plan to add one.
 
-## ⚠️ SECURITY ADVISORY — leaked keys in git history (action required)
+The practical consequence worth knowing: rotating that key is a **code change plus a
+rebuild**, not a config change. Anyone who installs a built APK can extract the key from
+the binary, so it should be treated as a shared, revocable credential with spending limits
+at the provider console rather than as a personal secret.
 
-A previous version of this repository committed **live** API keys directly
-in `ApiConfig.kt` as plaintext `HARDCODED_*` / `*_FALLBACK` constants:
+`ApiConfig.activeProvider` resolves Gemini first and falls back to NVIDIA, so a missing or
+exhausted Gemini key degrades to a working brain instead of silencing the assistant.
 
-- a Gemini key (`AQ.Ab8RN6LVmUR…`)
-- an ElevenLabs key (`sk_d61e4d09ae…`)
-- a Rork Toolkit key (`rork_sk_ied1mfj2…`)
+### Removed credential paths
 
-Commit `34a6832` re-added them after an earlier removal (`6017591`). They
-have now been removed from `HEAD` (fail-closed getters), **but they remain
-in the git history** on at least commits `34a6832`, `93794f7`, `d50ff0e`,
-`d758e8f`.
+The following were deleted and take no key. References to them in older documents are
+historical (see `docs/README.md`):
 
-**The repository owner MUST:**
+- **ElevenLabs** — the integration was removed entirely at the owner's instruction, along
+  with `ELEVENLABS_API_KEY`, its `BuildConfig` field and `CloudSttEngine`. Voice is Gemini
+  TTS with an Android `TextToSpeech` fallback.
+- **Convex backend** — `convex/`, `BackendConfig`, and the `chatViaProxy` path in
+  `JarvisApiClient`. `isBackendReady` was permanently false because no `WORKER_URL` was ever
+  configured, so every call already took the direct path.
+- **Rork Toolkit gateway** — `TOOLKIT_URL` / `TOOLKIT_SECRET_KEY`, unreferenced.
 
-1. **Rotate / revoke all three keys immediately** at their respective
-   provider consoles (Google AI Studio, ElevenLabs, Rork). Treat them as
-   compromised — they were in a public repo.
-2. **Rewrite git history** to scrub the keys from every commit, using BFG
-   Repo-Cleaner or `git filter-repo`, then force-push:
-   ```bash
-   # using git filter-repo
-   pip install git-filter-repo
-   echo 'AQ.Ab8RN6LVmUR...' > keys-to-remove.txt   # one secret per line
-   echo 'sk_d61e4d09ae...' >> keys-to-remove.txt
-   echo 'rork_sk_ied1mfj2...' >> keys-to-remove.txt
-   git filter-repo --replace-text keys-to-remove.txt
-   git push --force origin --all
-   ```
-3. Have all collaborators re-clone after the rewrite (history rewrite
-   changes every commit SHA).
+## Key rotation
 
-Removing the keys from `HEAD` does **not** remove them from history.
+```bash
+# Gemini: update the CI secret, or local.properties for a local build
+gh secret set GEMINI_API_KEY --app <app>        # CI
+#   ...or edit local.properties                  # local
+
+# NVIDIA: edit HARDCODED_NVIDIA_KEY in ApiConfig.kt, then rebuild
+```
+
+`local.properties` is gitignored. Environment variables take precedence over it, so CI
+never depends on a committed file.
+
+## Git history
+
+Keys committed in earlier revisions remain reachable through git history even though the
+current `HEAD` no longer contains the ElevenLabs or Rork values. `main` has since been
+rewritten to a single squashed commit, so the specific SHAs named in earlier revisions of
+this document no longer resolve. Treat any credential that was ever committed as revocable
+at the provider console; rotation is the only complete remedy, and it is the owner's call
+when to do it.
 
 ## Permissions
 
-Jarvis requests permissions only when explicitly enabled by the user via the `PermissionCenterScreen`.
-- Accessibility: Used for screen reading and interaction.
-- Overlay: Used for the floating Orb.
-- Microphone: Used for STT and Wake Word.
+JARVIS requests permissions only when the user explicitly enables them via
+`PermissionCenterScreen`.
+
+- **Accessibility** — screen reading and on-screen interaction (`JarvisAccessibilityService`).
+- **Overlay** — the floating Orb.
+- **Microphone** — speech-to-text and the wake word.
+- **Location** — weather and navigation; the weather tool prefers a named city and only
+  reads device location when the user does not name one.
+
+The default-assistant role is *not* requestable by third-party apps
+(`ROLE_ASSISTANT` has `requestable=false`), so the app registers an `ACTION_ASSIST`
+intent filter instead — see `docs/JARVIS_DEFAULT_ASSISTANT.md`.
+
+## Data on device
+
+Conversation history and memories are stored in a local Room database. Schema versions are
+exported to `app/schemas/` and migration coverage is checked by
+`scripts/check_room_migrations.py`. Destructive migration fallbacks are scoped to specific
+old versions rather than applied globally, so a missing migration cannot silently wipe
+user data on a current install.

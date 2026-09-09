@@ -17,6 +17,7 @@ import android.text.TextUtils
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.jarvis.app.assist.AssistantRoleManager
 import com.jarvis.android.accessibility.JarvisAccessibilityService
 import com.jarvis.app.notifications.JarvisNotificationListener
 
@@ -371,44 +372,18 @@ object PermissionAndSetupHelper {
         safelyStart(context, intent, fallback = { openAppDetails(context) })
     }
 
-    fun isDefaultAssistant(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
-            roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) ?: false
-        } else {
-            val defaultAssist = Settings.Secure.getString(context.contentResolver, "assistant")
-            defaultAssist != null && defaultAssist.contains(context.packageName)
-        }
-    }
+    /**
+     * Delegates to [AssistantRoleManager].
+     *
+     * FIX: this helper carried a second, divergent copy of the assistant logic and it
+     * had the same bug -- it tried `createRequestRoleIntent(ROLE_ASSISTANT)` first and
+     * `return`ed on success, so the Settings fallback below was unreachable and the
+     * button silently did nothing. One implementation now lives in AssistantRoleManager.
+     */
+    fun isDefaultAssistant(context: Context): Boolean = AssistantRoleManager.isDefault(context)
 
     fun openDefaultAssistantSettings(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
-                if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
-                    val intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_ASSISTANT).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                    return
-                }
-            } catch (_: Exception) {}
-        }
-        try {
-            val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            try {
-                val fallback = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(fallback)
-            } catch (_: Exception) {
-                openAppDetails(context)
-            }
-        }
+        if (!AssistantRoleManager.makeDefault(context)) openAppDetails(context)
     }
 
     fun openAppDetails(context: Context) {

@@ -1,10 +1,24 @@
 name: JARVIS Brain Eval
 
+# Single home for the reasoning regression gate. It used to live both here and as a job
+# inside android.yml, which ran the live NVIDIA endpoint twice per push.
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+      - master
+      - 'arena/**'
+    paths:
+      - 'eval/**'
+      - 'scripts/generate_eval_tools.py'
+      - 'app/src/main/java/com/jarvis/agent/**'
+      - 'app/src/main/java/com/jarvis/app/config/ApiConfig.kt'
+      - '.github/workflows/eval.yml'
+  pull_request:
+    branches:
+      - main
+      - master
     paths:
       - 'eval/**'
       - 'app/src/main/java/com/jarvis/agent/**'
@@ -17,6 +31,8 @@ jobs:
   eval:
     name: Utterance regression gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to post the transcript as a commit comment
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -26,8 +42,59 @@ jobs:
         with:
           python-version: '3.11'
 
+      # The harness must test the tool surface the app really sends. Regenerating here
+      # means the gate is correct even if eval/tools.json was committed stale; the
+      # separate `tool-manifest` job in android.yml is what fails the build on drift.
+      - name: Refresh the tool manifest
+        run: python3 scripts/generate_eval_tools.py
+
       - name: Run brain eval
-        run: python eval/jarvis_eval.py
+        run: |
+          set -uo pipefail
+          python eval/jarvis_eval.py 2>&1 | tee eval-output.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo "### Brain eval"
+            echo '```'
+            cat eval-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            # Path-qualified so it surfaces in the check-runs annotations API; bare
+            # `::error::msg` lines were emitted but never appeared anywhere readable.
+            echo "::error file=eval/jarvis_eval.py,line=1,title=brain eval::failed with exit $status"
+            tail -n 8 eval-output.txt | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error file=eval/jarvis_eval.py,line=1::${line}"
+            done
+          fi
+          exit "$status"
         env:
+          # Optional: the harness derives the NVIDIA key from ApiConfig.kt when this is
+          # unset, so the gate runs without any repository secret configured.
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           EVAL_MODEL: nvidia/nemotron-3-super-120b-a12b
+
+      # Actions logs and artifacts are not reliably fetchable from automation, and an
+      # advisory-style gate nobody can read is worthless. The transcript is posted to the
+      # commit so the result is visible to the owner and inspectable remotely.
+      - name: Post eval transcript to the commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          [ -f eval-output.txt ] || { echo "no transcript"; exit 0; }
+          {
+            printf '### Brain eval — %s\n\n' "$GITHUB_SHA"
+            printf '```\n'
+            tail -n 80 eval-output.txt
+            printf '```\n'
+          } > /tmp/eval-body.md
+          jq -Rs '{body: .}' < /tmp/eval-body.md > /tmp/eval-payload.json
+          code=$(curl -sS -o /tmp/eval-resp.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -d @/tmp/eval-payload.json)
+          echo "commit comment HTTP $code"
+          [ "$code" = "201" ] || head -c 400 /tmp/eval-resp.json

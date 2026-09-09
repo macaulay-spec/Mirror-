@@ -1,12 +1,21 @@
-# Copy this file to local.properties and paste your real keys.
-# local.properties is gitignored — your keys never enter the repository.
+# Copy this file to local.properties and paste your real key.
+# local.properties is gitignored — your key never enters the repository.
 #
 #   cp local.properties.example local.properties
 #
-# Where to get them:
+# Where to get it:
 #
-#   NVIDIA      https://build.nvidia.com        -> key for NIM endpoint (OpenAI-compatible)
-#   ELEVENLABS  https://elevenlabs.io            -> key starts with "sk_"
+#   GEMINI  https://aistudio.google.com/apikey -> key starts with "AIza"
+#
+# Optional. If it is absent the Gemini provider reports unavailable and JARVIS falls back
+# to NVIDIA, whose key is compiled into the app (see docs/SECURITY.md). An environment
+# variable of the same name takes precedence over this file.
+#
+# NVIDIA_API_KEY is deliberately NOT listed here: nothing reads it any more. It used to be
+# a BuildConfig field populated only from System.getenv(), which is empty for a normal
+# `./gradlew assembleDebug`, so the hardcoded fallback in ApiConfig.kt was doing all the
+# work. Setting it in this file would have had no effect.
+#
+# ElevenLabs support was removed on 2026-09-07 and takes no key.
 
-NVIDIA_API_KEY=
-ELEVENLABS_API_KEY=
+GEMINI_API_KEY=

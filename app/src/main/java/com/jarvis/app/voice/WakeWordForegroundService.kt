@@ -12,12 +12,15 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.jarvis.android.voice.MicArbiter
 import com.jarvis.app.MainActivity
 import com.rork.jarvisaiassistant.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -32,8 +35,21 @@ import kotlinx.coroutines.launch
  *   3. microWakeWord (lightweight, TFLite-based)
  *
  * The service runs as a foreground service with a persistent notification.
- * It automatically pauses when the engine is active (processing a command)
- * and resumes when idle.
+ *
+ * ## Microphone ownership (audit P1-D)
+ *
+ * This service and [com.jarvis.android.voice.JarvisVoiceEngine] each own a
+ * `SpeechRecognizer`, and Android allows only one to be live at a time. They used to
+ * coordinate by polling `VoiceBus.engineState` for `IDLE` — for up to 120 seconds — and
+ * then starting the recognizer anyway. Because the conversation engine kept re-arming
+ * itself, the state rarely settled, and when it briefly did both recognizers came up
+ * together: `ERROR_RECOGNIZER_BUSY`, both back off, hands-free listening dies.
+ *
+ * Both now go through [MicArbiter]. This service asks for the mic, is told no while a
+ * conversation holds it, and resumes by collecting [MicArbiter.holder] instead of
+ * polling. The conversation preempts this service through a yield hook registered in
+ * [onCreate], so the background recognizer is always stopped *before* the foreground one
+ * starts.
  */
 class WakeWordForegroundService : Service() {
 
@@ -58,6 +74,9 @@ class WakeWordForegroundService : Service() {
     private var consecutiveErrors = 0
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /** Single waiter for the microphone; guards against stacking retries. */
+    private var micWaitJob: Job? = null
+
     override fun onCreate() {
         super.onCreate()
         running = true
@@ -68,6 +87,11 @@ class WakeWordForegroundService : Service() {
             startForeground(NOTIF_ID, buildNotification())
         }
         acquireWakeLock()
+
+        // Let a conversation take the microphone away from us. The arbiter stops this
+        // engine BEFORE granting the mic to JarvisVoiceEngine, so there is no instant
+        // where two recognizers are live.
+        MicArbiter.setWakeWordOwner { stopEngine() }
 
         // FIX (production repair): the wake lock expired after 10 minutes and was
         // never renewed, so Doze quietly killed wake-word listening overnight.
@@ -98,6 +122,13 @@ class WakeWordForegroundService : Service() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             // Can't listen without permission — will retry when permission is granted
+            return
+        }
+
+        // Ask the arbiter rather than assuming the mic is free. If a conversation holds
+        // it, wait for the release event instead of starting a second recognizer.
+        if (!MicArbiter.acquireWakeWord()) {
+            awaitMicThenStart()
             return
         }
 
@@ -143,6 +174,24 @@ class WakeWordForegroundService : Service() {
             engine?.release()
         } catch (_: Exception) {}
         engine = null
+        MicArbiter.releaseWakeWord()
+    }
+
+    /**
+     * Waits for the microphone to be released, then listens again.
+     *
+     * Replaces the old `resumeWhenIdle()`, which polled `VoiceBus.engineState` every two
+     * seconds for up to two minutes and then started the recognizer regardless of whether
+     * anything else held the mic. This is event-driven and cannot start a recognizer while
+     * one is already live.
+     */
+    private fun awaitMicThenStart() {
+        if (micWaitJob?.isActive == true) return
+        micWaitJob = scope.launch {
+            MicArbiter.holder.first { it == MicArbiter.Holder.NONE }
+            micWaitJob = null
+            if (running) startListening()
+        }
     }
 
     private fun tryWake() {
@@ -156,37 +205,19 @@ class WakeWordForegroundService : Service() {
         // Stop background listening — the foreground engine takes the mic…
         stopEngine()
 
-        // …FIX (2026-09-03): …and RESUME background listening once the
-        // foreground interaction settles. This used to stop the engine and
-        // never restart it, so a single successful "Hey JARVIS" permanently
-        // killed hands-free listening until the service was restarted.
-        resumeWhenIdle()
-    }
-
-    /** Re-arms background wake-word listening after a foreground interaction. */
-    private fun resumeWhenIdle() {
-        scope.launch {
-            var waited = 0L
-            while (running && waited < 120_000L) {
-                delay(2000L)
-                waited += 2000L
-                val state = VoiceBus.engineState.value
-                if (state == com.jarvis.core.model.JarvisVisualState.IDLE ||
-                    state == com.jarvis.core.model.JarvisVisualState.ERROR
-                ) {
-                    if (running) startListening()
-                    return@launch
-                }
-            }
-        }
+        // …and resume as soon as it gives the mic back. This used to be a 120-second poll
+        // of VoiceBus.engineState that started the recognizer whether or not the
+        // conversation was actually finished; now it is driven by the arbiter's release.
+        awaitMicThenStart()
     }
 
     private fun restartSoon() {
         scope.launch {
             delay(RESTART_DELAY_MS)
-            if (running && VoiceBus.engineState.value == com.jarvis.core.model.JarvisVisualState.IDLE) {
-                startListening()
-            }
+            // No engineState check here: startListening() asks the arbiter, and parks on
+            // awaitMicThenStart() if a conversation holds the mic. Checking a state flow
+            // here is what allowed two recognizers to overlap in the first place.
+            if (running) startListening()
         }
     }
 
@@ -249,6 +280,9 @@ class WakeWordForegroundService : Service() {
 
     override fun onDestroy() {
         running = false
+        micWaitJob?.cancel()
+        micWaitJob = null
+        MicArbiter.setWakeWordOwner { }
         stopEngine()
         try {
             wakeLock?.release()

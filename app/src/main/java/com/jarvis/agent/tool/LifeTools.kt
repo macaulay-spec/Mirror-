@@ -627,32 +627,15 @@ object LifeTools {
 
     // --------------------------------------------------------------- weather
 
-    /** Resolve a city name to lat/lon via the free Open-Meteo geocoding API. */
-    private fun geocodeCity(query: String): Pair<Double, Double>? = try {
-        val url = "https://geocoding-api.open-meteo.com/v1/search?name=" +
-            java.net.URLEncoder.encode(query, "UTF-8") + "&count=1"
-        val body = httpGetString(url) ?: return null
-        val results = org.json.JSONObject(body).optJSONArray("results") ?: return null
-        if (results.length() == 0) null
-        else {
-            val top = results.getJSONObject(0)
-            Pair(top.optDouble("latitude"), top.optDouble("longitude"))
-        }
-    } catch (_: Exception) {
-        null
-    }
+    // REMOVED during the sync: geocodeCity(), main's independent version of the same
+    // "weather in <city>" fix. It is superseded by geocode() below, which returns the
+    // resolved place NAME alongside the coordinates -- that name is what lets the tool say
+    // "Weather in Lagos" instead of "Weather in your location". Keeping both meant two
+    // keyless Open-Meteo geocoders in one file with only one reachable.
 
-    private fun httpGetString(url: String): String? = try {
-        val client = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-        client.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { resp ->
-            if (resp.isSuccessful) resp.body?.string() else null
-        }
-    } catch (_: Exception) {
-        null
-    }
+    // Also removed: httpGetString(), a one-off OkHttpClient builder whose only caller was
+    // geocodeCity(). geocode() uses the shared weatherClient, so there is now a single HTTP
+    // client in this file instead of two with different timeouts.
 
     private fun registerWeather() {
         ToolRegistry.register(
@@ -663,33 +646,44 @@ object LifeTools {
                 category = "INFORMATION",
                 riskLevel = RiskLevel.LEVEL_0
             ) { context, args ->
-                val place = arg(args, "place", "location", "city", "where")
+                val rawPlace = arg(args, "place", "location", "city", "where")
 
-                // 1. A named city wins — geocoded via Open-Meteo (free, no key)
-                val latLon = if (place.isNotBlank()) {
-                    geocodeCity(place)
-                } else {
-                    // 2. Otherwise fall back to the user's real location
-                    val loc = com.jarvis.app.tools.LocationToolkit(context).lastKnown()
-                    if (loc.contains(",")) {
-                        val parts = loc.split(",")
-                        try {
-                            val lat = parts[0].trim().toDouble()
-                            val lon = parts[1].trim().toDouble()
-                            Pair(lat, lon)
-                        } catch (_: Exception) {
-                            null
-                        }
-                    } else null
+                // FIX (audit P1-F): `place` was parsed here and then never read. The
+                // coordinates came only from LocationToolkit.lastKnown(), so "what's the
+                // weather in Abuja?" answered for wherever the phone last had a fix -- and
+                // with no location permission, or indoors, weather failed outright with
+                // "I need your location". resolvePlace() was defined in this same file and
+                // never called.
+                //
+                // Now: a named place is geocoded (Open-Meteo's geocoder is keyless), and
+                // device location is only used when the user did not name anywhere -- or
+                // named somewhere that means "here".
+                val resolvedPlace = if (rawPlace.isBlank()) "" else resolvePlace(context, rawPlace)
+                val wantsCurrentLocation = resolvedPlace.isBlank() ||
+                    LOCALITY_WORDS.any { it in resolvedPlace.lowercase() }
+
+                val fromDevice = if (wantsCurrentLocation) deviceLatLon(context) else null
+                val geocoded = if (fromDevice == null && resolvedPlace.isNotBlank()) {
+                    geocode(resolvedPlace)
+                } else null
+
+                val latLon = fromDevice ?: geocoded?.second
+                // Both coordinates failing is handled by the latLon == null return below,
+                // so the final branch here is unreachable in practice. It exists so the
+                // type is a non-null String and no interpolation can ever speak "null".
+                val label: String = when {
+                    fromDevice != null -> "your location"
+                    geocoded != null -> geocoded.first
+                    else -> "the requested area"
                 }
 
                 if (latLon == null) {
                     return@ToolDefinition error(
                         "weather",
-                        if (place.isBlank()) {
-                            "I need your location for weather. Enable location permission, or tell me which city."
+                        if (resolvedPlace.isNotBlank()) {
+                            "I could not find '$resolvedPlace'. Try a fuller name, like a city and country."
                         } else {
-                            "I couldn't find \"$place\" on the map. Try another nearby city."
+                            "I need your location for weather. Enable location permission, or tell me which city."
                         }
                     )
                 }
@@ -697,10 +691,7 @@ object LifeTools {
                 return@ToolDefinition try {
                     val weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=${latLon.first}&longitude=${latLon.second}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=celsius"
 
-                    val client = okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
+                    val client = weatherClient
 
                     val request = okhttp3.Request.Builder()
                         .url(weatherUrl)
@@ -734,12 +725,16 @@ object LifeTools {
                             toolId = "weather",
                             success = true,
                             data = mapOf(
+                                "place" to label,
                                 "temperature" to temp,
                                 "condition" to condition,
                                 "humidity" to humidity,
                                 "wind_speed" to windSpeed
                             ),
-                            verificationDetails = "Current weather: $detail"
+                            // Names the place. Without this, "weather in Abuja" and
+                            // "weather here" produced the identical string and there was
+                            // no way to tell a correct answer from the wrong city.
+                            verificationDetails = "Current weather for $label: $detail"
                         )
                     }
                 } catch (e: Exception) {
@@ -788,6 +783,67 @@ object LifeTools {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /** Words that mean "wherever I am", so they must not be sent to a geocoder. */
+    private val LOCALITY_WORDS = listOf(
+        "here", "outside", "my location", "current location", "where i am", "around me"
+    )
+
+    /** Device fix as (lat, lon), or null when unavailable or unparseable. */
+    private fun deviceLatLon(context: Context): Pair<Double, Double>? {
+        val loc = com.jarvis.app.tools.LocationToolkit(context).lastKnown()
+        if (!loc.contains(",")) return null
+        val parts = loc.split(",")
+        return try {
+            Pair(parts[0].trim().toDouble(), parts[1].trim().toDouble())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Resolves a place name to (label, (lat, lon)) using Open-Meteo's geocoding API.
+     *
+     * No key required, which is why this was always available and simply never wired up.
+     * The label comes from the response rather than the query so the spoken answer says
+     * "Lagos, Nigeria" and not just whatever the user happened to mumble.
+     */
+    private fun geocode(place: String): Pair<String, Pair<Double, Double>>? = try {
+        val url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json" +
+            "&name=${android.net.Uri.encode(place)}"
+        val request = okhttp3.Request.Builder().url(url).get().build()
+        weatherClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val first = org.json.JSONObject(response.body?.string() ?: "{}")
+                .optJSONArray("results")?.optJSONObject(0) ?: return@use null
+            val lat = first.optDouble("latitude", Double.NaN)
+            val lon = first.optDouble("longitude", Double.NaN)
+            if (lat.isNaN() || lon.isNaN()) return@use null
+            val label = listOfNotNull(
+                first.optString("name").takeIf { it.isNotBlank() },
+                first.optString("country").takeIf { it.isNotBlank() }
+            ).distinct().joinToString(", ")
+            Pair(label.ifBlank { place }, Pair(lat, lon))
+        }
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * One shared client for the geocoder and the forecast call.
+     *
+     * OkHttpClient is thread-safe and is designed to be reused -- each instance carries
+     * its own connection pool and dispatcher threads, so building one per request (which
+     * the old weather handler did, and which a per-call factory function would still do)
+     * leaks threads and gives up connection reuse. Lazy so it costs nothing until weather
+     * is actually used.
+     */
+    private val weatherClient: okhttp3.OkHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
     }
 
     private fun resolvePlace(context: Context, place: String): String {

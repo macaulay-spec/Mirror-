@@ -14,7 +14,6 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
-import com.jarvis.android.voice.CloudSttEngine
 import com.jarvis.core.model.JarvisVisualState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,8 +44,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 3. Barge-in — [stopSpeaking] aborts playback and drops queued sentences.
  *
- * 4. Never silent — per utterance: ElevenLabs (proxy → direct) → Android TTS,
- *    with VoiceDiagnostics reporting every failure honestly.
+ * 4. Never silent — per utterance: Gemini neural TTS → Android TTS, with
+ *    VoiceDiagnostics reporting every failure honestly.
  */
 class JarvisVoiceEngine(private val context: Context) : RecognitionListener, TextToSpeech.OnInitListener {
 
@@ -107,6 +106,11 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
         setupAudioFocus()
         startSpeechWorker()
+
+        // FIX (audit P1-D): let the arbiter stop this recognizer if something with higher
+        // priority ever needs the mic, instead of the two engines discovering each other
+        // by polling state.
+        MicArbiter.setConversationOwner { stopListening() }
     }
 
     // ─── Speech output queue ─────────────────────────────────────────────
@@ -297,22 +301,68 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
     fun setState(state: JarvisVisualState) {
         _engineState.value = state
         com.jarvis.app.voice.VoiceBus.setEngineState(state)
+        // FIX (audit P1-D): the arbiter must never outlive the recognizer. IDLE and ERROR
+        // both mean no recognizer is running, so the microphone is free. Without this a
+        // single one-shot turn would hold the mic forever and the wake word could never
+        // resume -- which is the same starvation the old polling loop suffered from, just
+        // with a different cause.
+        if (state == JarvisVisualState.IDLE || state == JarvisVisualState.ERROR) {
+            MicArbiter.releaseConversation("state=$state")
+        }
     }
 
     // ─── Speech recognition ──────────────────────────────────────────────
 
-    fun startListening() {
+    /**
+     * Begins a fresh conversation turn.
+     *
+     * Clears the idle-loop counter (so a new wake word is never cut short by the previous
+     * turn's failures), arms continuous mode, and takes the microphone through the
+     * arbiter. This is what the wake word and the mic button should call.
+     */
+    fun beginConversation(reason: String) {
+        consecutiveRecognizerFailures = 0
+        continuousMode = true
+        startListening(reason)
+    }
+
+    /**
+     * Starts the conversation recognizer.
+     *
+     * @param reason shown in the diagnostics trail, so "who took the mic and why" is
+     *   answerable after the fact instead of being guesswork.
+     */
+    fun startListening(reason: String = "user") {
         mainHandler.post {
             try {
+                // FIX (audit P1-D): acquire the microphone from the arbiter BEFORE
+                // creating a recognizer. This is what makes "at most one recognizer"
+                // true instead of hoped for -- the wake-word engine is stopped first if
+                // it happens to be listening.
+                if (!MicArbiter.acquireConversation(reason)) {
+                    com.jarvis.app.voice.VoiceDiagnostics.report(
+                        "Microphone is busy (${MicArbiter.describe()}) — cannot start listening."
+                    )
+                    setState(JarvisVisualState.ERROR)
+                    return@post
+                }
                 stopSpeaking()
                 safeDestroyRecognizer()
 
                 if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                    // AUDIT FIX (2026-09-03): don't give up — many devices ship
-                    // without Google's recognizer. Fall back to cloud STT
-                    // (Vercel AI Gateway via the Rork proxy).
-                    com.jarvis.app.voice.VoiceDiagnostics.report("Device speech recognition unavailable — using cloud STT")
-                    startCloudListening()
+                    // CHANGED (owner decision, 2026-09-07): the cloud STT fallback
+                    // (CloudSttEngine / ElevenLabs Scribe) has been removed along with
+                    // the rest of that integration. There is no second microphone path
+                    // any more, so say so plainly instead of pretending to listen: the
+                    // user gets a real diagnostic and the Orb shows an error state
+                    // rather than animating while nothing is being recorded.
+                    com.jarvis.app.voice.VoiceDiagnostics.report(
+                        "This device has no speech recognition service installed, so voice " +
+                            "input is unavailable. Install a speech services provider (e.g. " +
+                            "Speech Services by Google) or use the text input instead."
+                    )
+                    setState(JarvisVisualState.ERROR)
+                    abandonAudioFocus()
                     return@post
                 }
 
@@ -336,7 +386,12 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                 }
 
                 recognizer.startListening(intent)
-                consecutiveRecognizerFailures = 0
+                // FIX (audit P1-D): `consecutiveRecognizerFailures = 0` used to sit here.
+                // Resetting on every *start* made MAX_RECOGNIZER_RESTARTS unreachable --
+                // each restart succeeded and cleared the counter, so continuous mode
+                // re-armed forever and never yielded the microphone. The counter is now
+                // cleared only in onResults() when speech was actually recognized, which
+                // is what "consecutive failures" was always meant to count.
                 setState(JarvisVisualState.LISTENING)
             } catch (e: Throwable) {
                 com.jarvis.app.voice.VoiceDiagnostics.report("Failed to start recognizer: ${e.message}")
@@ -355,43 +410,16 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
         speechRecognizer = null
     }
 
-    /**
-     * AUDIT ADDITION (2026-09-03): cloud STT path (Vercel AI Gateway,
-     * xai/grok-stt via the Rork proxy) for devices where the system
-     * recognizer is missing or repeatedly fails.
-     */
-    fun startCloudListening() {
-        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            com.jarvis.app.voice.VoiceDiagnostics.report("Cloud STT needs microphone permission")
-            setState(JarvisVisualState.ERROR)
-            return
-        }
-        setState(JarvisVisualState.LISTENING)
-        speakScope.launch {
-            val text = CloudSttEngine.listenAndTranscribe { level ->
-                _audioRms.value = level
-                com.jarvis.app.voice.VoiceBus.setAudioLevel(level)
-            }
-            _audioRms.value = 0f
-            abandonAudioFocus()
-            if (!text.isNullOrBlank()) {
-                _lastRecognizedText.value = text
-                consecutiveRecognizerFailures = 0
-                setState(JarvisVisualState.THINKING)
-                onSpeechResult?.invoke(text)
-            } else if (continuousMode) {
-                startListening()
-            } else {
-                setState(JarvisVisualState.IDLE)
-            }
-        }
-    }
+    // REMOVED (owner decision, 2026-09-07): startCloudListening() and the whole
+    // CloudSttEngine path. That engine recorded the microphone directly and sent the
+    // audio to ElevenLabs Scribe; with ElevenLabs removed there is nothing for it to
+    // call. startListening() above now reports the missing-recognizer case honestly
+    // instead of silently switching to a path that cannot work.
 
     fun stopListening() {
         mainHandler.post {
             safeDestroyRecognizer()
+            MicArbiter.releaseConversation("stopListening")
             if (_engineState.value == JarvisVisualState.LISTENING) {
                 setState(JarvisVisualState.IDLE)
                 abandonAudioFocus()
@@ -409,11 +437,36 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
                 state != JarvisVisualState.EXECUTING
             if (mayRestart && consecutiveRecognizerFailures < MAX_RECOGNIZER_RESTARTS) {
                 consecutiveRecognizerFailures++
-                startListening()
-            } else if (state == JarvisVisualState.LISTENING || state == JarvisVisualState.ERROR) {
-                setState(JarvisVisualState.IDLE)
+                startListening("continuous conversation")
+            } else {
+                if (mayRestart) {
+                    // The cap was actually reached: several consecutive turns with no
+                    // speech. End the conversation loop and hand the microphone back so
+                    // background wake-word listening can resume. Without this, continuous
+                    // mode held the mic indefinitely and hands-free died.
+                    endContinuousConversation(
+                        "no speech after $MAX_RECOGNIZER_RESTARTS attempts"
+                    )
+                }
+                if (state == JarvisVisualState.LISTENING || state == JarvisVisualState.ERROR) {
+                    setState(JarvisVisualState.IDLE)
+                }
             }
         }, delayMs)
+    }
+
+    /**
+     * Ends a continuous-conversation loop and frees the microphone.
+     *
+     * This is the exit that was missing: `continuousMode` was set to true on every wake
+     * word and mic toggle and only ever cleared by audio-focus loss, a permission error
+     * or teardown — never by the conversation simply going quiet.
+     */
+    private fun endContinuousConversation(reason: String) {
+        continuousMode = false
+        consecutiveRecognizerFailures = 0
+        com.jarvis.app.voice.VoiceDiagnostics.report("Conversation loop ended: $reason")
+        MicArbiter.releaseConversation(reason)
     }
 
     fun updateVoiceConfig() {
@@ -534,6 +587,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                 com.jarvis.app.voice.VoiceDiagnostics.report("Microphone permission missing — recognizer cannot start")
                 continuousMode = false
+                consecutiveRecognizerFailures = 0
                 setState(JarvisVisualState.ERROR)
             }
             SpeechRecognizer.ERROR_NO_MATCH,
@@ -554,6 +608,7 @@ class JarvisVoiceEngine(private val context: Context) : RecognitionListener, Tex
 
     fun destroy() {
         continuousMode = false
+        MicArbiter.setConversationOwner { }
         drainQueue()
         stopListening()
         stopSpeaking()

@@ -52,17 +52,12 @@ object ApiConfig {
         VoicePreset("Rex",     "Rex",     "British", "Male",   "Deep British Classic JARVIS")
     )
 
-    val OLD_PRESET_VOICES = listOf(
-        VoicePreset("Aoede",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
-        VoicePreset("eve",     "Eve",     "British", "Female", "Warm & Composed"),
-        VoicePreset("ara",     "Ara",     "US",      "Female", "Bright & Friendly"),
-        VoicePreset("sal",     "Sal",     "US",      "Male",   "Smooth & Casual"),
-        VoicePreset("leo",     "Leo",     "British", "Male",   "Youthful & Energetic"),
-        VoicePreset("onyx",    "Onyx",    "US",      "Male",   "Deep & Authoritative"),
-        VoicePreset("nova",    "Nova",    "US",      "Female", "Calm & Natural"),
-        VoicePreset("shimmer", "Shimmer", "US",      "Female", "Soft & Expressive"),
-        VoicePreset("echo",    "Echo",    "US",      "Male",   "Balanced & Clear")
-    )
+    // REMOVED during the sync: OLD_PRESET_VOICES -- a nine-entry lookup table with zero
+    // references anywhere in the app (the live list above is the one the UI reads). It also
+    // mapped the Gemini id "Aoede" onto the label "Rex", which was a leftover from the
+    // OpenAI-voice era and actively misleading: Aoede is a real Gemini TTS voice and is
+    // still the persisted default in loadFromPreferences().
+
 
     // Runtime state
     var userName: String = "Macaulay"
@@ -83,21 +78,25 @@ object ApiConfig {
     var customProvider: String? = null
         
 
-    // API Keys — BuildConfig injection first, hardcoded fallback second.
-    // OWNER DECISION: the repository is going private and the APK must be fully
-    // self-contained ("hardcode everything"), so the NVIDIA and ElevenLabs keys
-    // live in source as compile-time fallbacks.
+    // API Keys — Gemini is injected at build time; NVIDIA is hardcoded.
+    // OWNER DECISION (kept from 272f511): the repository is private and the APK is
+    // self-contained, so the NVIDIA key lives in source.
+    //
+    // CHANGED during the sync: NVIDIA_API_KEY no longer reads BuildConfig, because
+    // app/build.gradle.kts stopped declaring that field -- it was only ever populated
+    // from System.getenv(), which is empty on a normal `./gradlew assembleDebug`, so the
+    // ifBlank fallback did all the work anyway. One copy, one place to rotate.
+    //
+    // The ElevenLabs key is gone with the rest of that integration (owner instruction:
+    // remove it entirely, revisit later). Nothing in the app referenced it once
+    // CloudSttEngine was deleted.
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
 
-    val NVIDIA_API_KEY: String get() = BuildConfig.NVIDIA_API_KEY.ifBlank { HARDCODED_NVIDIA_KEY }
+    val NVIDIA_API_KEY: String get() = HARDCODED_NVIDIA_KEY
 
-    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
-
-    // Hardcoded fallback keys (owner decision — repo is being made private)
+    // Hardcoded fallback key (owner decision — repo is private)
     private const val HARDCODED_NVIDIA_KEY =
         "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"
-    private const val HARDCODED_ELEVENLABS_KEY =
-        "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
 
     // OpenAI — optional extra cloud brain. Fill OPENAI_API_KEY to activate;
     // it automatically joins the provider fallback chain after NVIDIA.
@@ -170,26 +169,58 @@ object ApiConfig {
     }
 
     // Provider/key resolution
+    /**
+     * Gemini is the default brain (owner decision, 272f511: "Powered exclusively by
+     * Gemini"). That is preserved.
+     *
+     * CHANGED during the sync: returning "gemini_flash" unconditionally made the
+     * hardcoded NVIDIA key dead weight -- when a Gemini free-tier quota ran out, or no
+     * Gemini key was configured at all, JARVIS had a working NVIDIA key in the APK and
+     * still reported no brain. NVIDIA is now a genuine second choice rather than a
+     * constant that is never reached. Gemini still wins whenever it is usable.
+     */
     val activeProvider: String
         get() {
-            // Powered exclusively by Gemini
-            return "gemini_flash"
+            // 1. A provider picked for a custom key the user saved in Settings.
+            customProvider?.takeIf { it.isNotBlank() }?.let { return it }
+            // 2. Gemini — the default.
+            if (hasUsableGeminiKey || GEMINI_API_KEY.isNotBlank()) return "gemini_flash"
+            // 3. NVIDIA — always present, because the key is compiled in.
+            if (NVIDIA_API_KEY.isNotBlank()) return "nvidia_super"
+            // 4. OpenAI, if the owner ever fills the key in.
+            if (OPENAI_API_KEY.isNotBlank()) return "openai_mini"
+            return ""
         }
 
+    /**
+     * The key that matches [activeProvider].
+     *
+     * CHANGED during the sync: this used to always return a Gemini key. Once
+     * activeProvider can resolve to NVIDIA, sending a Gemini key to NVIDIA's endpoint is
+     * a guaranteed 401 -- the two must be resolved together or the fallback cannot work.
+     */
     val activeApiKey: String
         get() {
-            val gKey = currentGeminiKey
-            if (gKey.isNotBlank()) return gKey
-            val custom = customApiKey?.trim()
-            if (!custom.isNullOrBlank()) return custom
-            return GEMINI_API_KEY
+            val custom = customApiKey?.trim().takeIf { it.isNotBlank() }
+            return when {
+                activeProvider.startsWith("nvidia") -> custom ?: NVIDIA_API_KEY
+                activeProvider.startsWith("openai") -> custom ?: OPENAI_API_KEY
+                else -> currentGeminiKey.ifBlank { custom ?: GEMINI_API_KEY }
+            }
         }
 
     val hasAI: Boolean
         get() = currentApiKey.isNotBlank()
 
+    /**
+     * Single key accessor.
+     *
+     * CHANGED during the sync: this was a fourth overlapping way to ask "which key"
+     * (alongside activeApiKey, currentGeminiKey and GEMINI_API_KEY) and it disagreed with
+     * activeApiKey about NVIDIA. Delegating removes the disagreement.
+     */
     val currentApiKey: String
-        get() = currentGeminiKey.ifBlank { customApiKey?.takeIf { it.isNotBlank() } ?: GEMINI_API_KEY }
+        get() = activeApiKey
 
     val originalHasAI: Boolean get() = activeApiKey.isNotBlank()
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
@@ -265,39 +296,20 @@ object ApiConfig {
         }
     }
 
-    // ---- Rork Toolkit gateway (managed cloud voice) ------------------------
-
-    /** Toolkit base URL — hardcoded into the app (repo gets privated). */
-    const val TOOLKIT_URL: String = "https://toolkit.rork.com"
-
-    /**
-     * Gateway key — compiled into the app binary at build time from the project
-     * environment (EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY). Per the hardcode-
-     * everything decision the APK is self-contained; the repo keeps only this
-     * build-time reference until privatization.
-     */
-    val TOOLKIT_SECRET_KEY: String
-        get() = BuildConfig.TOOLKIT_SECRET_KEY
-
-    // Optional connectors
-    const val GOOGLE_STT_API_KEY = ""
-    const val GOOGLE_TTS_API_KEY = ""
-    const val HOME_ASSISTANT_URL = ""
-    const val HOME_ASSISTANT_TOKEN = ""
-    const val LIVEKIT_URL = ""
-    const val LIVEKIT_API_KEY = ""
-    const val LIVEKIT_API_SECRET = ""
-    val hasCloudSTT get() = GOOGLE_STT_API_KEY.isNotBlank()
-    val hasCloudTTS get() = GOOGLE_TTS_API_KEY.isNotBlank()
-    val hasHomeAssistant get() = HOME_ASSISTANT_URL.isNotBlank() && HOME_ASSISTANT_TOKEN.isNotBlank()
-    val hasLiveKit get() = LIVEKIT_URL.isNotBlank() && LIVEKIT_API_KEY.isNotBlank()
+    // REMOVED during the sync: the abandoned Rork Toolkit gateway (TOOLKIT_URL /
+    // TOOLKIT_SECRET_KEY) and a block of aspirational connector constants that were all
+    // empty strings with zero references anywhere in the app -- GOOGLE_STT_API_KEY,
+    // GOOGLE_TTS_API_KEY, HOME_ASSISTANT_URL/TOKEN, LIVEKIT_URL/API_KEY/API_SECRET and
+    // their hasCloudSTT / hasCloudTTS / hasHomeAssistant / hasLiveKit predicates.
+    // TOOLKIT_SECRET_KEY also read a BuildConfig field that no longer exists.
 
     // Key auto-detection for custom keys
     fun autoDetectProvider(key: String): String {
         val trimmed = key.trim()
         return when {
             trimmed.startsWith("sk-") -> "openai_mini"
-            trimmed.startsWith("sk_") -> "elevenlabs"
+            // The `sk_` -> "elevenlabs" branch is gone with that integration. An
+            // ElevenLabs-shaped key must not be promoted to the reasoning provider.
             trimmed.startsWith("nvapi-") -> "nvidia_super"
             trimmed.startsWith("AIza") || trimmed.contains("AIza") -> "gemini_flash"
             trimmed.contains(",") || trimmed.contains("\n") || trimmed.contains(";") -> "gemini_flash"

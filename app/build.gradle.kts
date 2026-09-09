@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.rork.jarvisaiassistant"
+    namespace = "com.jarvis"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.rork.jarvisaiassistant"
+        applicationId = "com.jarvis"
         minSdk = 26
         targetSdk = 36
         versionCode = 2
@@ -28,12 +28,37 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Signing: reads from local.properties or environment variables.
+            // DO NOT commit keystore passwords or paths to version control.
+            val keystorePath = project.findProperty("RELEASE_STORE_FILE")?.toString()
+                ?: System.getenv("RELEASE_STORE_FILE")
+            val keystorePassword = project.findProperty("RELEASE_STORE_PASSWORD")?.toString()
+                ?: System.getenv("RELEASE_STORE_PASSWORD")
+            val keyAlias = project.findProperty("RELEASE_KEY_ALIAS")?.toString()
+                ?: System.getenv("RELEASE_KEY_ALIAS")
+            val keyPassword = project.findProperty("RELEASE_KEY_PASSWORD")?.toString()
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
+
+            if (keystorePath != null && keystorePassword != null && keyAlias != null && keyPassword != null) {
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = file(keystorePath)
+                    storePassword = keystorePassword
+                    keyAlias = keyAlias
+                    keyPassword = keyPassword
+                }
+            } else {
+                // No signing config provided — release builds will be unsigned.
+                // Configure RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+                // RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD in local.properties
+                // or as environment variables to enable signed release builds.
+                signingConfig = null
+            }
         }
     }
 
@@ -48,8 +73,14 @@ android {
     }
 
     lint {
-        abortOnError = false
-        checkReleaseBuilds = false
+        abortOnError = true
+        checkReleaseBuilds = true
+        // Allow specific warnings that are intentional for this project
+        disable += setOf(
+            "MissingTranslation",          // App is English-only for MVP
+            "UnusedResources",             // Will be cleaned up in a dedicated pass
+            "IconLauncherShape"            // Adaptive icons use legacy fallback
+        )
     }
 }
 

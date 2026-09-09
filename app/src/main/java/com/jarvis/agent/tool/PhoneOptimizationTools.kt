@@ -22,7 +22,7 @@ import com.jarvis.core.model.ToolExecutionResult
  */
 object PhoneOptimizationTools {
 
-    private const val OWN_PACKAGE = "com.rork.jarvisaiassistant"
+    fun ownPackage(context: Context) = context.packageName
 
     fun registerAll() {
         registerBoost()
@@ -52,7 +52,7 @@ object PhoneOptimizationTools {
 
                 // Recently used apps are the ones holding background services and RAM.
                 for (pkg in recentlyUsedPackages(context, hours = 6)) {
-                    if (pkg == OWN_PACKAGE || pkg in skipped) continue
+                    if (pkg == ownPackage(context) || pkg in skipped) continue
                     val ran = runCatching { am.killBackgroundProcesses(pkg) }.isSuccess
                     if (ran) hibernated += pkg else skipped += pkg
                 }

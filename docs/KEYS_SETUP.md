@@ -1,16 +1,14 @@
 # JARVIS — Key Setup Guide
 
-## Your xAI Grok key is already configured in the build system.
+## API keys are injected at build time.
 
-GitHub's secret scanner correctly blocks raw API keys from being committed.
-Your key is safe — add it only to `local.properties` on your own machine.
-
----
+The app sources keys from environment variables (CI) or `local.properties`
+(local development, gitignored). There are **no hardcoded fallback keys**
+in source code.
 
 ## Step 1: Create your local key file
 
 ```bash
-cd Mirror-
 cp local.properties.example local.properties
 ```
 
@@ -18,17 +16,19 @@ Open `local.properties` and fill in the keys you have.
 The file is gitignored — it will never be committed.
 
 ```
-# xAI Grok (starts with AQ.)
-XAI_API_KEY=paste_your_xai_key_here
+# NVIDIA NIM (primary AI provider — starts with nvapi-)
+NVIDIA_API_KEY=paste_your_nvidia_key_here
 
 # Google Gemini (starts with AIzaSy) — optional fallback
 GEMINI_API_KEY=
 
 # ElevenLabs HD voice (starts with sk_) — optional
 ELEVENLABS_API_KEY=
-```
 
----
+# Rork Toolkit gateway (managed cloud TTS — optional)
+TOOLKIT_URL=
+TOOLKIT_SECRET_KEY=
+```
 
 ## Step 2: Build
 
@@ -37,17 +37,13 @@ ELEVENLABS_API_KEY=
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
----
-
 ## Provider Priority
 
 JARVIS uses the first working key it finds:
 
 1. Key entered in-app (Settings → Access Control)
-2. `XAI_API_KEY` in local.properties → xAI Grok
-3. `GEMINI_API_KEY` in local.properties → Google Gemini
-
----
+2. `NVIDIA_API_KEY` in local.properties → NVIDIA NIM (primary)
+3. `GEMINI_API_KEY` in local.properties → Google Gemini (fallback)
 
 ## Key Auto-Detection
 
@@ -55,22 +51,20 @@ Paste any key in Settings → Access Control and JARVIS identifies the provider:
 
 | Prefix   | Provider         |
 |----------|-----------------|
-| `AQ.`    | xAI Grok         |
+| `nvapi-` | NVIDIA NIM      |
 | `AIzaSy` | Google Gemini    |
-| `sk-ant-`| Anthropic Claude |
+| `sk_`    | ElevenLabs       |
 | `sk-`    | OpenAI           |
+| `sk-ant-`| Anthropic Claude |
 | `gsk_`   | Groq             |
 | `csk-`   | Cerebras         |
 | `sk-or-` | OpenRouter       |
-
----
+| `mx-`    | Mistral          |
 
 ## ElevenLabs Voice (Optional)
 
 Free key at https://elevenlabs.io/api
 Without it, JARVIS uses Android TTS with a British male voice selection.
-
----
 
 ## Verify
 

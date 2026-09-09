@@ -5,8 +5,15 @@
 #
 # Where to get them:
 #
-#   NVIDIA      https://build.nvidia.com        -> key for NIM endpoint (OpenAI-compatible)
-#   ELEVENLABS  https://elevenlabs.io            -> key starts with "sk_"
+#   NVIDIA       https://build.nvidia.com        -> key for NIM endpoint (OpenAI-compatible)
+#   ELEVENLABS   https://elevenlabs.io            -> key starts with "sk_"
+#   GEMINI       https://aistudio.google.com      -> key starts with "AIza"
+#
+# Rork Toolkit (optional — managed cloud TTS gateway):
+#   TOOLKIT_URL and TOOLKIT_SECRET_KEY are provided by the Rork Toolkit service.
 
 NVIDIA_API_KEY=
 ELEVENLABS_API_KEY=
+GEMINI_API_KEY=
+TOOLKIT_URL=
+TOOLKIT_SECRET_KEY=

@@ -52,6 +52,7 @@ object ToolSchema {
         "device_navigate_global" to listOf("action"),
         "smart_tv_control" to listOf("action", "url"),
         "screen_read" to emptyList(),
+        "find_text" to listOf("query", "text"),
         "press_back" to emptyList(),
         "press_home" to emptyList(),
         "open_recents" to emptyList(),

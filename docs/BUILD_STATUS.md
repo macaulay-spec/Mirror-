@@ -1,6 +1,6 @@
 # JARVIS Build Status — Current State
 
-**Last updated by Achilles: 2026-08-29**
+**Last updated by Kilo: 2026-09-09**
 
 ---
 
@@ -8,7 +8,8 @@
 
 | Area | Status | Detail |
 |------|--------|--------|
-| xAI Grok as primary AI provider | ✅ DONE | `BuildConfig.XAI_API_KEY`, `JarvisApiClient`, `ApiConfig` |
+| NVIDIA NIM as primary AI provider | ✅ DONE | `BuildConfig.NVIDIA_API_KEY`, `JarvisApiClient`, `ApiConfig` |
+| Google Gemini fallback | ✅ DONE | Automatic key rotation on 429, multi-key pool support |
 | ReplySanitizer | ✅ DONE | Strips JSON artefacts, stack traces, system leakage |
 | JarvisAIEngine | ✅ FIXED | Removed 200-line deterministic router. LLM-first with 4 fast-path exceptions |
 | System prompt | ✅ FIXED | No longer instructs AI to reply with JSON blobs — trusts native function calling |
@@ -16,11 +17,18 @@
 | ElevenLabsVoicePlayer | ✅ REBUILT | Barge-in support, voice cascade, turbo model, proper VoiceBus state |
 | JarvisFloatingOrbService | ✅ REBUILT | Connected to VoiceBus, 7 visual states, Canvas-drawn, lifecycle-safe, draggable |
 | JarvisApp | ✅ UPDATED | Auto-starts Orb on launch when overlay permission is granted |
-| ApiConfig | ✅ UPDATED | xAI auto-detection (`AQ.`), clean priority chain, all providers |
+| ApiConfig | ✅ UPDATED | NVIDIA primary, Gemini fallback, clean priority chain |
 | VoiceBus | ✅ CONNECTED | Single source of truth for engine state, audio level, and orb |
 | Notification channels | ✅ DONE | Previously missing — now created in JarvisApp |
 | PeopleGraph auto-import | ✅ DONE | Syncs contacts on first launch |
 | Proactive briefings | ✅ DONE | Re-armed after reboot/update |
+| ToolRegistry duplicate guard | ✅ FIXED | Warns on duplicate tool registration instead of silent overwrite |
+| send_whatsapp canonical path | ✅ FIXED | Removed duplicate from JarvisAccessibilityService; uses MessagingAutomation |
+| find_text tool | ✅ ADDED | Accessibility-based screen text search with coordinate results |
+| Namespace alignment | ✅ FIXED | `com.jarvis` namespace matches all source packages |
+| Security hardening | ✅ DONE | Removed all hardcoded API keys from source; CI uses GitHub Secrets |
+| Release signing | ✅ FIXED | Configurable from local.properties/env; no longer uses debug keystore |
+| Lint configuration | ✅ FIXED | Release builds now run lint checks |
 
 ---
 
@@ -28,7 +36,7 @@
 
 | Item | Action |
 |------|--------|
-| **Add key to local.properties** | `cp local.properties.example local.properties` then add your xAI key |
+| **Add key to local.properties** | `cp local.properties.example local.properties` then add your NVIDIA key |
 | **Build** | `./gradlew assembleDebug` in Android Studio |
 | **Run Diagnostics** | Settings → DIAGNOSTICS → TEST ALL PROVIDERS |
 | **Grant permissions** | Mic, notifications, accessibility, overlay, contacts |

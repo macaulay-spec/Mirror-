@@ -469,63 +469,32 @@ class JarvisAccessibilityService : AccessibilityService() {
                 }
             )
 
-            // 3b. send_whatsapp (Smart direct messaging with settle wait)
+            // 3b. find_text (Search visible text on screen)
             ToolRegistry.register(
                 ToolDefinition(
-                    id = "send_whatsapp",
-                    name = "Send WhatsApp Message",
-                    description = "Sends a message via WhatsApp to a recipient, waiting for WhatsApp to load and tapping send.",
-                    category = "DEVICE",
+                    id = "find_text",
+                    name = "Find Text on Screen",
+                    description = "Searches the current screen for visible text matching a query and returns matching elements with coordinates.",
+                    category = "SCREEN",
                     riskLevel = RiskLevel.LEVEL_0
-                ) { context, args ->
-                    val recipient = args["recipient"]?.toString() ?: args["contact"]?.toString() ?: args["to"]?.toString() ?: ""
-                    val message = args["message"]?.toString() ?: args["text"]?.toString() ?: ""
-                    if (message.isBlank()) {
-                        return@ToolDefinition ToolExecutionResult(toolId = "send_whatsapp", success = false, data = null, error = "Message text is required.")
-                    }
-
-                    try {
-                        val encodedMsg = java.net.URLEncoder.encode(message, "UTF-8")
-                        val uri = if (recipient.isNotBlank() && recipient.all { it.isDigit() || it == '+' }) {
-                            val cleanPhone = recipient.filter { it.isDigit() }
-                            android.net.Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=$encodedMsg")
-                        } else {
-                            android.net.Uri.parse("https://api.whatsapp.com/send?text=$encodedMsg")
+                ) { _, args ->
+                    val service = instance
+                    val query = args["query"]?.toString() ?: args["text"]?.toString() ?: ""
+                    if (service == null) {
+                        ToolExecutionResult(toolId = "find_text", success = false, data = null, error = "PERMISSION_REQUIRED: Accessibility Service disabled.")
+                    } else if (query.isBlank()) {
+                        ToolExecutionResult(toolId = "find_text", success = false, data = null, error = "Query text is required.")
+                    } else {
+                        val elements = service.getStructuredScreenData()
+                        val matches = elements.filter { el ->
+                            val text = (el["text"] as? String ?: "") + " " + (el["contentDescription"] as? String ?: "")
+                            text.contains(query, ignoreCase = true)
                         }
-                        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                            setPackage("com.whatsapp")
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                        context.startActivity(intent)
-
-                        val service = instance
-                        if (service != null) {
-                            service.waitForPackage("whatsapp", 3500L)
-                            if (recipient.isNotBlank() && !recipient.all { it.isDigit() || it == '+' }) {
-                                service.clickElementByText(recipient)
-                                try { Thread.sleep(350) } catch (_: Exception) {}
-                            }
-                            val sent = service.clickElementByDescription("Send") || service.clickElementByText("Send")
-                            ToolExecutionResult(
-                                toolId = "send_whatsapp",
-                                success = true,
-                                data = mapOf("recipient" to recipient, "message" to message, "sent" to sent),
-                                verificationDetails = "Opened WhatsApp and prepared message for $recipient."
-                            )
-                        } else {
-                            ToolExecutionResult(
-                                toolId = "send_whatsapp",
-                                success = true,
-                                data = mapOf("recipient" to recipient, "message" to message),
-                                verificationDetails = "Opened WhatsApp with your message."
-                            )
-                        }
-                    } catch (e: Exception) {
                         ToolExecutionResult(
-                            toolId = "send_whatsapp",
-                            success = false,
-                            data = null,
-                            error = "Failed to launch WhatsApp: ${e.message}"
+                            toolId = "find_text",
+                            success = true,
+                            data = mapOf("matches" to matches, "count" to matches.size),
+                            verificationDetails = if (matches.isNotEmpty()) "Found ${matches.size} matches for '$query'." else "No matches found for '$query'."
                         )
                     }
                 }

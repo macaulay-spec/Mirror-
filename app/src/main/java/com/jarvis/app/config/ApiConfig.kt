@@ -2,20 +2,13 @@ package com.jarvis.app.config
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.rork.jarvisaiassistant.BuildConfig
 
 /**
- * Central JARVIS Neural Configuration - NVIDIA-focused.
+ * Central JARVIS Neural Configuration.
  *
- * NVIDIA Multi-Model Integration (per NVIDIA_MULTI_MODEL_PROMPT.md):
- * - Primary: GLM-5.2 (1M token context, long-horizon agentic reasoning)
- * - Fallback 1: Nemotron-3-Super (NVIDIA's flagship)
- * - Fallback 2: Mistral Nemotron (purpose-built for agentic workflows)
- * - Fallback 3: Llama-4 Maverick (broad general reasoning)
- *
- * All providers use NVIDIA's OpenAI-compatible endpoint at integrate.api.nvidia.com/v1
- * API keys are injected from local.properties / CI secrets at compile time.
- * NO hardcoded keys are embedded in the source code.
+ * API keys are injected from BuildConfig at compile time (from environment
+ * variables in CI or local.properties for development). There are no hardcoded
+ * fallback keys in source code.
  */
 object ApiConfig {
 
@@ -83,27 +76,18 @@ object ApiConfig {
     var customProvider: String? = null
         
 
-    // API Keys — BuildConfig injection first, hardcoded fallback second.
-    // OWNER DECISION: the repository is going private and the APK must be fully
-    // self-contained ("hardcode everything"), so the NVIDIA and ElevenLabs keys
-    // live in source as compile-time fallbacks.
+    // API Keys — BuildConfig injection from compile-time environment variables.
+    // Keys are never hardcoded in source; they must be provided via CI secrets
+    // or local.properties (which is gitignored).
     val GEMINI_API_KEY: String get() = BuildConfig.GEMINI_API_KEY
-
-    val NVIDIA_API_KEY: String get() = BuildConfig.NVIDIA_API_KEY.ifBlank { HARDCODED_NVIDIA_KEY }
-
-    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
-
-    // Hardcoded fallback keys (owner decision — repo is being made private)
-    private const val HARDCODED_NVIDIA_KEY =
-        "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"
-    private const val HARDCODED_ELEVENLABS_KEY =
-        "sk_5dec6e6f0ffcf3f2b5f2949a284193100ece4e1594336c53"
+    val NVIDIA_API_KEY: String get() = BuildConfig.NVIDIA_API_KEY
+    val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY
 
     // OpenAI — optional extra cloud brain. Fill OPENAI_API_KEY to activate;
     // it automatically joins the provider fallback chain after NVIDIA.
     const val OPENAI_BASE_URL = "https://api.openai.com/v1"
     const val OPENAI_MODEL = "gpt-4o-mini"
-    const val OPENAI_API_KEY = ""
+    var OPENAI_API_KEY: String = ""
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()

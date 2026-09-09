@@ -102,13 +102,8 @@ def call_model(utterance: str, key: str) -> dict:
     return {"tools": [c["function"]["name"] for c in calls], "text": message.get("content", "")}
 
 
-# Hardcoded per the owner's decision (repo is being made private): the key
-# ships inline; an env var still overrides it for CI.
-DEFAULT_NVIDIA_API_KEY = "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"
-
-
 def main() -> int:
-    key = os.environ.get("NVIDIA_API_KEY", "").strip() or DEFAULT_NVIDIA_API_KEY
+    key = os.environ.get("NVIDIA_API_KEY", "").strip()
     if not key:
         print("NVIDIA_API_KEY not set — eval SKIPPED (not a failure).")
         return 0

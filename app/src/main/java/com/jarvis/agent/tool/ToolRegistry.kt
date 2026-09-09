@@ -33,6 +33,10 @@ object ToolRegistry {
     }
 
     fun register(tool: ToolDefinition) {
+        val existing = tools[tool.id]
+        if (existing != null && existing !== tool) {
+            android.util.Log.w("ToolRegistry", "Duplicate tool registration for '${tool.id}' — overwriting previous handler from ${existing.category}")
+        }
         tools[tool.id] = tool
     }
 

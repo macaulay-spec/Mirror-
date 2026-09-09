@@ -36,7 +36,9 @@ object ToolSchema {
         "read_notifications" to listOf("app", "package", "limit"),
         "get_recent_notifications" to listOf("app_name", "limit"),
         "dismiss_notification" to listOf("key"),
-        "open_app" to listOf("app", "name"),
+        "read_notifications" to listOf("app", "package", "limit"),
+        "reply_notification" to listOf("app_name", "package", "message"),
+        "open_app" to listOf("app", "name", "app_name"),
         "app_launch" to listOf("app_name", "app"),
         "app_search" to listOf("app", "query"),
         "web_search" to listOf("query"),
@@ -64,8 +66,16 @@ object ToolSchema {
         "memory_remember" to listOf("content"),
         "memory_recall" to listOf("query"),
         "send_message" to listOf("contact", "recipient", "body", "message"),
-        "get_daily_usage" to listOf("app_name"),
-        "get_recent_apps" to listOf("limit")
+        "get_daily_usage" to listOf("app_name", "limit"),
+        "get_recent_apps" to listOf("limit"),
+        "device_vibrate" to listOf("duration_ms"),
+        "device_media_control" to listOf("action"),
+        "smart_tv_control" to listOf("action", "url"),
+        "set_brightness" to listOf("percent", "auto"),
+        "set_dnd" to listOf("on"),
+        "set_ringer_mode" to listOf("mode"),
+        "toggle_wifi" to listOf("on"),
+        "toggle_bluetooth" to listOf("on")
     )
 
     private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes")

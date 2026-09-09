@@ -479,26 +479,28 @@ private fun JarvisMessageItem(
                     )
                 }
 
-                // ── Screen 9 Widget: Web Search / Knowledge Results ─────────
+                 // ── Screen 9 Widget: Web Search / Knowledge Results ─────────
                 val tr = message.toolResult
                 if (tr != null && (tr.toolId == "web_search" || tr.toolId == "wikipedia" || tr.toolId == "news")) {
                     Spacer(modifier = Modifier.height(12.dp))
                     val dataMap = tr.data as? Map<*, *>
-                    val q = dataMap?.get("query")?.toString() ?: dataMap?.get("title")?.toString() ?: "Search Results"
-                    val summary = dataMap?.get("result")?.toString() ?: dataMap?.get("summary")?.toString() ?: tr.verificationDetails
+                    val q = dataMap?.get("query")?.toString()
+                        ?: dataMap?.get("title")?.toString()
+                        ?: dataMap?.get("topic")?.toString()
+                        ?: "Search Results"
+                    val summary = dataMap?.get("result")?.toString()
+                        ?: dataMap?.get("summary")?.toString()
+                        ?: tr.verificationDetails
                     val url = dataMap?.get("url")?.toString()
+                    val headlines = dataMap?.get("headlines") as? List<*>
+                    val formatted = dataMap?.get("formatted")?.toString()
+
                     WebSearchResultsCard(
                         query = q,
                         summary = summary,
                         url = url,
-                        onOpenUrl = onOpenUrl
-                    )
-                } else if (text.contains("search") || text.contains("news") || text.contains("web")) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    WebSearchResultsCard(
-                        query = "TOP RESULTS",
-                        summary = null,
-                        url = null,
+                        headlines = headlines?.mapNotNull { it?.toString() },
+                        formatted = formatted,
                         onOpenUrl = onOpenUrl
                     )
                 }
@@ -792,9 +794,11 @@ private fun ChecklistStepRow(text: String, state: StepState) {
  */
 @Composable
 private fun WebSearchResultsCard(
-    query: String = "TOP RESULTS",
+    query: String = "SEARCH RESULTS",
     summary: String? = null,
     url: String? = null,
+    headlines: List<String>? = null,
+    formatted: String? = null,
     onOpenUrl: ((String) -> Unit)? = null
 ) {
     Column(
@@ -828,38 +832,52 @@ private fun WebSearchResultsCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        if (!summary.isNullOrBlank()) {
-            Text(
-                text = summary,
-                color = JarvisColors.TextPrimary,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        } else {
-            SearchResultRow(
-                title = "OpenAI announces new updates to GPT-5",
-                source = "techcrunch.com · 2h ago"
-            )
-            SearchResultRow(
-                title = "Google DeepMind unveils new AI model",
-                source = "theverge.com · 3h ago"
-            )
-            SearchResultRow(
-                title = "Meta open sources new LLM",
-                source = "arstechnica.com · 5h ago"
-            )
+        when {
+            !summary.isNullOrBlank() -> {
+                Text(
+                    text = summary,
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+            !formatted.isNullOrBlank() -> {
+                Text(
+                    text = formatted,
+                    color = JarvisColors.TextPrimary,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+            !headlines.isNullOrEmpty() -> {
+                headlines.forEach { headline ->
+                    SearchResultRow(
+                        title = headline,
+                        source = ""
+                    )
+                }
+            }
+            else -> {
+                Text(
+                    text = "No results found.",
+                    color = JarvisColors.TextMuted,
+                    fontSize = 12.5.sp
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "View all results →",
+            text = "View all results",
             color = JarvisColors.Presence,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.clickable {
-                val targetUrl = url ?: "https://www.google.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+                val targetUrl = url
+                    ?: "https://www.google.com/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
                 onOpenUrl?.invoke(targetUrl)
             }
         )

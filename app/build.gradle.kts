@@ -21,6 +21,13 @@ android {
         buildConfigField("String", "GEMINI_API_KEY", "\"${System.getenv("GEMINI_API_KEY") ?: ""}\"")
         buildConfigField("String", "NVIDIA_API_KEY", "\"${System.getenv("NVIDIA_API_KEY") ?: ""}\"")
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"${System.getenv("ELEVENLABS_API_KEY") ?: ""}\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"${System.getenv("GROQ_API_KEY") ?: ""}\"")
+        buildConfigField("String", "OPENROUTER_API_KEY", "\"${System.getenv("OPENROUTER_API_KEY") ?: ""}\"")
+        buildConfigField("String", "MISTRAL_API_KEY", "\"${System.getenv("MISTRAL_API_KEY") ?: ""}\"")
+        buildConfigField("String", "XAI_API_KEY", "\"${System.getenv("XAI_API_KEY") ?: ""}\"")
+        buildConfigField("String", "OPENAI_API_KEY", "\"${System.getenv("OPENAI_API_KEY") ?: ""}\"")
+        buildConfigField("String", "CLOUDFLARE_ACCOUNT_ID", "\"${System.getenv("CLOUDFLARE_ACCOUNT_ID") ?: ""}\"")
+        buildConfigField("String", "CLOUDFLARE_API_KEY", "\"${System.getenv("CLOUDFLARE_API_KEY") ?: ""}\"")
         // Rork Toolkit gateway: managed cloud TTS (xai/grok-tts) — no user key needed.
         buildConfigField("String", "TOOLKIT_URL", "\"${System.getenv("EXPO_PUBLIC_TOOLKIT_URL") ?: ""}\"")
         buildConfigField("String", "TOOLKIT_SECRET_KEY", "\"${System.getenv("EXPO_PUBLIC_RORK_TOOLKIT_SECRET_KEY") ?: ""}\"")

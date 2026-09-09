@@ -88,6 +88,35 @@ object ApiConfig {
     const val OPENAI_BASE_URL = "https://api.openai.com/v1"
     const val OPENAI_MODEL = "gpt-4o-mini"
     var OPENAI_API_KEY: String = ""
+        get() = BuildConfig.OPENAI_API_KEY.ifEmpty { field }
+
+    // xAI Grok — optional extra cloud brain.
+    const val XAI_BASE_URL = "https://api.x.ai/v1"
+    const val XAI_MODEL = "grok-3-mini"
+    val XAI_API_KEY: String get() = BuildConfig.XAI_API_KEY
+
+    // Groq — fast inference, free developer tier (~30 rpm).
+    const val GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+    const val GROQ_MODEL_FAST = "llama-3.3-70b-versatile"
+    const val GROQ_MODEL_DEEP = "deepseek-r1-distill-llama-70b"
+    val GROQ_API_KEY: String get() = BuildConfig.GROQ_API_KEY
+
+    // OpenRouter — pool of free models, 50 req/day free without card.
+    const val OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+    const val OPENROUTER_MODEL_FAST = "google/gemini-2.5-flash"
+    const val OPENROUTER_MODEL_DEEP = "google/gemini-2.5-pro"
+    val OPENROUTER_API_KEY: String get() = BuildConfig.OPENROUTER_API_KEY
+
+    // Mistral — free 'Experiment' tier, 1 req/s, 500k tokens/min, no card.
+    const val MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+    const val MISTRAL_MODEL = "mistral-large-latest"
+    val MISTRAL_API_KEY: String get() = BuildConfig.MISTRAL_API_KEY
+
+    // Cloudflare Workers AI — 10,000 free Neurons/day, no card.
+    const val CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts"
+    const val CLOUDFLARE_MODEL_FAST = "@cf/meta/llama-3.1-8b"
+    val CLOUDFLARE_ACCOUNT_ID: String get() = BuildConfig.CLOUDFLARE_ACCOUNT_ID
+    val CLOUDFLARE_API_KEY: String get() = BuildConfig.CLOUDFLARE_API_KEY
 
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()
@@ -182,6 +211,17 @@ object ApiConfig {
     fun getProviderLabel(): String = when (activeProvider) {
         "gemini_flash" -> "Gemini 2.5 Flash (Ultra-Fast Engine)"
         "gemini_pro" -> "Gemini 2.5 Pro (Deep Reasoning)"
+        "nvidia_super" -> "NVIDIA Nemotron-3 Super"
+        "nvidia_ultra" -> "NVIDIA Nemotron Ultra"
+        "openai_mini" -> "OpenAI GPT-4o Mini"
+        "groq_fast" -> "Groq Llama 3.3 70B (Fast)"
+        "groq_deep" -> "Groq DeepSeek R1 (Deep)"
+        "openrouter_fast" -> "OpenRouter Gemini 2.5 Flash"
+        "openrouter_deep" -> "OpenRouter Gemini 2.5 Pro"
+        "mistral" -> "Mistral Large"
+        "cloudflare" -> "Cloudflare LLaMA 3.1 8B"
+        "xai" -> "xAI Grok-3"
+        "gemini_lite" -> "Gemini 2.5 Flash Lite"
         else -> "Gemini AI"
     }
 
@@ -194,24 +234,55 @@ object ApiConfig {
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
     const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
-    // Gemini high-speed pool
+    // Gemini high-speed pool + expanded free provider fallback chain.
+    // The model picks the first provider in this chain that has a key.
     val PROVIDER_FALLBACK_CHAIN = listOf(
         "gemini_flash",
+        "openai_mini",
+        "groq_fast",
+        "openrouter_fast",
+        "mistral",
+        "cloudflare",
         "gemini_pro"
     )
 
-    /** Get the next provider in the fallback chain that actually has an available API key. */
+    /** Returns the API key for a given provider, checking BuildConfig and custom keys. */
+    fun keyForProvider(provider: String): String = when {
+        provider.startsWith("gemini") -> currentGeminiKey
+        provider.startsWith("nvidia") -> NVIDIA_API_KEY
+        provider.startsWith("openai") -> OPENAI_API_KEY
+        provider.startsWith("xai") -> XAI_API_KEY
+        provider.startsWith("groq") -> GROQ_API_KEY
+        provider.startsWith("openrouter") -> OPENROUTER_API_KEY
+        provider.startsWith("mistral") -> MISTRAL_API_KEY
+        provider.startsWith("cloudflare") -> CLOUDFLARE_API_KEY
+        else -> activeApiKey
+    }
+
+    /** Returns true if the given provider has a non-blank API key configured. */
+    fun hasKeyForProvider(provider: String): Boolean = when {
+        provider.startsWith("gemini") -> hasUsableGeminiKey
+        provider.startsWith("nvidia") -> NVIDIA_API_KEY.isNotBlank()
+        provider.startsWith("openai") -> OPENAI_API_KEY.isNotBlank()
+        provider.startsWith("xai") -> XAI_API_KEY.isNotBlank()
+        provider.startsWith("groq") -> GROQ_API_KEY.isNotBlank()
+        provider.startsWith("openrouter") -> OPENROUTER_API_KEY.isNotBlank()
+        provider.startsWith("mistral") -> MISTRAL_API_KEY.isNotBlank()
+        provider.startsWith("cloudflare") -> CLOUDFLARE_ACCOUNT_ID.isNotBlank() && CLOUDFLARE_API_KEY.isNotBlank()
+        else -> currentApiKey.isNotBlank()
+    }
+
+    /**
+     * Get the next provider in the fallback chain that actually has an available API key.
+     */
     fun getNextProvider(currentProvider: String): String? {
         val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
         val startIndex = if (currentIndex >= 0) currentIndex + 1 else 0
 
         for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
             val candidate = PROVIDER_FALLBACK_CHAIN[i]
-            if (candidate.startsWith("gemini") && !hasUsableGeminiKey) continue
-            val candidateKey = currentGeminiKey
-            if (candidateKey.isNotBlank()) {
-                return candidate
-            }
+            if (!hasKeyForProvider(candidate)) continue
+            return candidate
         }
         return null
     }
@@ -220,6 +291,17 @@ object ApiConfig {
     fun resolveModel(provider: String): String = when (provider) {
         "gemini_flash" -> GEMINI_FLASH_MODEL
         "gemini_pro" -> GEMINI_PRO_MODEL
+        "gemini_lite" -> GEMINI_LITE_MODEL
+        "nvidia_super" -> NVIDIA_SUPER_MODEL
+        "nvidia_ultra" -> "nvidia/nemotron-4-340b-reward"
+        "openai_mini" -> OPENAI_MODEL
+        "xai" -> XAI_MODEL
+        "groq_fast" -> GROQ_MODEL_FAST
+        "groq_deep" -> GROQ_MODEL_DEEP
+        "openrouter_fast" -> OPENROUTER_MODEL_FAST
+        "openrouter_deep" -> OPENROUTER_MODEL_DEEP
+        "mistral" -> MISTRAL_MODEL
+        "cloudflare" -> CLOUDFLARE_MODEL_FAST
         else -> GEMINI_FLASH_MODEL
     }
 
@@ -235,17 +317,20 @@ object ApiConfig {
 
     /**
      * Routes a user utterance to the right brain tier.
-     * Fast conversational tasks stay on Gemini Flash / NVIDIA Nemotron Super.
-     * Deep reasoning requests route to Gemini Pro / NVIDIA Nemotron Ultra 550B.
+     * Fast conversational tasks stay on Gemini Flash / Groq Llama.
+     * Deep reasoning requests route to Gemini Pro / Groq DeepSeek.
      */
     fun providerForUtterance(text: String): String {
         if (activeProvider.startsWith("openai")) return "openai_mini"
         val isDeep = text.length > 160 || DEEP_THINK_HINTS.any { it in text.lowercase() }
         val isNvidia = activeProvider.startsWith("nvidia")
-        return if (isNvidia) {
-            if (isDeep) "nvidia_ultra" else "nvidia_super"
-        } else {
-            if (isDeep) "gemini_pro" else "gemini_flash"
+        val isGroq = activeProvider.startsWith("groq")
+        val isOpenRouter = activeProvider.startsWith("openrouter")
+        return when {
+            isNvidia -> if (isDeep) "nvidia_ultra" else "nvidia_super"
+            isGroq -> if (isDeep) "groq_deep" else "groq_fast"
+            isOpenRouter -> if (isDeep) "openrouter_deep" else "openrouter_fast"
+            else -> if (isDeep) "gemini_pro" else "gemini_flash"
         }
     }
 
@@ -283,6 +368,10 @@ object ApiConfig {
             trimmed.startsWith("sk-") -> "openai_mini"
             trimmed.startsWith("sk_") -> "elevenlabs"
             trimmed.startsWith("nvapi-") -> "nvidia_super"
+            trimmed.startsWith("xai-") || trimmed.startsWith("sk-xai-") -> "xai"
+            trimmed.startsWith("gsk_") -> "groq_fast"
+            trimmed.startsWith("sk-or-") || trimmed.startsWith("org-") -> "openrouter_fast"
+            trimmed.startsWith("mistral-") -> "mistral"
             trimmed.startsWith("AIza") || trimmed.contains("AIza") -> "gemini_flash"
             trimmed.contains(",") || trimmed.contains("\n") || trimmed.contains(";") -> "gemini_flash"
             else -> "gemini_flash"

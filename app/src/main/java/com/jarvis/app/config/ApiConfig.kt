@@ -201,7 +201,10 @@ object ApiConfig {
      */
     val activeApiKey: String
         get() {
-            val custom = customApiKey?.trim().takeIf { it.isNotBlank() }
+            // ?. all the way down: customApiKey is String?, so customApiKey?.trim() is
+            // String? and takeIf needs its own safe call. The missing ?. was the one
+            // compile error in the sync commit.
+            val custom = customApiKey?.trim()?.takeIf { it.isNotBlank() }
             return when {
                 activeProvider.startsWith("nvidia") -> custom ?: NVIDIA_API_KEY
                 activeProvider.startsWith("openai") -> custom ?: OPENAI_API_KEY

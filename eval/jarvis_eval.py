@@ -170,7 +170,14 @@ SYSTEM = (
 # temperature deliberately stays low (0.2 vs the app's 0.7) so the gate is
 # reproducible; it does not change whether a tool call is emitted.
 MAX_TOKENS = int(os.environ.get("EVAL_MAX_TOKENS", "1024"))
-TEMPERATURE = float(os.environ.get("EVAL_TEMPERATURE", "0.2"))
+# Greedy by default. This is a regression gate, so it has to be reproducible: at 0.2 the
+# same commit scored 42/42 on one run and 40/42 on the next, and the two failures it
+# produced were not caused by any change in the code. A gate that flips between runs on
+# identical input measures sampling noise, not routing quality, and trains people to
+# ignore it. Production sends no explicit temperature for tool routing at all (only
+# ImageAnalyzer does, at 0.4), so 0.2 was not matching production either.
+# Override with EVAL_TEMPERATURE when deliberately measuring variance.
+TEMPERATURE = float(os.environ.get("EVAL_TEMPERATURE", "0"))
 HTTP_ATTEMPTS = int(os.environ.get("EVAL_HTTP_ATTEMPTS", "4"))
 RETRY_BACKOFF_SECONDS = float(os.environ.get("EVAL_RETRY_BACKOFF", "1.5"))
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -375,12 +382,16 @@ def main() -> int:
         print(f"\nROUTING REGRESSIONS ({len(routing)}):")
         for utterance, expected, got in routing:
             want = "/".join(sorted(expected)) if isinstance(expected, set) else expected
-            print(f"  - {utterance!r}: expected {want}, got {got}")
+            # got is repr'd, not str'd. Twice now a FAIL line has printed a tool name that
+            # looked identical to a member of its own expected set, which is unreadable and
+            # sends you looking for a scoring bug instead of a stray character in the
+            # model's output.
+            print(f"  - {utterance!r}: expected {want}, got {got!r}")
 
     if infra:
         print(f"\nINFRASTRUCTURE ERRORS ({len(infra)}) — not counted as regressions:")
         for utterance, _expected, got in infra:
-            print(f"  - {utterance!r}: {got}")
+            print(f"  - {utterance!r}: {got!r}")
 
     infra_budget = max(1, int(total * INFRA_TOLERANCE))
     if len(infra) > infra_budget:

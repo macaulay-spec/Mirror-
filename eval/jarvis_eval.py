@@ -331,7 +331,15 @@ def main() -> int:
                         raise
                     print(f"    (transient: {exc} — retrying)")
                     time.sleep(2)
-            got = result["tools"][0] if result["tools"] else None
+            raw = result["tools"][0] if result["tools"] else None
+            # Normalise before scoring. A model that returns "wait_for_screen " with stray
+            # whitespace fails `got in expected` and is reported as a routing regression
+            # when the routing was in fact correct -- and the printed value looks identical
+            # to the expected one, which makes the failure unreadable. This is what the
+            # first real 42-case run reported as its only failure.
+            got = raw.strip() if isinstance(raw, str) else raw
+            if isinstance(raw, str) and raw != got:
+                print(f"    (note: tool name needed trimming: {raw!r})")
             ok = (got in expected) if isinstance(expected, set) else (got == expected)
             if not got and result.get("finish_reason") == "length":
                 got = "NO_TOOL (finish_reason=length — reply was truncated)"

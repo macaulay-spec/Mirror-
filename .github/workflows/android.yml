@@ -79,11 +79,55 @@ jobs:
       # in as an empty string. Secrets are now passed as environment variables, which
       # is what the build script actually reads (env first, local.properties second).
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        id: build
+        run: |
+          set -uo pipefail
+          # --console=plain keeps the log parseable; tee keeps it available to the
+          # failure-report step below without changing the exit code Gradle returns.
+          ./gradlew assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee build.log
+          exit "${PIPESTATUS[0]}"
         env:
           # Only Gemini is injected: NVIDIA's key is hardcoded in ApiConfig.kt by
           # owner decision, so BuildConfig no longer carries it.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # Actions logs and artifacts cannot be fetched from automation in this environment --
+      # the blob download always fails -- so a red build was undiagnosable from anywhere
+      # but the web UI, and the only way to learn the compiler error was to guess. Post the
+      # errors to the commit instead: the same channel the eval transcript already uses,
+      # which is verifiably retrievable through the API.
+      - name: Report build failure to the commit
+        if: failure() && steps.build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ ! -f build.log ]; then
+            echo "no build log to report"
+            exit 0
+          fi
+          # Kotlin compiler errors are "e: file:///...kt:line:col message". Keep those plus
+          # Gradle's own failure summary and any KSP/Room diagnostics, in that order of
+          # usefulness; fall back to the tail of the log if none of them matched.
+          grep -E "^e: |^FAILURE:|What went wrong|^Execution failed|^Caused by:|error:|KSP|Room|A problem occurred" build.log \
+            | head -n 60 > errors.txt || true
+          if [ ! -s errors.txt ]; then
+            tail -n 60 build.log > errors.txt
+          fi
+          {
+            printf '### Build failure — %s\n\n' "$GITHUB_SHA"
+            printf '```\n'
+            head -c 6000 errors.txt
+            printf '\n```\n'
+          } > /tmp/build-body.md
+          jq -Rs '{body: .}' < /tmp/build-body.md > /tmp/build-payload.json
+          code=$(curl -sS -o /tmp/build-resp.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -d @/tmp/build-payload.json)
+          echo "commit comment HTTP $code"
+          [ "$code" = "201" ] || head -c 400 /tmp/build-resp.json
 
       # Now that KSP has run, the exported JSON must exist for every version from the
       # baseline up. This is the check that cannot be done from source alone.

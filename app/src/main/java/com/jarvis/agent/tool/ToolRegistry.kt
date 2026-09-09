@@ -36,7 +36,26 @@ object ToolRegistry {
 
     fun getAllTools(): List<ToolDefinition> = tools.values.toList()
 
-    fun getTool(id: String): ToolDefinition? = tools[id]
+    /**
+     * Normalise a tool id coming from the model.
+     *
+     * FIX (found by the eval, not by inspection): tool names arrive from the model with
+     * stray whitespace often enough to matter. Every lookup here was untrimmed, so a
+     * routing decision that was actually correct failed the map lookup and produced "Tool
+     * with ID ... is not registered". The first real 42-case eval run scored
+     * 'wait for WhatsApp to open' as its single failure for exactly this reason: the model
+     * picked the right tool and the name did not match the key.
+     *
+     * The consequence in [execute] is a spurious error. The consequence via [getTool] is
+     * worse: AgentExecutor resolves risk with
+     * `ToolRegistry.getTool(name)?.riskLevel ?: RiskLevel.LEVEL_1`, and LEVEL_1 sits below
+     * the `>= LEVEL_2` confirmation threshold -- so an untrimmed LEVEL_3 tool name skipped
+     * the user confirmation prompt entirely. A space character was able to downgrade a
+     * destructive action to an unconfirmed one.
+     */
+    private fun normalizeId(id: String): String = id.trim()
+
+    fun getTool(id: String): ToolDefinition? = tools[normalizeId(id)]
 
     /**
      * Backwards-compatible tool aliases.
@@ -66,7 +85,8 @@ object ToolRegistry {
     )
 
     suspend fun execute(context: Context, request: ToolExecutionRequest): ToolExecutionResult {
-        val targetId = aliases[request.toolId] ?: request.toolId
+        val requestedId = normalizeId(request.toolId)
+        val targetId = aliases[requestedId] ?: requestedId
         val tool = tools[targetId] ?: return ToolExecutionResult(
             toolId = request.toolId,
             success = false,

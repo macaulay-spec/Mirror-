@@ -53,6 +53,15 @@ jobs:
           set -uo pipefail
           python eval/jarvis_eval.py 2>&1 | tee eval-output.txt
           status=${PIPESTATUS[0]}
+          # Defence in depth for the failure mode this gate has already had once: the
+          # harness lost its `if __name__ == "__main__"` entry point, so Python ran the
+          # module, called no model, printed nothing and exited 0. The job went green in
+          # ~9s having tested nothing. Any run that produces no output did not run,
+          # whatever the exit code says.
+          if [ ! -s eval-output.txt ]; then
+            echo "::error file=eval/jarvis_eval.py,line=1,title=brain eval::produced no output at all - the harness did not run (exit $status)"
+            exit 1
+          fi
           {
             echo "### Brain eval"
             echo '```'

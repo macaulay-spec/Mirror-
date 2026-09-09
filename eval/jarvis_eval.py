@@ -383,3 +383,17 @@ def main() -> int:
     if routing:
         return 1
     return 0
+
+
+# RESTORED during the sync, and worth a comment because of how it went missing: the
+# 18 -> 34 case rewrite of this harness dropped these two lines. main() was still defined
+# and still correct, so the file parsed, the workflow ran it, Python executed the
+# module-level code (loading the manifest, validating the cases) and exited 0 without ever
+# calling a single model. CI reported a green "Utterance regression gate" in about nine
+# seconds that had tested nothing, and the transcript it posted was empty.
+#
+# A regression gate whose failure mode is silence is worse than no gate: it converts
+# "unverified" into "verified" on the commit that broke it. eval.yml now also fails if this
+# script produces no output at all, so this specific failure cannot recur quietly.
+if __name__ == "__main__":
+    sys.exit(main())

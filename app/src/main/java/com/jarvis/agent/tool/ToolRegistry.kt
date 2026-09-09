@@ -1,9 +1,6 @@
 package com.jarvis.agent.tool
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import androidx.core.net.toUri
 import android.os.BatteryManager
 import com.jarvis.core.model.RiskLevel
 import com.jarvis.core.model.ToolExecutionRequest
@@ -176,27 +173,30 @@ object ToolRegistry {
             }
         )
 
-        // 4. Web Search (Level 1)
+        // 4. Web Search (Level 1) — real DuckDuckGo API lookup with browser fallback
         register(
             ToolDefinition(
                 id = "web_search",
                 name = "Search the Web",
-                description = "Performs a web search via browser.",
+                description = "Performs a real web search and returns the top results. " +
+                    "Use for current events, facts, how-tos, and anything that needs up-to-date information.",
                 category = "WEB",
                 riskLevel = RiskLevel.LEVEL_1
             ) { context, args ->
                 val query = args["query"]?.toString() ?: ""
-                val uri = "https://www.google.com/search?q=${Uri.encode(query)}".toUri()
-                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (query.isBlank()) {
+                    return@ToolDefinition ToolExecutionResult(
+                        toolId = "web_search",
+                        success = false,
+                        data = null,
+                        error = "What should I search for?"
+                    )
                 }
-                context.startActivity(intent)
-                ToolExecutionResult(
-                    toolId = "web_search",
-                    success = true,
-                    data = mapOf("query" to query),
-                    verificationDetails = "Web search opened for '$query'."
-                )
+                // Defer to WebTools.search() which tries DuckDuckGo Instant Answer API
+                // and falls back to opening a browser search if no instant answer is found.
+                // The result data includes "query", "result"/"summary", and optional
+                // "headlines"/"formatted" keys consumed by ChatScreen's WebSearchResultsCard.
+                WebTools.search(context, query)
             }
         )
 

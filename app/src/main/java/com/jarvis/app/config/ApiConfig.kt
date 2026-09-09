@@ -118,6 +118,44 @@ object ApiConfig {
     val CLOUDFLARE_ACCOUNT_ID: String get() = BuildConfig.CLOUDFLARE_ACCOUNT_ID
     val CLOUDFLARE_API_KEY: String get() = BuildConfig.CLOUDFLARE_API_KEY
 
+    // ── On-device LLM (llama.cpp) ─────────────────────────────────────────
+    // Fully local inference — zero API key, zero cost, zero network.
+    // Models are GGUF format bundles that ship with the app or are
+    // downloaded on first use into the app's files dir.
+    // The model file name (without extension) is configurable via
+    // local.properties:  LOCAL_MODEL_NAME=gemma-3-1b-it
+    // or the "local" provider can be selected in Settings.
+    var localModelName: String = "gemma-3-1b-it"
+        @JvmName("getLocalModelName") get
+        @JvmName("setLocalModelName") set
+
+    /** Returns the on-device model path if the model file exists locally. */
+    fun localModelPath(context: Context): String? {
+        val dir = context.filesDir
+        val candidates = listOf(
+            "$localModelName.gguf",
+            "$localModelName-q4_k_m.gguf",
+            "$localModelName-q4_0.gguf",
+            "$localModelName-q5_k_m.gguf"
+        )
+        for (name in candidates) {
+            val file = java.io.File(dir, "models/$name")
+            if (file.exists() && file.length() > 0) return file.absolutePath
+        }
+        // Also check external files dir (for user-downloaded models)
+        val extDir = context.getExternalFilesDir("models")
+        if (extDir != null) {
+            for (name in candidates) {
+                val file = java.io.File(extDir, name)
+                if (file.exists() && file.length() > 0) return file.absolutePath
+            }
+        }
+        return null
+    }
+
+    val hasLocalModel: Boolean
+        get() = false // checked at runtime via localModelPath(context)
+
     // Multi-key Gemini pool with automatic failover / rotation on 429 quota exhaustion
     private val geminiKeyPoolLock = Any()
     private var geminiPoolIndex: Int = 0
@@ -235,9 +273,11 @@ object ApiConfig {
     const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
     // Gemini high-speed pool + expanded free provider fallback chain.
-    // The model picks the first provider in this chain that has a key.
+    // The model picks the first provider in this chain that has a key or model available.
+    // local_llm runs entirely on-device via llama.cpp — no key needed, works offline.
     val PROVIDER_FALLBACK_CHAIN = listOf(
         "gemini_flash",
+        "local_llm",
         "openai_mini",
         "groq_fast",
         "openrouter_fast",

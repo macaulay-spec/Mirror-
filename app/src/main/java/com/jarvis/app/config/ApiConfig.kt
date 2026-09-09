@@ -204,11 +204,15 @@ object ApiConfig {
             // ?. all the way down: customApiKey is String?, so customApiKey?.trim() is
             // String? and takeIf needs its own safe call. The missing ?. was the one
             // compile error in the sync commit.
+            // ?. all the way down: customApiKey is String?, so customApiKey?.trim() is
+            // String? and takeIf needs its own safe call.
             val custom = customApiKey?.trim()?.takeIf { it.isNotBlank() }
-            return when {
-                activeProvider.startsWith("nvidia") -> custom ?: NVIDIA_API_KEY
-                activeProvider.startsWith("openai") -> custom ?: OPENAI_API_KEY
-                else -> currentGeminiKey.ifBlank { custom ?: GEMINI_API_KEY }
+            // Gemini keeps its historic precedence: a saved custom key only wins when the
+            // pool has nothing usable, which is what the pre-sync getter did.
+            return if (activeProvider.startsWith("gemini")) {
+                currentGeminiKey.ifBlank { custom ?: GEMINI_API_KEY }
+            } else {
+                custom ?: keyFor(activeProvider)
             }
         }
 
@@ -229,9 +233,15 @@ object ApiConfig {
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
 
     /** Human-readable label for the Diagnostics screen. */
-    fun getProviderLabel(): String = when (activeProvider) {
-        "gemini_flash" -> "Gemini 2.5 Flash (Ultra-Fast Engine)"
-        "gemini_pro" -> "Gemini 2.5 Pro (Deep Reasoning)"
+    fun getProviderLabel(): String = when {
+        activeProvider.startsWith("gemini_pro") -> "Gemini 2.5 Pro (Deep Reasoning)"
+        activeProvider.startsWith("gemini") -> "Gemini 2.5 Flash (Ultra-Fast Engine)"
+        // Added with the working NVIDIA fallback: the `else` arm reported "Gemini AI" for
+        // every provider, so the Diagnostics screen would have named the wrong brain on the
+        // exact occasion someone opens it to find out why responses changed.
+        activeProvider.startsWith("nvidia") -> "NVIDIA Nemotron-3 Super (Fallback Brain)"
+        activeProvider.startsWith("openai") -> "OpenAI GPT-4o mini (Optional Brain)"
+        activeProvider.isBlank() -> "No provider configured"
         else -> "Gemini AI"
     }
 
@@ -240,15 +250,49 @@ object ApiConfig {
     const val GEMINI_PRO_MODEL = "gemini-2.5-pro"
     const val GEMINI_LITE_MODEL = "gemini-2.5-flash"
 
-    // Legacy fallback constants
+    /** Google's OpenAI-compatible surface. Default brain; unchanged from main. */
+    const val GEMINI_OPENAI_COMPAT_URL =
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
     const val NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
     const val NVIDIA_SUPER_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
-    // Gemini high-speed pool
+    /**
+     * Order providers are tried when one fails.
+     *
+     * CHANGED during the sync: this held only the two Gemini tiers, so the hardcoded NVIDIA
+     * key could never be reached by the chain walk in JarvisApiClient.chatDirect -- the loop
+     * had nothing left to try and gave up. NVIDIA is now the last resort. OpenAI is
+     * deliberately NOT listed: its key is empty, and getNextProvider skips keyless providers
+     * anyway, so adding it would only be noise.
+     */
     val PROVIDER_FALLBACK_CHAIN = listOf(
         "gemini_flash",
-        "gemini_pro"
+        "gemini_pro",
+        "nvidia_super"
     )
+
+    /**
+     * The chat-completions endpoint for a provider. All three speak OpenAI-compatible JSON,
+     * which is why one client can serve them.
+     *
+     * ADDED during the sync because the endpoint had been hardcoded to Gemini inside
+     * JarvisApiClient while the provider and model arguments were still being passed in and
+     * silently ignored. With no Gemini key, the app sent the NVIDIA bearer token to
+     * generativelanguage.googleapis.com and got a 401 -- the fallback could not work.
+     */
+    fun endpointFor(provider: String): String = when {
+        provider.startsWith("nvidia") -> "$NVIDIA_BASE_URL/chat/completions"
+        provider.startsWith("openai") -> "$OPENAI_BASE_URL/chat/completions"
+        else -> GEMINI_OPENAI_COMPAT_URL
+    }
+
+    /** The key that authorises [endpointFor] for this provider. */
+    fun keyFor(provider: String): String = when {
+        provider.startsWith("nvidia") -> NVIDIA_API_KEY
+        provider.startsWith("openai") -> OPENAI_API_KEY
+        else -> currentGeminiKey.ifBlank { GEMINI_API_KEY }
+    }
 
     /** Get the next provider in the fallback chain that actually has an available API key. */
     fun getNextProvider(currentProvider: String): String? {
@@ -258,8 +302,10 @@ object ApiConfig {
         for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
             val candidate = PROVIDER_FALLBACK_CHAIN[i]
             if (candidate.startsWith("gemini") && !hasUsableGeminiKey) continue
-            val candidateKey = currentGeminiKey
-            if (candidateKey.isNotBlank()) {
+            // CHANGED during the sync: this tested currentGeminiKey for EVERY candidate, so
+            // a keyless-Gemini device skipped NVIDIA too -- the one provider whose key is
+            // compiled in and therefore always present. Ask for the candidate's own key.
+            if (keyFor(candidate).isNotBlank()) {
                 return candidate
             }
         }
@@ -267,9 +313,19 @@ object ApiConfig {
     }
 
     /** Resolve model ID for a given provider. */
-    fun resolveModel(provider: String): String = when (provider) {
-        "gemini_flash" -> GEMINI_FLASH_MODEL
-        "gemini_pro" -> GEMINI_PRO_MODEL
+    /**
+     * The model id to send for a provider.
+     *
+     * CHANGED during the sync: the `else` arm returned GEMINI_FLASH_MODEL for every
+     * non-Gemini provider, so resolving "nvidia_super" produced "gemini-2.5-flash" -- a
+     * model id NVIDIA's endpoint does not serve. Combined with the hardcoded Gemini
+     * endpoint, the provider argument had no effect anywhere in the request.
+     */
+    fun resolveModel(provider: String): String = when {
+        provider.startsWith("gemini_pro") -> GEMINI_PRO_MODEL
+        provider.startsWith("gemini") -> GEMINI_FLASH_MODEL
+        provider.startsWith("nvidia") -> NVIDIA_SUPER_MODEL
+        provider.startsWith("openai") -> OPENAI_MODEL
         else -> GEMINI_FLASH_MODEL
     }
 

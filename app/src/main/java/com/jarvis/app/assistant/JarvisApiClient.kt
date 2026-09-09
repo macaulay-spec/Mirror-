@@ -87,11 +87,10 @@ class JarvisApiClient(
 
         suspend fun tryStreamWithProvider(providerToTry: String): Result<AiResponse> {
             val currentModel = ApiConfig.resolveModel(providerToTry)
-            val currentApiKey = when {
-                providerToTry.startsWith("gemini") -> ApiConfig.currentGeminiKey
-                providerToTry.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
-                else -> ApiConfig.activeApiKey
-            }
+            // Was a per-provider `when` that had no openai arm, so a user-supplied OpenAI
+            // key fell through to activeApiKey and could be paired with the wrong endpoint.
+            // keyFor is the single definition of "which key authorises this provider".
+            val currentApiKey = ApiConfig.keyFor(providerToTry)
 
             if (currentApiKey.isBlank()) {
                 return Result.failure(Exception("No API key for $providerToTry"))
@@ -138,8 +137,20 @@ class JarvisApiClient(
         allowTools: Boolean = true,
         onDelta: (String) -> Unit
     ): Result<AiResponse> {
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        val requestModel = if (model.startsWith("gemini")) model else ApiConfig.GEMINI_FLASH_MODEL
+        // CHANGED during the sync, and this was the load-bearing one. Both of these lines
+        // were hardcoded to Gemini while `provider` and `model` were still accepted as
+        // parameters and then ignored:
+        //
+        //     val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/..."
+        //     val requestModel = if (model.startsWith("gemini")) model else GEMINI_FLASH_MODEL
+        //
+        // So chatDirect's provider loop walked the chain, selected an NVIDIA key for
+        // "nvidia_super", and posted it to Google's endpoint -- a guaranteed 401. The
+        // fallback existed only in the sense that it was tried; it could never succeed.
+        // Endpoint and model now follow the provider, and the Gemini path is unchanged:
+        // endpointFor("gemini_flash") is that same URL and resolveModel returns the same id.
+        val endpoint = ApiConfig.endpointFor(provider)
+        val requestModel = model.ifBlank { ApiConfig.resolveModel(provider) }
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -259,12 +270,7 @@ class JarvisApiClient(
 
         while (currentProvider != null) {
             val currentModel = ApiConfig.resolveModel(currentProvider)
-            val currentApiKey = when {
-                currentProvider.startsWith("gemini") -> ApiConfig.currentGeminiKey
-                currentProvider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
-                currentProvider.startsWith("openai") -> ApiConfig.OPENAI_API_KEY
-                else -> ApiConfig.activeApiKey
-            }
+            val currentApiKey = ApiConfig.keyFor(currentProvider)
 
             if (currentApiKey.isNotBlank()) {
                 val res = try {
@@ -294,8 +300,20 @@ class JarvisApiClient(
         userMessage: String,
         allowTools: Boolean = true
     ): Result<AiResponse> {
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        val requestModel = if (model.startsWith("gemini")) model else ApiConfig.GEMINI_FLASH_MODEL
+        // CHANGED during the sync, and this was the load-bearing one. Both of these lines
+        // were hardcoded to Gemini while `provider` and `model` were still accepted as
+        // parameters and then ignored:
+        //
+        //     val endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/..."
+        //     val requestModel = if (model.startsWith("gemini")) model else GEMINI_FLASH_MODEL
+        //
+        // So chatDirect's provider loop walked the chain, selected an NVIDIA key for
+        // "nvidia_super", and posted it to Google's endpoint -- a guaranteed 401. The
+        // fallback existed only in the sense that it was tried; it could never succeed.
+        // Endpoint and model now follow the provider, and the Gemini path is unchanged:
+        // endpointFor("gemini_flash") is that same URL and resolveModel returns the same id.
+        val endpoint = ApiConfig.endpointFor(provider)
+        val requestModel = model.ifBlank { ApiConfig.resolveModel(provider) }
 
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content", systemPrompt))

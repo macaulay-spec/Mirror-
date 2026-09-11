@@ -41,29 +41,14 @@ object ApiConfig {
         val description: String
     )
 
-    // Cloud voice presets (2026-09-05): xAI grok-tts + OpenAI tts-1 via the
-    // managed gateway. The preset id IS the gateway voice parameter, so the
-    // selection in Settings maps 1:1 to what actually speaks.
+    // AWS Polly Studio Voice presets
     val PRESET_VOICES = listOf(
-        VoicePreset("Aoede",   "Aoede",   "US", "Female", "Warm & Balanced"),
-        VoicePreset("Charon",  "Charon",  "US", "Male",   "Deep & Authoritative"),
-        VoicePreset("Fenrir",  "Fenrir",  "US", "Male",   "Smooth & Casual"),
-        VoicePreset("Kore",    "Kore",    "US", "Female", "Calm & Natural"),
-        VoicePreset("Puck",    "Puck",    "US", "Male",   "Bright & Friendly"),
-        VoicePreset("Eva",     "Eva",     "British", "Female", "Warm & Composed"),
-        VoicePreset("Rex",     "Rex",     "British", "Male",   "Deep British Classic JARVIS")
-    )
-
-    val OLD_PRESET_VOICES = listOf(
-        VoicePreset("Aoede",     "Rex",     "British", "Male",   "Deep & Refined (Classic JARVIS)"),
-        VoicePreset("eve",     "Eve",     "British", "Female", "Warm & Composed"),
-        VoicePreset("ara",     "Ara",     "US",      "Female", "Bright & Friendly"),
-        VoicePreset("sal",     "Sal",     "US",      "Male",   "Smooth & Casual"),
-        VoicePreset("leo",     "Leo",     "British", "Male",   "Youthful & Energetic"),
-        VoicePreset("onyx",    "Onyx",    "US",      "Male",   "Deep & Authoritative"),
-        VoicePreset("nova",    "Nova",    "US",      "Female", "Calm & Natural"),
-        VoicePreset("shimmer", "Shimmer", "US",      "Female", "Soft & Expressive"),
-        VoicePreset("echo",    "Echo",    "US",      "Male",   "Balanced & Clear")
+        VoicePreset("Brian",   "Brian",   "British", "Male",   "Iconic British JARVIS (AWS Polly Studio)"),
+        VoicePreset("Matthew", "Matthew", "US",      "Male",   "Crisp Executive Male (AWS Polly Studio)"),
+        VoicePreset("Amy",     "Amy",     "British", "Female", "British Sophisticated Female (AWS Polly)"),
+        VoicePreset("Joanna",  "Joanna",  "US",      "Female", "Warm Conversational Female (AWS Polly)"),
+        VoicePreset("Emma",    "Emma",    "British", "Female", "Professional British Female (AWS Polly)"),
+        VoicePreset("Joey",    "Joey",    "US",      "Male",   "Friendly Casual Male (AWS Polly)")
     )
 
     // Runtime state
@@ -75,7 +60,7 @@ object ApiConfig {
         
     var voiceEngineType: String = "cloud"
         
-    var selectedVoiceId: String = "Aoede"
+    var selectedVoiceId: String = "Brian"
         // removed 
         
 
@@ -229,24 +214,25 @@ object ApiConfig {
 
     // Gemini high-speed pool
     val PROVIDER_FALLBACK_CHAIN = listOf(
+        "claude_opus",
         "gemini_flash",
-        "gemini_pro",
+        "grok_fast",
+        "deepseek_thinking",
+        "gpt4o",
         "nvidia_super",
-        "grok",
-        "openai",
-        "anthropic",
-        "groq",
-        "openrouter",
-        "cerebras",
-        "mistral"
+        "openai"
     )
 
-    /** Get the next provider in the fallback chain that actually has an available API key. */
+    /** Get the next provider in the fallback chain that actually has an available API key or keyless service. */
     fun getNextProvider(currentProvider: String): String? {
         val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
         val startIndex = if (currentIndex >= 0) currentIndex + 1 else 0
         for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
             val candidate = PROVIDER_FALLBACK_CHAIN[i]
+            // Keyless models always available
+            if (candidate in listOf("claude_opus", "grok_fast", "deepseek_thinking", "gpt4o")) {
+                return candidate
+            }
             if (candidate.startsWith("gemini") && !hasUsableGeminiKey) continue
             val candidateKey = when {
                 candidate.startsWith("gemini") -> currentGeminiKey

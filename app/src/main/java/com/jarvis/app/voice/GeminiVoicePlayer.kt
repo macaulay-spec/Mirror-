@@ -47,126 +47,118 @@ object GeminiVoicePlayer {
 
     suspend fun speak(context: Context, text: String, targetVoice: String? = null): Boolean = withContext(Dispatchers.IO) {
         val result = withTimeoutOrNull(20000L) {
-            if (text.isBlank()) return@withTimeoutOrNull false
-            var key = ApiConfig.currentGeminiKey
-            if (key.isBlank()) return@withTimeoutOrNull false
+            val cleanText = text.replace(Regex("[*#_`~>\\\\[\\\\]()]"), " ")
+                .replace(Regex("https?://\\S+"), "link")
+                .trim()
+            if (cleanText.isBlank()) return@withTimeoutOrNull false
 
             stop()
             val myGen = generation.get()
 
-            // Map voice ID to recognized Gemini prebuilt voice name
+            // Resolve AWS Polly Voice ID
             val voiceChoice = targetVoice ?: ApiConfig.selectedVoiceId
-            val geminiVoiceName = when (voiceChoice.lowercase()) {
-                "charon", "rex", "deep", "male" -> "Charon"
-                "fenrir", "smooth" -> "Fenrir"
-                "kore", "calm" -> "Kore"
-                "puck", "bright" -> "Puck"
-                "aoede", "eve", "eva", "female" -> "Aoede"
-                else -> "Aoede"
+            val pollyVoiceName = when (voiceChoice.lowercase()) {
+                "brian", "charon", "rex", "deep", "male" -> "Brian"
+                "matthew", "fenrir", "smooth" -> "Matthew"
+                "joanna", "kore", "calm" -> "Joanna"
+                "amy" -> "Amy"
+                "emma", "eva", "eve" -> "Emma"
+                "joey", "puck" -> "Joey"
+                else -> "Brian"
             }
 
-            val modelsToTry = listOf("gemini-2.5-flash", "gemini-2.0-flash")
+            // 1. Primary: AWS Polly Studio TTS via David Cyril API (Keyless, Studio Quality)
+            try {
+                val encoded = java.net.URLEncoder.encode(cleanText, "UTF-8")
+                val pollyUrl = "https://apis.davidcyril.name.ng/tts?text=$encoded&voice=$pollyVoiceName"
+                val req = Request.Builder()
+                    .url(pollyUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Android; JARVIS)")
+                    .build()
 
-            for (modelName in modelsToTry) {
-                if (myGen != generation.get()) return@withTimeoutOrNull false
-                try {
-                    val payload = JSONObject().apply {
-                        put("contents", JSONArray().put(
-                            JSONObject().apply {
-                                put("role", "user")
-                                put("parts", JSONArray().put(JSONObject().put("text", "Speak this aloud: $text")))
+                httpClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val jsonStr = resp.body?.string() ?: ""
+                        val jsonObj = JSONObject(jsonStr)
+                        val audioUrl = jsonObj.optString("audioUrl", "")
+                        if (audioUrl.isNotBlank() && myGen == generation.get()) {
+                            val player = MediaPlayer().apply {
+                                setDataSource(audioUrl)
+                                prepare()
+                                start()
                             }
-                        ))
-                        put("generationConfig", JSONObject().apply {
-                            put("responseModalities", JSONArray().put("AUDIO"))
-                            put("speechConfig", JSONObject().put("voiceConfig", JSONObject().put("prebuiltVoiceConfig", JSONObject().put("voiceName", geminiVoiceName))))
-                        })
-                    }
+                            mediaPlayer = player
 
-                    fun buildReq(k: String): Request {
-                        val builder = Request.Builder()
-                            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                        if (k.startsWith("AIzaSy")) {
-                            builder.url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$k")
-                        } else {
-                            builder.url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent")
-                            if (k.isNotBlank()) {
-                                builder.header("x-goog-api-key", k)
+                            var isDone = false
+                            player.setOnCompletionListener {
+                                runCatching { it.release() }
+                                isDone = true
                             }
-                        }
-                        return builder.build()
-                    }
+                            player.setOnErrorListener { mp, _, _ ->
+                                runCatching { mp.release() }
+                                isDone = true
+                                true
+                            }
 
-                    var request = buildReq(key)
-                    var response = httpClient.newCall(request).execute()
-                    if (response.code == 429) {
-                        ApiConfig.markGeminiKeyRateLimited(key)
-                        val nextKey = ApiConfig.currentGeminiKey
-                        if (nextKey.isNotBlank() && nextKey != key) {
-                            key = nextKey
-                            request = buildReq(key)
-                            response = httpClient.newCall(request).execute()
+                            while (!isDone && myGen == generation.get()) {
+                                kotlinx.coroutines.delay(80)
+                            }
+                            if (isDone) return@withTimeoutOrNull true
                         }
                     }
-
-                    if (!response.isSuccessful) {
-                        continue // Try next model fallback
-                    }
-
-                    val body = response.body?.string() ?: continue
-                    val obj = JSONObject(body)
-                    val candidates = obj.optJSONArray("candidates") ?: continue
-                    if (candidates.length() == 0) continue
-                    val parts = candidates.getJSONObject(0).optJSONObject("content")?.optJSONArray("parts") ?: continue
-
-                    var audioB64: String? = null
-                    for (i in 0 until parts.length()) {
-                        val inlineData = parts.getJSONObject(i).optJSONObject("inlineData")
-                        if (inlineData != null) {
-                            audioB64 = inlineData.optString("data")
-                            break
-                        }
-                    }
-                    if (audioB64.isNullOrBlank()) continue
-
-                    val rawAudio = android.util.Base64.decode(audioB64, android.util.Base64.DEFAULT)
-                    if (rawAudio.size <= 256) continue
-
-                    // Guarantee playback on Android MediaPlayer by framing with standard WAV header if raw PCM
-                    val playableWav = ensureWav(rawAudio, sampleRate = 24000, channels = 1)
-
-                    val tempFile = File.createTempFile("gemini_voice_", ".wav", context.cacheDir)
-                    tempFile.deleteOnExit()
-                    FileOutputStream(tempFile).use { it.write(playableWav) }
-
-                    if (myGen != generation.get()) return@withTimeoutOrNull false
-
-                    val player = MediaPlayer().apply {
-                        setDataSource(tempFile.absolutePath)
-                        prepare()
-                        start()
-                    }
-                    mediaPlayer = player
-
-                    var isDone = false
-                    player.setOnCompletionListener {
-                        runCatching { it.release() }
-                        isDone = true
-                    }
-                    player.setOnErrorListener { mp, _, _ ->
-                        runCatching { mp.release() }
-                        isDone = true
-                        true
-                    }
-
-                    while (!isDone && myGen == generation.get()) {
-                        kotlinx.coroutines.delay(100)
-                    }
-                    return@withTimeoutOrNull true
-                } catch (_: Exception) {
-                    // Try next model fallback
                 }
+            } catch (_: Exception) {}
+
+            // 2. Fallback: Google TTS via David Cyril API
+            if (myGen == generation.get()) {
+                try {
+                    val encoded = java.net.URLEncoder.encode(cleanText, "UTF-8")
+                    val googleTtsUrl = "https://apis.davidcyril.name.ng/tts/google?text=$encoded&lang=en"
+                    val req = Request.Builder()
+                        .url(googleTtsUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Android; JARVIS)")
+                        .build()
+
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val jsonStr = resp.body?.string() ?: ""
+                            val jsonObj = JSONObject(jsonStr)
+                            val audioB64Data = jsonObj.optString("audio", "")
+                            if (audioB64Data.isNotBlank() && myGen == generation.get()) {
+                                val b64Clean = audioB64Data.substringAfter("base64,")
+                                val audioBytes = android.util.Base64.decode(b64Clean, android.util.Base64.DEFAULT)
+                                val tempFile = File.createTempFile("jarvis_tts_", ".mp3", context.cacheDir)
+                                tempFile.deleteOnExit()
+                                FileOutputStream(tempFile).use { it.write(audioBytes) }
+
+                                val player = MediaPlayer().apply {
+                                    setDataSource(tempFile.absolutePath)
+                                    prepare()
+                                    start()
+                                }
+                                mediaPlayer = player
+
+                                var isDone = false
+                                player.setOnCompletionListener {
+                                    runCatching { it.release() }
+                                    isDone = true
+                                }
+                                player.setOnErrorListener { mp, _, _ ->
+                                    runCatching { mp.release() }
+                                    isDone = true
+                                    true
+                                }
+
+                                while (!isDone && myGen == generation.get()) {
+                                    kotlinx.coroutines.delay(80)
+                                }
+                                if (isDone) return@withTimeoutOrNull true
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
             }
+
             return@withTimeoutOrNull false
         }
         return@withContext (result == true)

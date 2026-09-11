@@ -10,6 +10,9 @@ object VoiceBus {
     private val _transcript = MutableStateFlow("")
     val transcript: StateFlow<String> = _transcript
 
+    private val _streamingResponse = MutableStateFlow("")
+    val streamingResponse: StateFlow<String> = _streamingResponse
+
     private val _command = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val command: SharedFlow<String> = _command
 
@@ -26,6 +29,9 @@ object VoiceBus {
     val stopped: SharedFlow<Unit> = _stopped
 
     fun onPartial(text: String) { _transcript.value = text }
+    fun onStreamingDelta(chunk: String) { _streamingResponse.value += chunk }
+    fun setStreamingResponse(text: String) { _streamingResponse.value = text }
+    fun clearStreamingResponse() { _streamingResponse.value = "" }
     fun onCommand(text: String) { _command.tryEmit(text) }
     fun onWakeWord() { _wakeWordDetected.tryEmit(Unit) }
     fun setEngineState(state: JarvisVisualState) { _engineState.value = state }
@@ -33,3 +39,4 @@ object VoiceBus {
     fun onStopped() { _stopped.tryEmit(Unit) }
     fun clearTranscript() { _transcript.value = "" }
 }
+

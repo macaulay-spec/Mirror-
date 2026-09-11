@@ -90,6 +90,38 @@ class JarvisApiClient(
         return false
     }
 
+    private fun queryDavidCyrilAi(provider: String, userMessage: String, systemPrompt: String): Result<AiResponse> {
+        val path = when (provider) {
+            "claude_opus" -> "ai/claude-opus-4.6"
+            "grok_fast" -> "ai/grok-4.1-fast"
+            "deepseek_thinking" -> "ai/deepseek-v3.2-thinking"
+            "gpt4o" -> "ai/gpt-4o"
+            else -> "ai/claude-opus-4.6"
+        }
+        return try {
+            val fullPrompt = if (systemPrompt.isNotBlank()) "$systemPrompt\n\nUser: $userMessage" else userMessage
+            val encoded = java.net.URLEncoder.encode(fullPrompt, "UTF-8")
+            val url = "https://apis.davidcyril.name.ng/$path?prompt=$encoded"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Android; JARVIS AI)")
+                .build()
+            client.newCall(req).execute().use { response ->
+                if (!response.isSuccessful) return Result.failure(IOException("HTTP ${response.code}"))
+                val body = response.body?.string() ?: return Result.failure(IOException("Empty response"))
+                val json = JSONObject(body)
+                val answer = json.optString("data", json.optString("response", ""))
+                if (answer.isNotBlank()) {
+                    Result.success(AiResponse(message = answer))
+                } else {
+                    Result.failure(Exception("Blank response from $path"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun chat(
         systemPrompt: String,
         history: List<Pair<String, String>>,
@@ -102,16 +134,21 @@ class JarvisApiClient(
         var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
 
         while (currentProvider != null) {
-            val currentModel = getRequestModel(currentProvider, model)
-            val currentApiKey = when {
-                currentProvider.startsWith("gemini") -> ApiConfig.currentGeminiKey
-                currentProvider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
-                else -> ApiConfig.activeApiKey
-            }
-            if (currentApiKey.isNotBlank()) {
-                lastResult = chatDirect(currentApiKey, currentProvider, currentModel, systemPrompt, history, userMessage, allowTools)
-                if (lastResult.isSuccess) {
-                    return@withContext lastResult
+            if (currentProvider in listOf("claude_opus", "grok_fast", "deepseek_thinking", "gpt4o")) {
+                val keylessRes = queryDavidCyrilAi(currentProvider, userMessage, systemPrompt)
+                if (keylessRes.isSuccess) return@withContext keylessRes
+            } else {
+                val currentModel = getRequestModel(currentProvider, model)
+                val currentApiKey = when {
+                    currentProvider.startsWith("gemini") -> ApiConfig.currentGeminiKey
+                    currentProvider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
+                    else -> ApiConfig.activeApiKey
+                }
+                if (currentApiKey.isNotBlank()) {
+                    lastResult = chatDirect(currentApiKey, currentProvider, currentModel, systemPrompt, history, userMessage, allowTools)
+                    if (lastResult.isSuccess) {
+                        return@withContext lastResult
+                    }
                 }
             }
             currentProvider = ApiConfig.getNextProvider(currentProvider)
@@ -138,6 +175,18 @@ class JarvisApiClient(
         }
 
         suspend fun tryStreamWithProvider(providerToTry: String): Result<AiResponse> {
+            if (providerToTry in listOf("claude_opus", "grok_fast", "deepseek_thinking", "gpt4o")) {
+                val res = queryDavidCyrilAi(providerToTry, userMessage, systemPrompt)
+                res.getOrNull()?.message?.let { msg ->
+                    val words = msg.split(" ")
+                    for (chunk in words.chunked(3)) {
+                        val part = chunk.joinToString(" ") + " "
+                        track(part)
+                    }
+                }
+                return res
+            }
+
             val currentModel = getRequestModel(providerToTry, model)
             val currentApiKey = when {
                 providerToTry.startsWith("gemini") -> ApiConfig.currentGeminiKey

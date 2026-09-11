@@ -186,6 +186,7 @@ class AssistantOrchestrator(
         _pendingConfirmation.value = null
         dialogueManager.cancel()
         com.jarvis.app.tools.MessagingAutomation.clearPending()
+        com.jarvis.app.voice.VoiceBus.clearStreamingResponse()
         resetTaskExecution()
     }
 
@@ -290,6 +291,7 @@ class AssistantOrchestrator(
         }
 
         try {
+            com.jarvis.app.voice.VoiceBus.clearStreamingResponse()
             val turnResult = dialogueManager.handle(userInput)
             if (!isCurrent()) return
 
@@ -297,6 +299,7 @@ class AssistantOrchestrator(
                 // Dialogue manager handled it (local intent, slot filling, confirmation)
                 turnResult.spoken?.let { text ->
                     val clean = com.jarvis.agent.ai.ReplySanitizer.sanitize(text)
+                    com.jarvis.app.voice.VoiceBus.setStreamingResponse(clean)
                     addMessage(AssistantMessage(role = MessageRole.JARVIS, text = clean))
                     speak(clean)
                 }
@@ -344,6 +347,7 @@ class AssistantOrchestrator(
                         if (chunk.isNotEmpty() && isCurrent()) {
                         streamedAny = true
                         streamBuf.append(chunk)
+                        com.jarvis.app.voice.VoiceBus.onStreamingDelta(chunk)
 
                         // Update (or create) the streaming chat bubble.
                         val live = streamBuf.toString()
@@ -392,6 +396,7 @@ class AssistantOrchestrator(
 
                 if (!isCurrent()) return
                 val finalText = com.jarvis.agent.ai.ReplySanitizer.sanitize(engineResult.reply)
+                com.jarvis.app.voice.VoiceBus.setStreamingResponse(finalText)
                 if (streamedAny) {
                     // Replace the streamed bubble with the authoritative final
                     // text (sanitizer may have trimmed things).

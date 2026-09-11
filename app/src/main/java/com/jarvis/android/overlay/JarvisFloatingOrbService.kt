@@ -146,9 +146,12 @@ class JarvisFloatingOrbService : Service() {
             val state by VoiceBus.engineState.collectAsState()
             val audioLevel by VoiceBus.audioLevel.collectAsState()
             val userTranscript by VoiceBus.transcript.collectAsState()
+            val streamingText by VoiceBus.streamingResponse.collectAsState()
             val orchestratorMessages = orchestrator?.messages?.collectAsState()
-            val lastReply = orchestratorMessages?.value
-                ?.lastOrNull { it.role == com.jarvis.core.model.MessageRole.JARVIS }?.text
+            val lastReply = streamingText.ifBlank {
+                orchestratorMessages?.value
+                    ?.lastOrNull { it.role == com.jarvis.core.model.MessageRole.JARVIS }?.text
+            }
 
             OrbOverlayContent(
                 state = state,

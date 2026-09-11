@@ -81,7 +81,25 @@ object ToolSchema {
         "epl_standings" to emptyList(),
         "find_recipe" to listOf("query"),
         "ip_lookup" to listOf("ip"),
-        "random_fact" to listOf("category")
+        "random_fact" to listOf("category"),
+        "ask_claude_opus" to listOf("prompt"),
+        "ask_deepseek_reasoning" to listOf("prompt"),
+        "ask_grok_fast" to listOf("prompt"),
+        "ask_blackbox_code" to listOf("query"),
+        "ask_gpt4o" to listOf("prompt"),
+        "speak_text_aws_polly" to listOf("text", "voice"),
+        "speak_text_google_tts" to listOf("text", "lang"),
+        "generate_image_flux" to listOf("prompt"),
+        "generate_image_writecream" to listOf("prompt", "ratio"),
+        "translate_text" to listOf("text", "to"),
+        "get_sports_scores" to listOf("sport", "type"),
+        "get_live_news" to listOf("source"),
+        "get_temp_phone_number" to emptyList(),
+        "check_temp_phone_sms" to listOf("number"),
+        "search_song_lyrics" to listOf("query"),
+        "stalk_github_profile" to listOf("username"),
+        "shorten_url" to listOf("url"),
+        "wikipedia_summary" to listOf("query")
     )
 
     private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes", "length")

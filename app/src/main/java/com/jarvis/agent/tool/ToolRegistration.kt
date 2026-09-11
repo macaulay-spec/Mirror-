@@ -41,5 +41,8 @@ object ToolRegistration {
 
         // ZST Labs suite: crypto, currency, burner email, github, package, dns, ssl, math, etc.
         ZstTools.registerAll()
+
+        // David Cyril API suite: Claude Opus, DeepSeek Thinking, Grok, GPT-4o, AWS Polly, Flux, sports, news, temp SMS, lyrics, etc.
+        DavidCyrilTools.registerAll()
     }
 }

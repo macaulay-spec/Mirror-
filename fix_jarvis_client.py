@@ -1,8 +1,37 @@
-package com.jarvis.app.assistant
+import re
+
+with open("app/src/main/java/com/jarvis/app/assistant/JarvisApiClient.kt", "r") as f:
+    content = f.read()
+
+# Unified endpoint mapping
+ENDPOINT_MAPPING = """
+    private fun getEndpoint(provider: String): String = when {
+        provider.startsWith("nvidia") -> "https://integrate.api.nvidia.com/v1/chat/completions"
+        provider == "grok" || provider == "xai" -> "https://api.x.ai/v1/chat/completions"
+        provider == "openai" -> "https://api.openai.com/v1/chat/completions"
+        provider == "groq" -> "https://api.groq.com/openai/v1/chat/completions"
+        provider == "openrouter" -> "https://openrouter.ai/api/v1/chat/completions"
+        provider == "cerebras" -> "https://api.cerebras.ai/v1/chat/completions"
+        provider == "mistral" -> "https://api.mistral.ai/v1/chat/completions"
+        else -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    }
+
+    private fun getRequestModel(provider: String, baseModel: String): String = when {
+        provider.startsWith("nvidia") -> "nvidia/nemotron-3-super-120b-a12b"
+        provider == "grok" || provider == "xai" -> "grok-3-mini"
+        provider == "groq" -> "llama3-70b-8192"
+        provider == "openrouter" -> "mistralai/mistral-7b-instruct:free"
+        provider == "cerebras" -> "llama3.1-70b"
+        else -> baseModel
+    }
+"""
+
+replacement = """package com.jarvis.app.assistant
 
 import android.util.Log
 import com.jarvis.agent.ai.ToolSchema
 import com.jarvis.app.config.ApiConfig
+import com.jarvis.app.config.BackendConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -98,25 +127,11 @@ class JarvisApiClient(
         model: String = ApiConfig.resolveModel(provider),
         allowTools: Boolean = true
     ): Result<AiResponse> = withContext(Dispatchers.IO) {
-        var currentProvider: String? = provider
-        var lastResult: Result<AiResponse> = Result.failure(Exception("No providers available"))
-
-        while (currentProvider != null) {
-            val currentModel = getRequestModel(currentProvider, model)
-            val currentApiKey = when {
-                currentProvider.startsWith("gemini") -> ApiConfig.currentGeminiKey
-                currentProvider.startsWith("nvidia") -> ApiConfig.NVIDIA_API_KEY
-                else -> ApiConfig.activeApiKey
-            }
-            if (currentApiKey.isNotBlank()) {
-                lastResult = chatDirect(currentApiKey, currentProvider, currentModel, systemPrompt, history, userMessage, allowTools)
-                if (lastResult.isSuccess) {
-                    return@withContext lastResult
-                }
-            }
-            currentProvider = ApiConfig.getNextProvider(currentProvider)
+        if (BackendConfig.isBackendReady) {
+            chatViaProxy(systemPrompt, history, userMessage, provider, model)
+        } else {
+            chatDirect(systemPrompt, history, userMessage, provider, model, allowTools)
         }
-        return@withContext lastResult
     }
 
     suspend fun chatStream(
@@ -146,7 +161,7 @@ class JarvisApiClient(
             }
             if (currentApiKey.isBlank()) return Result.failure(Exception("No API key for $providerToTry"))
             
-            if (providerToTry == "anthropic") {
+            if (BackendConfig.isBackendReady || providerToTry == "anthropic") {
                 return fallbackBlocking()
             }
             
@@ -342,5 +357,19 @@ class JarvisApiClient(
         }
     }
 
+    private suspend fun chatViaProxy(
+        systemPrompt: String,
+        history: List<Pair<String, String>>,
+        userMessage: String,
+        provider: String,
+        model: String
+    ): Result<AiResponse> = withContext(Dispatchers.IO) {
+        // ... (Keep existing implementation if Backend is used)
+        Result.failure(Exception("Backend proxy not fully implemented yet in unified client."))
+    }
+}"""
 
-}
+with open("app/src/main/java/com/jarvis/app/assistant/JarvisApiClient.kt", "w") as f:
+    f.write(replacement)
+
+print("done")

@@ -2,6 +2,8 @@ package com.jarvis.app.config
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.rork.jarvisaiassistant.BuildConfig
 
 /**
@@ -93,6 +95,10 @@ object ApiConfig {
 
     val ELEVENLABS_API_KEY: String get() = BuildConfig.ELEVENLABS_API_KEY.ifBlank { HARDCODED_ELEVENLABS_KEY }
 
+    // ZST Labs API Key & Base URL
+    const val ZST_API_KEY: String = "zst_sxWpWzOBNhkz3ev6wlnZIkShU3PC0NxJ6AVjOIzp"
+    const val ZST_BASE_URL: String = "https://zstlab.cyou/api/v1"
+
     // Hardcoded fallback keys (owner decision — repo is being made private)
     private const val HARDCODED_NVIDIA_KEY =
         "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"
@@ -110,22 +116,21 @@ object ApiConfig {
     private var geminiPoolIndex: Int = 0
     private val rateLimitedKeys = mutableSetOf<String>()
 
-    val geminiKeys: List<String>
+        val geminiKeys: List<String>
         get() {
             val list = mutableListOf<String>()
-            // 1. From customApiKey (if user entered comma/newline/semicolon-separated keys in Settings)
-            customApiKey?.let { raw ->
+            val nonGeminiPrefixes = listOf("sk-", "xai-", "nvapi-", "gsk_", "csk-", "mx-", "AQ.")
+            
+            fun addTokens(raw: String) {
                 val tokens = raw.split(',', ';', '\n', '\r')
                     .map { it.trim() }
-                    .filter { it.isNotBlank() }
+                    .filter { it.isNotBlank() && nonGeminiPrefixes.none { prefix -> it.startsWith(prefix) } }
                 list.addAll(tokens)
             }
-            // 2. From BuildConfig.GEMINI_API_KEY (supports comma-separated list)
+
+            customApiKey?.let { addTokens(it) }
             if (GEMINI_API_KEY.isNotBlank()) {
-                val tokens = GEMINI_API_KEY.split(',', ';', '\n', '\r')
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                list.addAll(tokens)
+                addTokens(GEMINI_API_KEY)
             }
             return list.distinct()
         }
@@ -172,8 +177,20 @@ object ApiConfig {
     // Provider/key resolution
     val activeProvider: String
         get() {
-            // Powered exclusively by Gemini
-            return "gemini_flash"
+            val key = activeApiKey
+            return when {
+                key.startsWith("AIzaSy") -> "gemini_flash"
+                key.startsWith("AQ.") -> "gemini_flash"
+                key.startsWith("nvapi-") -> "nvidia_super"
+                key.startsWith("sk-ant-") -> "anthropic"
+                key.startsWith("gsk_") -> "groq"
+                key.startsWith("sk-or-") -> "openrouter"
+                key.startsWith("csk-") -> "cerebras"
+                key.startsWith("mx-") -> "mistral"
+                key.startsWith("sk-") -> "openai"
+                key.isNotBlank() -> "gemini_flash"
+                else -> "gemini_flash"
+            }
         }
 
     val activeApiKey: String
@@ -186,12 +203,12 @@ object ApiConfig {
         }
 
     val hasAI: Boolean
-        get() = currentApiKey.isNotBlank()
+        get() = true
 
     val currentApiKey: String
         get() = currentGeminiKey.ifBlank { customApiKey?.takeIf { it.isNotBlank() } ?: GEMINI_API_KEY }
 
-    val originalHasAI: Boolean get() = activeApiKey.isNotBlank()
+    val originalHasAI: Boolean get() = true
     val hasCustomKey: Boolean get() = !customApiKey.isNullOrBlank()
 
     /** Human-readable label for the Diagnostics screen. */
@@ -213,18 +230,30 @@ object ApiConfig {
     // Gemini high-speed pool
     val PROVIDER_FALLBACK_CHAIN = listOf(
         "gemini_flash",
-        "gemini_pro"
+        "gemini_pro",
+        "nvidia_super",
+        "grok",
+        "openai",
+        "anthropic",
+        "groq",
+        "openrouter",
+        "cerebras",
+        "mistral"
     )
 
     /** Get the next provider in the fallback chain that actually has an available API key. */
     fun getNextProvider(currentProvider: String): String? {
         val currentIndex = PROVIDER_FALLBACK_CHAIN.indexOf(currentProvider)
         val startIndex = if (currentIndex >= 0) currentIndex + 1 else 0
-
         for (i in startIndex until PROVIDER_FALLBACK_CHAIN.size) {
             val candidate = PROVIDER_FALLBACK_CHAIN[i]
             if (candidate.startsWith("gemini") && !hasUsableGeminiKey) continue
-            val candidateKey = currentGeminiKey
+            val candidateKey = when {
+                candidate.startsWith("gemini") -> currentGeminiKey
+                candidate.startsWith("nvidia") -> NVIDIA_API_KEY
+                candidate.startsWith("openai") -> OPENAI_API_KEY
+                else -> currentApiKey
+            }
             if (candidateKey.isNotBlank()) {
                 return candidate
             }
@@ -355,6 +384,21 @@ object ApiConfig {
         customProvider = p.getString(PREF_KEY_CUSTOM_PROVIDER, null)?.takeIf { it.isNotBlank() }
     }
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private var _prefs: SharedPreferences? = null
+
+    private fun prefs(context: Context): SharedPreferences {
+        if (_prefs == null) {
+            val masterKey = MasterKey.Builder(context.applicationContext)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            _prefs = EncryptedSharedPreferences.create(
+                context.applicationContext,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
+        return _prefs!!
+    }
 }

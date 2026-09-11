@@ -90,6 +90,7 @@ class VoiceOrchestratorBridge(
             voiceEngine.stopListening()
             orchestrator.setVisualState(JarvisVisualState.IDLE)
         } else {
+            VoiceBus.clearTranscript()
             voiceEngine.continuousMode = true
             orchestrator.setVisualState(JarvisVisualState.LISTENING)
             voiceEngine.startListening()

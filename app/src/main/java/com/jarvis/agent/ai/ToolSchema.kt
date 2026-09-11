@@ -64,12 +64,29 @@ object ToolSchema {
         "memory_recall" to listOf("query"),
         "send_message" to listOf("contact", "recipient", "body", "message"),
         "get_daily_usage" to listOf("app_name"),
-        "get_recent_apps" to listOf("limit")
+        "get_recent_apps" to listOf("limit"),
+        "crypto_prices" to listOf("symbol", "limit"),
+        "currency_convert" to listOf("from", "to", "amount"),
+        "generate_temp_email" to emptyList(),
+        "check_temp_email" to listOf("token"),
+        "github_lookup" to listOf("username"),
+        "package_lookup" to listOf("package_name", "registry"),
+        "dns_lookup" to listOf("domain", "type"),
+        "ssl_check" to listOf("domain"),
+        "generate_password" to listOf("length", "symbols"),
+        "math_eval" to listOf("expression"),
+        "stackoverflow_search" to listOf("query"),
+        "book_search" to listOf("query"),
+        "football_live_scores" to listOf("league"),
+        "epl_standings" to emptyList(),
+        "find_recipe" to listOf("query"),
+        "ip_lookup" to listOf("ip"),
+        "random_fact" to listOf("category")
     )
 
-    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes")
-    private val NUMBER_ARGS = setOf("x", "y", "fromX", "fromY", "toX", "toY")
-    private val BOOLEAN_ARGS = setOf("on", "auto", "enabled")
+    private val INTEGER_ARGS = setOf("percent", "level", "limit", "duration_ms", "hour", "minute", "seconds", "minutes", "length")
+    private val NUMBER_ARGS = setOf("x", "y", "fromX", "fromY", "toX", "toY", "amount")
+    private val BOOLEAN_ARGS = setOf("on", "auto", "enabled", "symbols")
 
     /**
      * Tools worth exposing to the model. Read-only informational tools are left out of the
@@ -81,11 +98,8 @@ object ToolSchema {
     private val EXPOSED_CATEGORIES = setOf(
         "PHONE", "MESSAGING", "APPS", "DEVICE", "SCREEN", "NOTIFICATIONS", "WEB",
         "CALENDAR", "MEMORY", "MEDIA", "COMMUNICATION", "INTEGRATION", "USAGE",
-        "LOCATION", "ASSISTANT", "INFORMATION",
-        // CHANGED (forensic audit): NAVIGATION was missing from this set, which
-        // meant navigate_to had no way to reach the model at all, on top of the
-        // separate dead-end in DialogueManager.processIntent(). Both are fixed now.
-        "NAVIGATION"
+        "LOCATION", "ASSISTANT", "INFORMATION", "NAVIGATION",
+        "FINANCE", "UTILITY", "DEVELOPER"
     )
 
     fun exportedTools(): List<ToolDefinition> =

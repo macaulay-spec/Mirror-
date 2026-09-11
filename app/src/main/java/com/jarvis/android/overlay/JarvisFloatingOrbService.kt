@@ -145,6 +145,7 @@ class JarvisFloatingOrbService : Service() {
         composeView.setContent {
             val state by VoiceBus.engineState.collectAsState()
             val audioLevel by VoiceBus.audioLevel.collectAsState()
+            val userTranscript by VoiceBus.transcript.collectAsState()
             val orchestratorMessages = orchestrator?.messages?.collectAsState()
             val lastReply = orchestratorMessages?.value
                 ?.lastOrNull { it.role == com.jarvis.core.model.MessageRole.JARVIS }?.text
@@ -153,6 +154,7 @@ class JarvisFloatingOrbService : Service() {
                 state = state,
                 audioLevel = audioLevel,
                 lastReply = lastReply,
+                userTranscript = userTranscript,
                 onOpenApp = {
                     startActivity(
                         Intent(this@JarvisFloatingOrbService, MainActivity::class.java).apply {
@@ -316,11 +318,14 @@ private fun OrbOverlayContent(
     state: JarvisVisualState,
     audioLevel: Float,
     lastReply: String?,
+    userTranscript: String?,
     onOpenApp: () -> Unit,
     onToggleMic: () -> Unit,
     isListening: Boolean
 ) {
     val isActive = state == JarvisVisualState.LISTENING || state == JarvisVisualState.THINKING || state == JarvisVisualState.SPEAKING
+    val isUserSpeaking = state == JarvisVisualState.LISTENING
+
     var userDismissedReply by remember { mutableStateOf<String?>(null) }
     var lastSeenReply by remember { mutableStateOf<String?>(null) }
     var hideTimer by remember { mutableStateOf(0L) }
@@ -351,11 +356,11 @@ private fun OrbOverlayContent(
         }
     }
 
-    val isTextVisible = !lastReply.isNullOrBlank() &&
+    val showJarvisReply = !lastReply.isNullOrBlank() &&
             userDismissedReply != lastReply &&
             (isActive || System.currentTimeMillis() < hideTimer)
 
-    Row(verticalAlignment = Alignment.Top) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // Core Orb
         Box(
             modifier = Modifier
@@ -372,13 +377,13 @@ private fun OrbOverlayContent(
 
         // Floating Streaming Text Bubble
         AnimatedVisibility(
-            visible = isTextVisible,
+            visible = isUserSpeaking || (showJarvisReply && state != JarvisVisualState.LISTENING),
             enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(300)),
             exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(300))
         ) {
             Box(
                 modifier = Modifier
-                    .padding(top = 12.dp, end = 12.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
                     .widthIn(max = 280.dp)
                     .heightIn(max = 360.dp)
                     .clip(RoundedCornerShape(16.dp))
@@ -393,21 +398,27 @@ private fun OrbOverlayContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (state == JarvisVisualState.THINKING) "JARVIS (thinking...)" else "JARVIS",
-                            color = JarvisColors.Presence,
+                            text = when (state) {
+                                JarvisVisualState.LISTENING -> "YOU (Speaking...)"
+                                JarvisVisualState.THINKING -> "JARVIS (Thinking...)"
+                                else -> "JARVIS"
+                            },
+                            color = if (state == JarvisVisualState.LISTENING) JarvisColors.TextSecondary else JarvisColors.Presence,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        IconButton(
-                            onClick = { userDismissedReply = lastReply },
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss text",
-                                tint = JarvisColors.TextMuted,
-                                modifier = Modifier.size(14.dp)
-                            )
+                        if (state != JarvisVisualState.LISTENING) {
+                            IconButton(
+                                onClick = { userDismissedReply = lastReply },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss text",
+                                    tint = JarvisColors.TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -417,7 +428,7 @@ private fun OrbOverlayContent(
                             .verticalScroll(rememberScrollState())
                     ) {
                         Text(
-                            text = lastReply ?: "",
+                            text = if (state == JarvisVisualState.LISTENING) (userTranscript ?: "") else (lastReply ?: ""),
                             color = JarvisColors.TextPrimary,
                             fontSize = 13.sp,
                             lineHeight = 18.sp,

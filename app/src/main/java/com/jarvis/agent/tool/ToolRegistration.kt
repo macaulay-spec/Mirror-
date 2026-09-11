@@ -38,5 +38,8 @@ object ToolRegistration {
 
         // Image generation, Wikipedia knowledge, news headlines, currency rates
         KnowledgeTools.registerAll()
+
+        // ZST Labs suite: crypto, currency, burner email, github, package, dns, ssl, math, etc.
+        ZstTools.registerAll()
     }
 }

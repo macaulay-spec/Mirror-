@@ -83,21 +83,28 @@ object GeminiVoicePlayer {
                         })
                     }
 
-                    var request = Request.Builder()
-                        .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
-                        .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                        .build()
+                    fun buildReq(k: String): Request {
+                        val builder = Request.Builder()
+                            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                        if (k.startsWith("AIzaSy")) {
+                            builder.url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$k")
+                        } else {
+                            builder.url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent")
+                            if (k.isNotBlank()) {
+                                builder.header("x-goog-api-key", k)
+                            }
+                        }
+                        return builder.build()
+                    }
 
+                    var request = buildReq(key)
                     var response = httpClient.newCall(request).execute()
                     if (response.code == 429) {
                         ApiConfig.markGeminiKeyRateLimited(key)
                         val nextKey = ApiConfig.currentGeminiKey
                         if (nextKey.isNotBlank() && nextKey != key) {
                             key = nextKey
-                            request = Request.Builder()
-                                .url("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$key")
-                                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                                .build()
+                            request = buildReq(key)
                             response = httpClient.newCall(request).execute()
                         }
                     }

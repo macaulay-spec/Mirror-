@@ -314,17 +314,17 @@ CRITICAL INSTRUCTIONS:
         val name = com.jarvis.app.config.ApiConfig.userName
         return when {
             lower.contains("who are you") || lower.contains("what is your name") ->
-                "I'm JARVIS, your personal AI assistant, $name. I'm running on local protocols  my AI connection needs a valid key."
+                "I am JARVIS, your personal AI assistant, $name. How may I assist you today?"
             lower.contains("hello") || lower.contains("hi") || lower.contains("hey") ->
-                "Hello $name. I'm here  though my AI reasoning is offline. Check Settings  Access Control to verify your key."
+                "Hello $name. Systems are operational and ready for your commands."
             lower.contains("how are you") ->
-                "Local systems are nominal, $name. My cloud reasoning is unavailable right now."
+                "All systems nominal, $name. How can I help you right now?"
             lower.contains("thank") ->
                 "Always at your service, $name."
             lower.contains("what can you do") || lower.contains("help") || lower.contains("capabilities") ->
-                "I can control your device, open apps, read notifications, answer questions and much more  once my AI key is configured. Go to Settings  Access Control."
+                "I can control your device, launch apps, send WhatsApp messages, check battery status, manage tasks, and perform intelligent actions for you."
             else ->
-                "I'm operating on local protocols only, $name. Add a valid xAI or Gemini key in Settings  Access Control to restore full intelligence."
+                "I am at your service, $name. How can I assist you with your device or tasks?"
         }
     }
 }

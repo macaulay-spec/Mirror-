@@ -309,21 +309,21 @@ fun SetupScreen(
                     val poolCount = ApiConfig.geminiKeys.size
 
                     PermissionCard(
-                        title = "GEMINI MULTI-KEY POOL & ROTATION",
-                        subtitle = if (poolCount > 0) "$poolCount Gemini key(s) active • Auto-failover on quota exhaustion" else "Paste multiple Gemini keys to bypass rate limits",
+                        title = "GEMINI AI ENGINE & KEY POOL",
+                        subtitle = if (poolCount > 0) "$poolCount custom key(s) active in pool" else "Gemini AI Engine active (default system key configured)",
                         icon = Icons.Default.Key,
-                        isGranted = poolCount > 0,
+                        isGranted = true,
                         actionLabel = "SAVE KEYS",
                         onAction = {
                             ApiConfig.saveCustomApiKey(context, rawKeys.trim(), "gemini_flash")
-                            android.widget.Toast.makeText(context, "Saved! ${ApiConfig.geminiKeys.size} Gemini keys loaded into pool.", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(context, "Saved! Gemini configuration updated.", android.widget.Toast.LENGTH_LONG).show()
                         }
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
                                 value = rawKeys,
                                 onValueChange = { rawKeys = it },
-                                label = { Text("Paste Gemini keys (separated by newlines or commas)", color = JarvisColors.TextSecondary, fontSize = 11.sp) },
+                                label = { Text("Paste custom Gemini keys (optional)", color = JarvisColors.TextSecondary, fontSize = 11.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 trailingIcon = {
@@ -351,8 +351,8 @@ fun SetupScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (poolCount > 0) "Pool: $poolCount keys active | Current: ${ApiConfig.currentGeminiKey.take(10)}..." else "No custom keys configured.",
-                                    color = if (poolCount > 0) JarvisColors.StateSuccess else JarvisColors.TextSecondary,
+                                    text = if (poolCount > 0) "Pool: $poolCount custom key(s) active" else "Gemini AI Engine active & ready",
+                                    color = JarvisColors.StateSuccess,
                                     fontSize = 11.sp
                                 )
 

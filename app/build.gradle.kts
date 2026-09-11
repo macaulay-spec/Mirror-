@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     implementation(libs.datastore.preferences)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // JARVIS: networking / AI
     implementation(libs.okhttp)
